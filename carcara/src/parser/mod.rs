@@ -535,6 +535,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // as `1.0`.
                     self.interpret_integers_as_reals = logic.contains('R') && !logic.contains('I');
                 }
+                Token::ReservedWord(Reserved::CheckSatAssuming) => {
+                    // token is followed by a list of terms, the assumptions. So
+                    // we'll consume the first parenthesis, then a sequence of
+                    // terms with a closing parenthesis
+                    self.expect_token(Token::OpenParen)?;
+                    let terms = self.parse_sequence(Self::parse_term, true)?;
+                    self.expect_token(Token::CloseParen)?;
+                    self.premises().extend(terms.into_iter());
+                }
                 _ => {
                     // If the command is not one of the commands we care about, we just ignore it.
                     // We do that by reading tokens until the command parenthesis is closed

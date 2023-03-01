@@ -99,6 +99,9 @@ pub enum Reserved {
 
     /// The `set-logic` reserved word.
     SetLogic,
+
+    /// The `check-sat-assuming` reserved word.
+    CheckSatAssuming,
 }
 
 impl_str_conversion_traits!(Reserved {
@@ -121,6 +124,7 @@ impl_str_conversion_traits!(Reserved {
     DefineFun: "define-fun",
     Assert: "assert",
     SetLogic: "set-logic",
+    CheckSatAssuming: "check-sat-assuming",
 });
 
 /// Represents a position (line and column numbers) in the source input.
