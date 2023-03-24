@@ -6,7 +6,7 @@
 
 if [[ -z "$VERIT" ]]; then
     echo "\$VERIT environment variable is not defined, using 'veriT' as default value"
-    VERIT='veriT'
+    VERIT='~/solvers/verit-rmx/veriT'
 fi
 
 if [ ! -d "test-examples" ]; then
@@ -18,13 +18,13 @@ PROBLEM_FILES=$(find test-examples -name '*.smt_in')
 
 echo "starting to generate proofs"
 
-parallel \
-    --halt now,fail=1 \
-    "$VERIT --proof={}.proof {} &> /dev/null" \
-    ::: $PROBLEM_FILES \
-    || exit 1
+# parallel \
+#     --halt now,fail=1 \
+#     "$VERIT --proof={}.proof {} &> /dev/null" \
+#     ::: $PROBLEM_FILES \
+#     || exit 1
 
-echo "finished generating normal proofs"
+# echo "finished generating normal proofs"
 
 parallel \
     --halt now,fail=1 \
