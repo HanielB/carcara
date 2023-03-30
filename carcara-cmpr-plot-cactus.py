@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 
 from cmpr import prepare_data
 from cmpr import KEY_CONFIG, KEY_BENCHMARK, KEY_TIME_CPU, KEY_TIME_REAL, KEY_SOLVED
@@ -86,7 +86,10 @@ def plot(df, column):
                    color='darkgray',
                    linestyle='dotted',
                    linewidth=1)
-        ax.set_xlim(xmin=args.xmin)
+        if args.xmax:
+          ax.set_xlim(xmin=args.xmin, xmax=args.xmax)
+        else:
+          ax.set_xlim(xmin=args.xmin)
         ax.set_ylim(ymin=args.ymin, ymax=timeout * 1.025)
         xlabel = args.xlabel
         ylabel = args.ylabel
@@ -96,6 +99,7 @@ def plot(df, column):
     pyplot.ylabel('\\textbf{{{}}}'.format(ylabel))
     ax.grid(color='lightgray')
     ax.legend(loc=loc, fontsize='x-small')
+
 
     logFormatter = pyplot.LogFormatterMathtext(base=10)
     # ax.xaxis.set_major_formatter(logFormatter)
@@ -116,6 +120,10 @@ if __name__ == '__main__':
                     type=int,
                     default=0,
                     help='Start of x axis')
+    ap.add_argument('--xmax',
+                    type=int,
+                    default=0,
+                    help='End of x axis')
     ap.add_argument('--ymin',
                     type=float,
                     default=0,
