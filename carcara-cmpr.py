@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from cmpr import ResultParser,RESULT_UNSAT,RESULT_SAT,ValueParser, register_output_parser, main, prepare_data, print_results
-import ast
+import ast, re
 
 
 class CarcaraResultParser(ResultParser):
@@ -31,16 +31,24 @@ class CheckTimeParser(ValueParser):
         return line.startswith(b'checking:')
 
     def extract(self, line):
-        return float(str(line.decode("unicode_escape")).split(":")[1].split(r'µ')[0][:-1].strip())/1000
+        # get the time (i.e., what is before "+-")
+        time = \
+          str(line.decode("unicode_escape")).split(":")[1].strip().split(r'±')[0][:-2]
+        # get the suffix to the number. It can be either "s", "ms", "Âµs", or
+        # "ns". With that we compute the unit, since the extracted time must be
+        # in seconds
+        match = re.search(r'\D+$',time)
+        assert match
+        match = match.group()
+        unit = 1000000000 if match == r'ns' else 1000000 if time[-3:] == r'Âµs' else 1000 if time[-3:] == r'ms' else 1
+        # convert time into float (after removing the suffix)
+        time = float(time[:-(len(match))])
+        return time/unit
 
 register_output_parser(CarcaraResultParser())
 register_output_parser(CarcaraHoleyResultParser(), "count")
 register_output_parser(CheckTimeParser(), sum)
 
 df = prepare_data(None)
-
-# df = df[df["valid"] == 1]
-# df = df[df["holey"] == 1]
-# df = df[df["invalid"] == 1]
 
 print_results(df)
