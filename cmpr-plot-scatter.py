@@ -193,9 +193,11 @@ if __name__ == '__main__':
                     default=False,
                     help='Generate EPS file')
     ap.add_argument('--time-limit', type=int, help='Maximum time limit')
-    ap.add_argument('--wall',
-                    action='store_true',
-                    help='Use wall-clock time instead of CPU time')
+
+    ap.add_argument('--key',
+                    choices=["wall", "cpu", "total"],
+                    default="cpu",
+                    help='Use given time key to plot')
     ap.add_argument('--fast10',
                     action='store_true',
                     default=True)
@@ -215,4 +217,5 @@ if __name__ == '__main__':
         if arg[0] != '-':
             dirs.append(arg)
     df = prepare_data(cmpr_args)
-    plot(df, KEY_TIME_REAL if args.wall else KEY_TIME_CPU, dirs)
+    key = KEY_TIME_REAL if args.key == "wall" else KEY_TIME_CPU if args.key == "cpu" else "total_time"
+    plot(df, key, dirs)

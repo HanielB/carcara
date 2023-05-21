@@ -45,9 +45,38 @@ class CheckTimeParser(ValueParser):
         time = float(time[:-(len(match))])
         return time/unit
 
+class TotalTimeParser(ValueParser):
+    def key(self):
+        return "total_time"
+
+    def match(self, line):
+        return line.startswith(b'total accounted for:')
+
+    def extract(self, line):
+        # get the time (i.e., what is before "+-")
+        time = \
+          str(line.decode("unicode_escape")).split(":")[1].strip().split(r'±')[0][:-2]
+        # get the suffix to the number. It can be either "s", "ms", "Âµs", or
+        # "ns". With that we compute the unit, since the extracted time must be
+        # in seconds
+        match = re.search(r'\D+$',time)
+        assert match
+        match = match.group()
+        unit = 1000000000 if match == r'ns' else 1000000 if match == r'Âµs' else 1000 if match == r'ms' else 1
+        # print(match)
+        # print(time)
+        # print(unit)
+
+        # convert time into float (after removing the suffix)
+        time = float(time[:-(len(match))])
+        # print(time)
+        # print(time/unit)
+        return time/unit
+
 register_output_parser(CarcaraResultParser())
 register_output_parser(CarcaraHoleyResultParser(), "count")
 register_output_parser(CheckTimeParser(), sum)
+register_output_parser(TotalTimeParser(), sum)
 
 df = prepare_data(None)
 
