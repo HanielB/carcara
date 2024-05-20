@@ -7,7 +7,7 @@
 //! - `alpha_equiv` compares terms by alpha-equivalence, meaning it implements equality of terms
 //! modulo renaming of bound variables.
 
-use super::{BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term};
+use super::{BindingList, Operator, ProofCommand, ProofStep, Rc, Sort, Subproof, Term};
 use crate::utils::HashMapStack;
 use std::time::{Duration, Instant};
 
@@ -399,18 +399,6 @@ impl<T: Polyeq, U: Polyeq> Polyeq for (T, U) {
 impl Polyeq for String {
     fn eq(_: &mut PolyeqComparator, a: &Self, b: &Self) -> bool {
         a == b
-    }
-}
-
-impl Polyeq for ProofArg {
-    fn eq(comp: &mut PolyeqComparator, a: &Self, b: &Self) -> bool {
-        match (a, b) {
-            (ProofArg::Term(a), ProofArg::Term(b)) => Polyeq::eq(comp, a, b),
-            (ProofArg::Assign(sa, ta), ProofArg::Assign(sb, tb)) => {
-                sa == sb && Polyeq::eq(comp, ta, tb)
-            }
-            _ => false,
-        }
     }
 }
 

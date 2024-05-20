@@ -320,7 +320,7 @@ pub fn strict_resolution(
 
 fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
     premises: &'a [Premise],
-    args: &'a [ProofArg],
+    args: &'a [Rc<Term>],
     pool: &mut dyn TermPool,
 ) -> Result<C, CheckerError> {
     assert_num_premises(premises, 2..)?;
@@ -330,8 +330,8 @@ fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
     let args: Vec<_> = args
         .chunks(2)
         .map(|chunk| {
-            let pivot = chunk[0].as_term()?.remove_all_negations();
-            let polarity = chunk[1].as_term()?;
+            let pivot = chunk[0].remove_all_negations();
+            let polarity = &chunk[1];
             let polarity = if polarity.is_bool_true() {
                 true
             } else if polarity.is_bool_false() {
@@ -416,7 +416,7 @@ pub fn elaborate_resolution(
                     rule: "resolution".to_owned(),
                     premises,
                     args: [true, false]
-                        .map(|a| ProofArg::Term(pool.bool_constant(a)))
+                        .map(|a| pool.bool_constant(a))
                         .to_vec(),
                     discharge: Vec::new(),
                 });
@@ -449,7 +449,6 @@ pub fn elaborate_resolution(
     let pivots = pivot_trace
         .into_iter()
         .flat_map(|(pivot, polarity)| [pivot, pool.bool_constant(polarity)])
-        .map(ProofArg::Term)
         .collect();
 
     let premises: Vec<_> = premises
@@ -522,7 +521,6 @@ pub fn elaborate_resolution(
         // original resolution step's conclusion
         let args = [c, pool.bool_true(), quadruple_not_c, pool.bool_true()]
             .into_iter()
-            .map(ProofArg::Term)
             .collect();
         let id = elaborator.get_new_id(&command_id);
         elaborator.push_elaborated_step(ProofStep {

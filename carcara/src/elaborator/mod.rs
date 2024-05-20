@@ -301,7 +301,7 @@ impl Elaborator {
             clause: vec![term],
             rule: "resolution".to_owned(),
             premises: vec![new_assume, equiv1_step],
-            args: vec![ProofArg::Term(premise), ProofArg::Term(pool.bool_true())],
+            args: vec![premise, pool.bool_true()],
             discharge: Vec::new(),
         })
     }

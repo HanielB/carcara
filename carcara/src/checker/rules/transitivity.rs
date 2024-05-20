@@ -256,7 +256,6 @@ fn flip_eq_transitive_premises(
     let args: Vec<_> = resolution_pivots
         .into_iter()
         .flat_map(|(_, pivot, _)| [pivot, pool.bool_false()])
-        .map(ProofArg::Term)
         .collect();
 
     let final_step = ProofStep {

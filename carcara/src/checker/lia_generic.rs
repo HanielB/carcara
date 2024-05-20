@@ -288,21 +288,19 @@ fn insert_solver_proof(
 }
 
 pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleResult {
-    let Sort::String = pool.sort(&args[0].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::String = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let Sort::String = pool.sort(&args[1].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::String = pool.sort(&args[1]).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let Sort::Bool = pool.sort(&args[2].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::Bool = pool.sort(&args[2]).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-
-    let lemmas = args[2].as_term().unwrap();
 
     // transform each AND arg, if any, into a string and build a
     // string "(and ... )" so that each lemma has its own names
-    let term_str = if let Some(and_args) = match_term!((and ...) = lemmas) {
+    let term_str = if let Some(and_args) = match_term!((and ...) = args[2]) {
         let mut j = 0;
         let mut term_str2 = String::new();
         use std::fmt::Write;
@@ -319,11 +317,11 @@ pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleR
         write!(&mut term_str2, ")").unwrap();
         term_str2
     } else {
-        format!("{}", lemmas)
+        format!("{}", args[2])
     };
 
     let string = format!("(\n{}\n{}\n{}\n)",
-                         args[0].as_term().unwrap(), args[1].as_term().unwrap(), term_str);
+                         args[0], args[1], term_str);
 
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new("./sat-lemmas-prove.sh")

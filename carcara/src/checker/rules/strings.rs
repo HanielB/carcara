@@ -283,7 +283,7 @@ pub fn concat_eq(
     assert_clause_len(conclusion, 1)?;
 
     let term = get_premise_term(&premises[0])?;
-    let rev = args[0].as_term()?.as_bool_err()?;
+    let rev = args[0].as_bool_err()?;
     let (s, t) = match_term_err!((= s t) = term)?;
 
     let (ss, ts) = strip_prefix_or_suffix(pool, s.clone(), t.clone(), rev, polyeq_time)?;
@@ -315,7 +315,7 @@ pub fn concat_unify(
 
     let term = get_premise_term(&premises[0])?;
     let prefixes = get_premise_term(&premises[1])?;
-    let rev = args[0].as_term()?.as_bool_err()?;
+    let rev = args[0].as_bool_err()?;
     let (s, t) = match_term_err!((= s t) = term)?;
     let (s_1, t_1) = match_term_err!((= (strlen s_1) (strlen t_1)) = prefixes)?;
 
@@ -348,7 +348,7 @@ pub fn concat_conflict(
     assert_clause_len(conclusion, 1)?;
 
     let term = get_premise_term(&premises[0])?;
-    let rev = args[0].as_term()?.as_bool_err()?;
+    let rev = args[0].as_bool_err()?;
     if conclusion[0].as_bool_err()? {
         return Err(CheckerError::ExpectedBoolConstant(
             false,
