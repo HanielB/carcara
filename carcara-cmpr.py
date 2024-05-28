@@ -23,6 +23,29 @@ class CarcaraHoleyResultParser(ValueParser):
     def extract(self, line):
         return 1
 
+class ParsingTimeParser(ValueParser):
+    def key(self):
+        return "parsing_time"
+
+    def match(self, line):
+        return line.startswith(b'parsing:')
+
+    def extract(self, line):
+        # get the time (i.e., what is before "+-")
+        time = \
+          str(line.decode("unicode_escape")).split(":")[1].strip().split(r'±')[0][:-2]
+        # get the suffix to the number. It can be either "s", "ms", "Âµs", or
+        # "ns". With that we compute the unit, since the extracted time must be
+        # in seconds
+        match = re.search(r'\D+$',time)
+        assert match
+        match = match.group()
+        unit = 1000000000 if match == r'ns' else 1000000 if match == r'Âµs' else 1000 if match == r'ms' else 1
+        # unit = 1000000000 if match == r'ns' else 1000000 if time[-3:] == r'Âµs' else 1000 if time[-3:] == r'ms' else 1
+        # convert time into float (after removing the suffix)
+        time = float(time[:-(len(match))])
+        return time/unit
+
 class CheckTimeParser(ValueParser):
     def key(self):
         return "check_time"
@@ -40,7 +63,31 @@ class CheckTimeParser(ValueParser):
         match = re.search(r'\D+$',time)
         assert match
         match = match.group()
-        unit = 1000000000 if match == r'ns' else 1000000 if time[-3:] == r'Âµs' else 1000 if time[-3:] == r'ms' else 1
+        unit = 1000000000 if match == r'ns' else 1000000 if match == r'Âµs' else 1000 if match == r'ms' else 1
+        # unit = 1000000000 if match == r'ns' else 1000000 if time[-3:] == r'Âµs' else 1000 if time[-3:] == r'ms' else 1
+        # convert time into float (after removing the suffix)
+        time = float(time[:-(len(match))])
+        return time/unit
+
+class ElaborationTimeParser(ValueParser):
+    def key(self):
+        return "elab_time"
+
+    def match(self, line):
+        return line.startswith(b'elaborating:')
+
+    def extract(self, line):
+        # get the time (i.e., what is before "+-")
+        time = \
+          str(line.decode("unicode_escape")).split(":")[1].strip().split(r'±')[0][:-2]
+        # get the suffix to the number. It can be either "s", "ms", "Âµs", or
+        # "ns". With that we compute the unit, since the extracted time must be
+        # in seconds
+        match = re.search(r'\D+$',time)
+        assert match
+        match = match.group()
+        unit = 1000000000 if match == r'ns' else 1000000 if match == r'Âµs' else 1000 if match == r'ms' else 1
+        # unit = 1000000000 if match == r'ns' else 1000000 if time[-3:] == r'Âµs' else 1000 if time[-3:] == r'ms' else 1
         # convert time into float (after removing the suffix)
         time = float(time[:-(len(match))])
         return time/unit
