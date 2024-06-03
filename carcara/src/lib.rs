@@ -335,12 +335,13 @@ pub fn check_and_elaborate<T: io::BufRead>(
     let elaboration = Instant::now();
 
     let node = ast::ProofNode::from_commands(proof.commands);
-    let lia_options = options.lia_options.as_ref().map(|lia| (lia, &prelude));
+    // let lia_options = options.lia_options.as_ref().map(|lia| (lia, &prelude));
     let elaborated = elaborator::elaborate(
         &mut pool,
         &proof.premises,
         &node,
-        lia_options,
+        &prelude,
+        options.lia_options.as_ref(),
         options.resolution_granularity,
     );
     let elaborated = ast::Proof {

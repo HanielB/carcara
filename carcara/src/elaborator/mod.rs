@@ -3,6 +3,7 @@ mod polyeq;
 mod reflexivity;
 mod reordering;
 mod resolution;
+mod rewrite;
 mod transitivity;
 mod uncrowding;
 
@@ -28,7 +29,8 @@ pub fn elaborate(
     pool: &mut PrimitivePool,
     premises: &IndexSet<Rc<Term>>,
     root: &Rc<ProofNode>,
-    lia_options: Option<(&LiaGenericOptions, &ProblemPrelude)>,
+    prelude: &ProblemPrelude,
+    lia_options: Option<&LiaGenericOptions>,
     resolution_granularity: ResolutionGranularity,
 ) -> Rc<ProofNode> {
     let elaborated = mutate(root, |context, node| {
@@ -42,7 +44,7 @@ pub fn elaborate(
                 if let Some(func) = get_elaboration_function(&s.rule) {
                     return func(pool, context, s).unwrap(); // TODO: add proper error handling
                 }
-                if let Some((lia_options, prelude)) = lia_options {
+                if let Some(lia_options) = lia_options {
                     if s.rule == "lia_generic" {
                         return lia_generic::lia_generic(pool, s, prelude, lia_options)
                             .unwrap_or_else(|| node.clone());
@@ -152,6 +154,7 @@ fn get_elaboration_function(rule: &str) -> Option<ElaborationFunc> {
         "trans" => transitivity::trans,
         "refl" => reflexivity::refl,
         "resolution" | "th_resolution" => resolution::resolution,
+        "rare_rewrite" => rewrite::rewrite,
         _ => return None,
     })
 }
