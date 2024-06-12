@@ -262,7 +262,36 @@ impl<'a> AlethePrinter<'a> {
 
     fn write_raw_term(&mut self, term: &Term) -> io::Result<()> {
         match term {
-            Term::Const(c) => write!(self.inner, "{}", c),
+            Term::Const(c) => {
+                if self.smt_lib_strict {
+                    if let Constant::Integer(i) = c {
+                        if i.is_negative() {
+                            write!(self.inner, "(- {})", i.clone().abs())
+                        }
+                        else {
+                            write!(self.inner, "{}", i)
+                        }
+                    }
+                    else if let Constant::Real(r) = c {
+                        if r.is_negative() {
+                            write!(self.inner, "(-")?;
+                        }
+                        if r.is_integer() {
+                            write!(self.inner, "{}", r.clone().abs())?;
+                        }
+                        else {
+                            write!(self.inner, "(/ {} {})", r.numer(), r.denom())?;
+                        }
+                        write!(self.inner, ")")
+                    }
+                    else {
+                        write!(self.inner, "{}", c)
+                    }
+                }
+                else {
+                    write!(self.inner, "{}", c)
+                }
+            },
             Term::Var(name, _) => write!(self.inner, "{}", quote_symbol(name)),
             Term::App(func, args) => self.write_s_expr(func, args),
             Term::Op(op, args) => {
