@@ -43,6 +43,10 @@ pub fn write_lia_smt_instance(
     // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
     // in SMT-LIB.
     printer.term_sharing_variable_prefix = "p_";
+    // Since we are printing an SMT-LIB problem, we have to be
+    // compliant. For Carcara, this means that arithmetic constants
+    // cannot use the GMP notation
+    printer.smt_lib_strict = true;
     printer.write_lia_smt_instance(clause)
 }
 
@@ -144,6 +148,7 @@ struct AlethePrinter<'a> {
     term_sharing_variable_prefix: &'static str,
     global_vars: HashSet<Rc<Term>>,
     defined_constants: HashMap<Rc<Term>, String>,
+    smt_lib_strict: bool,
 }
 
 impl<'a> PrintProof for AlethePrinter<'a> {
@@ -233,6 +238,7 @@ impl<'a> AlethePrinter<'a> {
             term_sharing_variable_prefix: "@p_",
             global_vars: global_variables,
             defined_constants: HashMap::new(),
+            smt_lib_strict: false,
         }
     }
 
@@ -419,6 +425,7 @@ impl fmt::Display for Term {
             term_sharing_variable_prefix: "@p_",
             global_vars: HashSet::new(),
             defined_constants: HashMap::new(),
+            smt_lib_strict: false,
         };
         printer.write_raw_term(self).unwrap();
         let result = std::str::from_utf8(&buf).unwrap();
