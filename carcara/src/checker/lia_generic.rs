@@ -1,12 +1,12 @@
 use super::*;
 use crate::{checker::error::LiaGenericError, parser, LiaGenericOptions};
 use indexmap::IndexMap;
+use std::process;
 use std::{
+    fs::File,
     io::{BufRead, Write},
     process::{Command, Stdio},
-    fs::File,
 };
-use std::process;
 
 fn get_problem_string(conclusion: &[Rc<Term>], prelude: &ProblemPrelude) -> String {
     use std::fmt::Write;
@@ -298,7 +298,7 @@ fn insert_solver_proof(
 pub fn sat_cnf_lemmas(
     RuleArgs { pool, args, .. }: RuleArgs,
     prelude: &ProblemPrelude,
-    checker_path: String
+    checker_path: String,
 ) -> RuleResult {
     let Sort::String = pool
         .sort(&args[0].as_term().unwrap())
@@ -379,15 +379,17 @@ pub fn sat_cnf_lemmas(
     if res == b"true\n" {
         return Ok(());
     }
-    return Err(CheckerError::Explanation(format!("External checker {} did not validate step", checker_path)));
+    return Err(CheckerError::Explanation(format!(
+        "External checker {} did not validate step",
+        checker_path
+    )));
 }
 
-pub fn external_checker(
-    RuleArgs { args, .. }: RuleArgs,
-    checker_path: String
-) -> RuleResult {
-
-    let args_str : Vec<String> = args.iter().map(|t| format!("{}", t.as_term().unwrap())).collect();
+pub fn external_checker(RuleArgs { args, .. }: RuleArgs, checker_path: String) -> RuleResult {
+    let args_str: Vec<String> = args
+        .iter()
+        .map(|t| format!("{}", t.as_term().unwrap()))
+        .collect();
     let string = format!("(\n{}\n)", args_str.join("\n"));
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new(checker_path.clone())
@@ -420,5 +422,8 @@ pub fn external_checker(
     if res == b"true\n" {
         return Ok(());
     }
-    return Err(CheckerError::Explanation(format!("External checker {} did not validate step", checker_path)));
+    return Err(CheckerError::Explanation(format!(
+        "External checker {} did not validate step",
+        checker_path
+    )));
 }

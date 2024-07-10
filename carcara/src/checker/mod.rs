@@ -10,7 +10,7 @@ use crate::{
     CarcaraResult, Error, LiaGenericOptions,
 };
 use error::{CheckerError, SubproofError};
-use indexmap::{IndexMap,IndexSet};
+use indexmap::{IndexMap, IndexSet};
 pub use parallel::{scheduler::Scheduler, ParallelProofChecker};
 use rules::{ElaborationRule, Premise, Rule, RuleArgs, RuleResult};
 use std::{
@@ -50,7 +50,7 @@ pub struct Config {
     strict: bool,
     ignore_unknown_rules: bool,
     lia_options: Option<LiaGenericOptions>,
-    rule_checkers: IndexMap<String, String>
+    rule_checkers: IndexMap<String, String>,
 }
 
 impl Config {
@@ -77,7 +77,6 @@ impl Config {
         self.rule_checkers = value;
         self
     }
-
 }
 
 pub struct ProofChecker<'c> {
@@ -386,9 +385,7 @@ impl<'c> ProofChecker<'c> {
             if step.rule == "sat_cnf_lemmas" {
                 if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
                     lia_generic::sat_cnf_lemmas(rule_args, self.prelude, checker.clone())?;
-                }
-                else
-                {
+                } else {
                     return Err(CheckerError::UnknownRule);
                 }
             } else if let Some(checker) = self.config.rule_checkers.get(&step.rule) {

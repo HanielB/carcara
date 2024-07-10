@@ -216,7 +216,7 @@ fn build_carcara_options(
         apply_function_defs,
         expand_lets: expand_let_bindings,
         allow_int_real_subtyping,
-        rule_checkers : rule_checkers.into_iter().collect(),
+        rule_checkers: rule_checkers.into_iter().collect(),
         lia_options,
         strict,
         ignore_unknown_rules: ignore_unknown_rules || skip_unknown_rules,

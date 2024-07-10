@@ -45,11 +45,11 @@ mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
 use checker::{error::CheckerError, CheckerStatistics};
+use indexmap::IndexMap;
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use indexmap::IndexMap;
 
 pub type CarcaraResult<T> = Result<T, Error>;
 
@@ -76,7 +76,7 @@ pub struct CarcaraOptions {
 
     /// Maps rules to paths of binaries to check them. The arguments are passed as strings to the
     /// binary.
-    pub rule_checkers : IndexMap<String, String>,
+    pub rule_checkers: IndexMap<String, String>,
 
     /// If `Some`, enables the checking/elaboration of `lia_generic` steps using an external solver.
     /// When checking a proof, this means calling the solver to solve the linear integer arithmetic
@@ -171,8 +171,7 @@ pub fn check<T: io::BufRead>(problem: T, proof: T, options: CarcaraOptions) -> R
         .strict(options.strict)
         .ignore_unknown_rules(options.ignore_unknown_rules)
         .lia_options(options.lia_options)
-        .rule_checkers(options.rule_checkers)
-        ;
+        .rule_checkers(options.rule_checkers);
 
     // Checking
     let checking = Instant::now();

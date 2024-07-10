@@ -24,11 +24,11 @@ pub fn r#false(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     Ok(())
 }
 
-pub fn not_not(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn not_not(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2)?;
 
     let p = match_term_err!((not (not (not p))) = &conclusion[0])?;
-    assert_eq(p, &conclusion[1])
+    assert_polyeq(p, &conclusion[1], polyeq_time)
 }
 
 pub fn and_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
@@ -44,7 +44,7 @@ pub fn and_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     Ok(())
 }
 
-pub fn and_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn and_neg(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2..)?;
 
     let and_contents = match_term_err!((and ...) = &conclusion[0])?;
@@ -52,19 +52,19 @@ pub fn and_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 
     for (t, u) in and_contents.iter().zip(&conclusion[1..]) {
         let u = u.remove_negation_err()?;
-        assert_eq(t, u)?;
+        assert_polyeq(t, u, polyeq_time)?;
     }
     Ok(())
 }
 
-pub fn or_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn or_pos(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2..)?;
 
     let or_contents = match_term_err!((not (or ...)) = &conclusion[0])?;
     assert_operation_len(Operator::Or, or_contents, conclusion.len() - 1)?;
 
     for (t, u) in or_contents.iter().zip(&conclusion[1..]) {
-        assert_eq(t, u)?;
+        assert_polyeq(t, u, polyeq_time)?;
     }
     Ok(())
 }
@@ -83,179 +83,179 @@ pub fn or_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     Ok(())
 }
 
-pub fn xor_pos1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn xor_pos1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((not (xor phi_1 phi_2)) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn xor_pos2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn xor_pos2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((not (xor phi_1 phi_2)) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn xor_neg1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn xor_neg1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((xor phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_2, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn xor_neg2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn xor_neg2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((xor phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn implies_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn implies_pos(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((not (=> phi_1 phi_2)) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn implies_neg1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn implies_neg1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2)?;
     let (phi_1, _) = match_term_err!((=> phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)
 }
 
-pub fn implies_neg2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn implies_neg2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2)?;
     let (_, phi_2) = match_term_err!((=> phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_2, conclusion[1].remove_negation_err()?)
+    assert_polyeq(phi_2, conclusion[1].remove_negation_err()?, polyeq_time)
 }
 
-pub fn equiv_pos1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn equiv_pos1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((not (= phi_1 phi_2)) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_2, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn equiv_pos2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn equiv_pos2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((not (= phi_1 phi_2)) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn equiv_neg1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn equiv_neg1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((= phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn equiv_neg2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn equiv_neg2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2) = match_term_err!((= phi_1 phi_2) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn ite_pos1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn ite_pos1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, _, phi_3) = match_term_err!((not (ite phi_1 phi_2 phi_3)) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_3, &conclusion[2])
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_3, &conclusion[2], polyeq_time)
 }
 
-pub fn ite_pos2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn ite_pos2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2, _) = match_term_err!((not (ite phi_1 phi_2 phi_3)) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[2])
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[2], polyeq_time)
 }
 
-pub fn ite_neg1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn ite_neg1(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, _, phi_3) = match_term_err!((ite phi_1 phi_2 phi_3) = &conclusion[0])?;
-    assert_eq(phi_1, &conclusion[1])?;
-    assert_eq(phi_3, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, &conclusion[1], polyeq_time)?;
+    assert_polyeq(phi_3, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn ite_neg2(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn ite_neg2(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3)?;
     let (phi_1, phi_2, _) = match_term_err!((ite phi_1 phi_2 phi_3) = &conclusion[0])?;
-    assert_eq(phi_1, conclusion[1].remove_negation_err()?)?;
-    assert_eq(phi_2, conclusion[2].remove_negation_err()?)
+    assert_polyeq(phi_1, conclusion[1].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[2].remove_negation_err()?, polyeq_time)
 }
 
-pub fn equiv1(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn equiv1(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2) = match_term_err!((= phi_1 phi_2) = premise_term)?;
-    assert_eq(phi_1, conclusion[0].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[1])
+    assert_polyeq(phi_1, conclusion[0].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[1], polyeq_time)
 }
 
-pub fn equiv2(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn equiv2(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2) = match_term_err!((= phi_1 phi_2) = premise_term)?;
-    assert_eq(phi_1, &conclusion[0])?;
-    assert_eq(phi_2, conclusion[1].remove_negation_err()?)
+    assert_polyeq(phi_1, &conclusion[0], polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[1].remove_negation_err()?, polyeq_time)
 }
 
-pub fn not_equiv1(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_equiv1(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2) = match_term_err!((not (= phi_1 phi_2)) = premise_term)?;
-    assert_eq(phi_1, &conclusion[0])?;
-    assert_eq(phi_2, &conclusion[1])
+    assert_polyeq(phi_1, &conclusion[0], polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[1], polyeq_time)
 }
 
-pub fn not_equiv2(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_equiv2(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2) = match_term_err!((not (= phi_1 phi_2)) = premise_term)?;
-    assert_eq(phi_1, conclusion[0].remove_negation_err()?)?;
-    assert_eq(phi_2, conclusion[1].remove_negation_err()?)
+    assert_polyeq(phi_1, conclusion[0].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[1].remove_negation_err()?, polyeq_time)
 }
 
-pub fn ite1(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn ite1(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, _, phi_3) = match_term_err!((ite phi_1 phi_2 phi_3) = premise_term)?;
-    assert_eq(phi_1, &conclusion[0])?;
-    assert_eq(phi_3, &conclusion[1])
+    assert_polyeq(phi_1, &conclusion[0], polyeq_time)?;
+    assert_polyeq(phi_3, &conclusion[1], polyeq_time)
 }
 
-pub fn ite2(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn ite2(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2, _) = match_term_err!((ite phi_1 phi_2 phi_3) = premise_term)?;
-    assert_eq(phi_1, conclusion[0].remove_negation_err()?)?;
-    assert_eq(phi_2, &conclusion[1])
+    assert_polyeq(phi_1, conclusion[0].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, &conclusion[1], polyeq_time)
 }
 
-pub fn not_ite1(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_ite1(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, _, phi_3) = match_term_err!((not (ite phi_1 phi_2 phi_3)) = premise_term)?;
-    assert_eq(phi_1, &conclusion[0])?;
-    assert_eq(phi_3, conclusion[1].remove_negation_err()?)
+    assert_polyeq(phi_1, &conclusion[0], polyeq_time)?;
+    assert_polyeq(phi_3, conclusion[1].remove_negation_err()?, polyeq_time)
 }
 
-pub fn not_ite2(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_ite2(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     assert_clause_len(conclusion, 2)?;
     let premise_term = get_premise_term(&premises[0])?;
     let (phi_1, phi_2, _) = match_term_err!((not (ite phi_1 phi_2 phi_3)) = premise_term)?;
-    assert_eq(phi_1, conclusion[0].remove_negation_err()?)?;
-    assert_eq(phi_2, conclusion[1].remove_negation_err()?)
+    assert_polyeq(phi_1, conclusion[0].remove_negation_err()?, polyeq_time)?;
+    assert_polyeq(phi_2, conclusion[1].remove_negation_err()?, polyeq_time)
 }
 
 pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
@@ -315,7 +315,7 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
     Ok(())
 }
 
-pub fn connective_def(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn connective_def(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
     let (first, second) = match_term_err!((= f s) = &conclusion[0])?;
@@ -323,27 +323,27 @@ pub fn connective_def(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     if let Some((phi_1, phi_2)) = match_term!((xor phi_1 phi_2) = first) {
         // phi_1 xor phi_2 <-> (¬phi_1 ^ phi_2) v (phi_1 ^ ¬phi_2)
         let ((a, b), (c, d)) = match_term_err!((or (and (not a) b) (and c (not d))) = second)?;
-        assert_eq(a, phi_1)?;
-        assert_eq(b, phi_2)?;
-        assert_eq(c, phi_1)?;
-        assert_eq(d, phi_2)
+        assert_polyeq(a, phi_1, polyeq_time)?;
+        assert_polyeq(b, phi_2, polyeq_time)?;
+        assert_polyeq(c, phi_1, polyeq_time)?;
+        assert_polyeq(d, phi_2, polyeq_time)
     } else if let Some((phi_1, phi_2)) = match_term!((= phi_1 phi_2) = first) {
         // (phi_1 <-> phi_2) <-> (phi_1 -> phi_2) ^ (phi_2 -> phi_1)
         let ((a, b), (c, d)) = match_term_err!((and (=> a b) (=> c d)) = second)?;
-        assert_eq(a, phi_1)?;
-        assert_eq(b, phi_2)?;
-        assert_eq(c, phi_2)?;
-        assert_eq(d, phi_1)
+        assert_polyeq(a, phi_1, polyeq_time)?;
+        assert_polyeq(b, phi_2, polyeq_time)?;
+        assert_polyeq(c, phi_2, polyeq_time)?;
+        assert_polyeq(d, phi_1, polyeq_time)
     } else if let Some((phi_1, phi_2, phi_3)) = match_term!((ite phi_1 phi_2 phi_3) = first) {
         // ite phi_1 phi_2 phi_3 <-> (phi_1 -> phi_2) ^ (¬phi_1 -> phi_3)
         let ((a, b), (c, d)) = match_term_err!((and (=> a b) (=> (not c) d)) = second)?;
-        assert_eq(a, phi_1)?;
-        assert_eq(b, phi_2)?;
-        assert_eq(c, phi_1)?;
-        assert_eq(d, phi_3)
+        assert_polyeq(a, phi_1, polyeq_time)?;
+        assert_polyeq(b, phi_2, polyeq_time)?;
+        assert_polyeq(c, phi_1, polyeq_time)?;
+        assert_polyeq(d, phi_3, polyeq_time)
     } else if let Some((first_bindings, first_inner)) = match_term!((exists ... f) = first) {
         let (second_bindings, second_inner) = match_term_err!((not (forall ... (not s))) = second)?;
-        assert_eq(first_inner, second_inner)?;
+        assert_polyeq(first_inner, second_inner, polyeq_time)?;
         assert_eq(first_bindings, second_bindings)
     } else {
         Err(CheckerError::TermIsNotConnective(first.clone()))

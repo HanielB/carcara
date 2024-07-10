@@ -1,16 +1,19 @@
 use super::{assert_clause_len, get_premise_term, CheckerError, Elaborator, RuleArgs, RuleResult};
 use crate::ast::*;
+use std::time::Duration;
 
 /// Function to find a transitive chain given a conclusion equality and a series of premise
 /// equalities.
 fn find_chain(
     conclusion: (&Rc<Term>, &Rc<Term>),
     premises: &mut [(&Rc<Term>, &Rc<Term>)],
+    polyeq_time: &mut Duration,
 ) -> RuleResult {
     // When the conclusion is of the form (= a a), it is trivially valid
-    if conclusion.0 == conclusion.1 {
+    if polyeq(conclusion.0, conclusion.1, polyeq_time) {
         return Ok(());
     }
+    // print!("Looking for {:?} in {:?}\n", conclusion, premises);
 
     // Find in the premises, if it exists, an equality such that one of its terms is equal to the
     // first term in the conclusion. Possibly reorder this equality so the matching term is the
@@ -19,9 +22,9 @@ fn find_chain(
         .iter()
         .enumerate()
         .find_map(|(i, &(t, u))| {
-            if t == conclusion.0 {
+            if polyeq(t, conclusion.0, polyeq_time) {
                 Some((i, (t, u)))
-            } else if u == conclusion.0 {
+            } else if polyeq(u, conclusion.0, polyeq_time) {
                 Some((i, (u, t)))
             } else {
                 None
@@ -39,7 +42,7 @@ fn find_chain(
     // The new conclusion will be the terms in the conclusion and the found equality that didn't
     // match. For example, if the conclusion was (= a d) and we found in the premises (= a b), the
     // new conclusion will be (= b d)
-    find_chain((eq.1, conclusion.1), &mut premises[1..])
+    find_chain((eq.1, conclusion.1), &mut premises[1..], polyeq_time)
 }
 
 /// Similar to `find_chain`, but reorders a premises vector to match the found chain. In `trans`,
@@ -88,7 +91,7 @@ fn find_and_trace_chain<'a, T>(
     }
 }
 
-pub fn eq_transitive(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn eq_transitive(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3..)?;
 
     // The last term in the conclusion clause should be an equality, and it will be the conclusion
@@ -102,7 +105,7 @@ pub fn eq_transitive(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
         .map(|term| match_term_err!((not (= t u)) = term))
         .collect::<Result<_, _>>()?;
 
-    find_chain(chain_conclusion, &mut premises)
+    find_chain(chain_conclusion, &mut premises, polyeq_time)
 }
 
 pub fn elaborate_eq_transitive(
@@ -270,7 +273,7 @@ fn flip_eq_transitive_premises(
     (clause, elaborator.add_new_step(final_step))
 }
 
-pub fn trans(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn trans(RuleArgs { conclusion, premises, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
     let conclusion = match_term_err!((= t u) = &conclusion[0])?;
@@ -279,7 +282,7 @@ pub fn trans(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
         .map(|premise| match_term_err!((= t u) = get_premise_term(premise)?))
         .collect::<Result<_, _>>()?;
 
-    find_chain(conclusion, &mut premises)
+    find_chain(conclusion, &mut premises, polyeq_time)
 }
 
 pub fn elaborate_trans(

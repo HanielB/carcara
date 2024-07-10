@@ -8,11 +8,11 @@
 //! modulo renaming of bound variables.
 
 use super::{
-    AnchorArg, BindingList, Constant, Operator, ProofArg, ProofCommand, ProofStep, Rational, Rc,
-    Sort, Subproof, Term,
+    AnchorArg, BindingList, Constant, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort,
+    Subproof, Term,
 };
-
 use crate::utils::HashMapStack;
+use rug::Rational;
 use std::time::{Duration, Instant};
 
 /// A trait that represents objects that can be compared for equality modulo reordering of
@@ -70,7 +70,7 @@ pub fn tracing_polyeq_mod_nary(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) 
 /// This function records how long it takes to run, and adds that duration to the `time` argument.
 pub fn alpha_equiv(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) -> bool {
     let start = Instant::now();
-    let result = a == b || Polyeq::eq(&mut PolyeqComparator::new(true, true, false), a, b);
+    let result = Polyeq::eq(&mut PolyeqComparator::new(true, true, false), a, b);
     *time += start.elapsed();
     result
 }
@@ -357,10 +357,47 @@ impl Polyeq for Term {
                 // if they are the same
                 match (args[0].as_ref(), args[1].as_ref()) {
                     (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2)))
-                        if r1.is_integer() && r2.is_integer() =>
+                        if r.is_positive() && r1.is_integer() && r2.is_integer() =>
                     {
                         Rational::from((r1.numer(), r2.numer())) == r.clone()
                     }
+                    (Term::Op(Operator::Sub, args), Term::Const(Constant::Integer(r2))) | (Term::Const(Constant::Integer(r2)), Term::Op(Operator::Sub, args)) if r.is_negative() && args.len() == 1 =>
+                    {
+                        if let Term::Const(Constant::Integer(r1)) = args[0].as_ref() {
+                            Rational::from((r1, r2)) == r.clone().abs()
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                }
+            }
+            (Term::Const(Constant::Integer(i1)), Term::Op(Operator::Sub, args))
+            | (Term::Op(Operator::Sub, args), Term::Const(Constant::Integer(i1)))
+                if i1.is_negative() && args.len() == 1 =>
+            {
+                if let Term::Const(Constant::Integer(i2)) = args[0].as_ref() {
+                    i1.clone().abs() == i2.clone()
+                } else {
+                    false
+                }
+            }
+            (Term::Op(Operator::Sub, args), Term::Const(Constant::Real(r)))
+            | (Term::Const(Constant::Real(r)), Term::Op(Operator::Sub, args))
+                if r.is_negative() && args.len() == 1 =>
+            {
+                match args[0].as_ref() {
+                    Term::Op(Operator::RealDiv, sub_args) => {
+                        match (sub_args[0].as_ref(), sub_args[1].as_ref()) {
+                            (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2)))
+                                if r1.is_integer() && r2.is_integer() =>
+                            {
+                                Rational::from((r1.numer(), r2.numer())) == r.clone().abs()
+                            }
+                            _ => false,
+                        }
+                    }
+                    Term::Const(Constant::Real(r1)) => r1.clone() == r.clone().abs(),
                     _ => false,
                 }
             }
