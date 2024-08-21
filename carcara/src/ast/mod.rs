@@ -424,6 +424,8 @@ pub enum Operator {
     BvSGe,
     Bv2Nat,
 
+    BvConstSymb,
+    BvSize,
     BvBbTerm,
 
     // Misc.
@@ -573,6 +575,9 @@ impl_str_conversion_traits!(Operator {
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
     Bv2Nat: "bv2nat",
+
+    BvConstSymb: "@bv",
+    BvSize: "@bvsize",
     BvBbTerm: "@bbT",
 
     RareList: "rare-list",

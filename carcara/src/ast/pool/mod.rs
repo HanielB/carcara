@@ -170,6 +170,15 @@ impl PrimitivePool {
                     }
                     Sort::BitVec(total_width)
                 }
+                Operator::BvConstSymb => {
+                    let Sort::BitVec(arg_width) =
+                        self.compute_sort(&args[1]).as_sort().unwrap().clone()
+                    else {
+                        unreachable!()
+                    };
+
+                }
+                Operator::BvSize => Sort::Int,
                 Operator::Ite => self.compute_sort(&args[1]).as_sort().unwrap().clone(),
                 Operator::Add | Operator::Sub | Operator::Mult => {
                     if args
