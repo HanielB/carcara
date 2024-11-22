@@ -458,9 +458,9 @@ impl<'c> ProofChecker<'c> {
             "la_mult_pos" => extras::la_mult_pos,
             "la_mult_neg" => extras::la_mult_neg,
             "mod_simplify" => extras::mod_simplify,
-            "bitblast_extract" => bitvectors::extract,
-            "bitblast_bvadd" => bitvectors::add,
-            "bitblast_ult" => bitvectors::ult,
+            "bv_bitblast_step_bvult" => bitvectors::ult,
+            "bv_bitblast_step_bvadd" => bitvectors::add,
+            "bv_bitblast_step_extract" => bitvectors::extract,
 
             "concat_eq" => strings::concat_eq,
             "concat_unify" => strings::concat_unify,

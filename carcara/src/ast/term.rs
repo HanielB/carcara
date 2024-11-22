@@ -106,6 +106,7 @@ pub enum Constant {
     /// A string literal term.
     String(String),
 
+    /// A bitvector literal term.
     BitVec(Integer, Integer),
 }
 
@@ -352,6 +353,7 @@ pub enum Operator {
     BvSLe,
     BvSGt,
     BvSGe,
+    Bv2Nat,
     BvBbTerm,
 
     // Misc.
@@ -366,7 +368,12 @@ pub enum ParamOperator {
     BvBitOf,
     ZeroExtend,
     SignExtend,
+    RotateLeft,
+    RotateRight,
+    Repeat,
     BvConst,
+
+    Int2BV,
 
     RePower,
     ReLoop,
@@ -471,17 +478,23 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
-    BvBbTerm: "bbterm",
+    Bv2Nat: "bv2nat",
+    BvBbTerm: "@bbT",
 
     RareList: "rare-list",
 });
 
 impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
-    BvBitOf: "bit_of",
+    BvBitOf: "@bitOf",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
+    RotateLeft: "rotate_left",
+    RotateRight: "rotate_right",
+    Repeat: "repeat",
     BvConst: "bv",
+
+    Int2BV: "int2bv",
 
     RePower: "re.^",
     ReLoop: "re.loop",
@@ -643,6 +656,15 @@ impl Term {
         match match_term!((-x) = self) {
             Some(x) => x.as_integer().map(|r| -r),
             None => self.as_integer(),
+        }
+    }
+
+    /// Tries to extract a `BitVec` from a term. Returns `Some` if the
+    /// term is a bitvector constant.
+    pub fn as_bitvector(&self) -> Option<(Integer, Integer)> {
+        match self {
+            Term::Const(Constant::BitVec(v, w)) => Some((v.clone(), w.clone())),
+            _ => None,
         }
     }
 
