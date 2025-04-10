@@ -353,7 +353,10 @@ pub enum Operator {
     BvSLe,
     BvSGt,
     BvSGe,
-    Bv2Nat,
+
+    UBvToInt,
+    SBvToInt,
+
     BvBbTerm,
 
     // Misc.
@@ -373,7 +376,7 @@ pub enum ParamOperator {
     Repeat,
     BvConst,
 
-    Int2BV,
+    IntToBv,
 
     RePower,
     ReLoop,
@@ -497,7 +500,7 @@ impl_str_conversion_traits!(ParamOperator {
     Repeat: "repeat",
     BvConst: "bv",
 
-    Int2BV: "int2bv",
+    IntToBv: "int_to_bv",
 
     RePower: "re.^",
     ReLoop: "re.loop",

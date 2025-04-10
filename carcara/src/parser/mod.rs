@@ -422,7 +422,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     }
                 }
             }
-            Operator::Bv2Nat => {
+            Operator::UBvToInt | Operator::SBvToInt => {
                 assert_num_args(&args, 1)?;
                 if !matches!(sorts[0], Sort::BitVec(_)) {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
@@ -1509,7 +1509,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            ParamOperator::Int2BV => {
+            ParamOperator::IntToBv => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 if let Term::Const(c) = op_args[0].as_ref() {

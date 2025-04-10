@@ -115,7 +115,7 @@ impl PrimitivePool {
                 | Operator::BvSGt
                 | Operator::BvSGe => Sort::Bool,
 
-                Operator::Bv2Nat => Sort::Int,
+                Operator::UBvToInt | Operator::SBvToInt => Sort::Int,
 
                 Operator::BvNot
                 | Operator::BvNeg
@@ -250,7 +250,7 @@ impl PrimitivePool {
                     ParamOperator::BvConst => unreachable!(
                         "bv const should be handled by the parser and transfromed into a constant"
                     ),
-                    ParamOperator::Int2BV => {
+                    ParamOperator::IntToBv => {
                         let bvsize = op_args[0].as_integer().unwrap();
                         Sort::BitVec(bvsize)
                     }
