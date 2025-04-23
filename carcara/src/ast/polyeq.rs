@@ -887,6 +887,8 @@ fn nary_case(op: Operator) -> Option<NaryCase> {
         | Operator::UBvToInt
         | Operator::SBvToInt
         | Operator::BvBbTerm
+        | Operator::BvConst
+        | Operator::BvSize
         | Operator::RareList => None,
     }
 }
