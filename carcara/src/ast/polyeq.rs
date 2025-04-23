@@ -495,7 +495,6 @@ impl PolyeqComparable for Rc<Term> {
 
 impl PolyeqComparable for Term {
     fn eq(comp: &mut Polyeq, a: &Self, b: &Self) -> bool {
-        // println!("Compare {} / {}", a, b);
         let res = match (a, b) {
             (Term::Const(a1), Term::Const(b1)) => match (a1, b1) {
                 (Constant::Real(r1), Constant::Integer(i2)) if r1.is_integer() => {
@@ -579,12 +578,9 @@ impl PolyeqComparable for Term {
             | (Term::Op(Operator::Sub, args), Term::Const(Constant::Integer(i1)))
                 if i1.is_negative() && args.len() == 1 =>
             {
-                // println!("\tGot here with {} / {}", a, b);
                 if let Term::Const(Constant::Integer(i2)) = args[0].as_ref() {
-                    // println!("\t\tgot here 2");
                     i1.clone().abs() == i2.clone()
                 } else if let Term::Const(Constant::Real(r2)) = args[0].as_ref() {
-                    // println!("\t\tgot here 3; {}", );
                     i1.clone().abs() == r2.numer().clone()
                 } else {
                     false
@@ -634,7 +630,6 @@ impl PolyeqComparable for Term {
                 false
             }
         };
-        // println!("Result is {} for {} / {}", res, a, b);
         res
     }
 }
@@ -913,6 +908,8 @@ fn nary_case(op: Operator) -> Option<NaryCase> {
         | Operator::UBvToInt
         | Operator::SBvToInt
         | Operator::BvBbTerm
+        | Operator::BvConst
+        | Operator::BvSize
         | Operator::RareList => None,
     }
 }
