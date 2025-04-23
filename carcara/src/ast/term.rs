@@ -375,6 +375,8 @@ pub enum Operator {
     SBvToInt,
 
     BvBbTerm,
+    BvConst,
+    BvSize,
 
     // Misc.
     /// The `rare-list` operator, used to represent RARE lists.
@@ -503,14 +505,16 @@ impl_str_conversion_traits!(Operator {
     BvSGe: "bvsge",
     UBvToInt: "ubv_to_int",
     SBvToInt: "sbv_to_int",
-    BvBbTerm: "@bbT",
+    BvBbTerm: "@bbterm",
+    BvConst: "@bv",
+    BvSize: "@bvsize",
 
     RareList: "rare-list",
 });
 
 impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
-    BvBitOf: "@bitOf",
+    BvBitOf: "@bit_of",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
     RotateLeft: "rotate_left",

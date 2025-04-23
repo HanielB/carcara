@@ -169,8 +169,8 @@ macro_rules! match_term {
     (@GET_VARIANT >)        => { $crate::ast::Operator::GreaterThan };
     (@GET_VARIANT <=)       => { $crate::ast::Operator::LessEq };
     (@GET_VARIANT >=)       => { $crate::ast::Operator::GreaterEq };
-    (@GET_VARIANT bbT)      => { $crate::ast::Operator::BvBbTerm };
-    (@GET_VARIANT bitOf)      => { $crate::ast::ParamOperator::BvBitOf };
+    (@GET_VARIANT bbterm)      => { $crate::ast::Operator::BvBbTerm };
+    (@GET_VARIANT bit_of)      => { $crate::ast::ParamOperator::BvBitOf };
     (@GET_VARIANT bvnot)    => { $crate::ast::Operator::BvNot };
     (@GET_VARIANT bvneg)    => { $crate::ast::Operator::BvNeg };
     (@GET_VARIANT bvand)    => { $crate::ast::Operator::BvAnd };
@@ -375,8 +375,8 @@ mod tests {
         assert_eq!(1, j.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), **b);
 
-        let term = parse_term(&mut p, "((_ @bitOf 2) (_ bv0 5))");
-        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!(((_ bitOf i) ...) = term).unwrap();
+        let term = parse_term(&mut p, "((_ @bit_of 2) (_ bv0 5))");
+        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!(((_ bit_of i) ...) = term).unwrap();
         assert_eq!(2, i.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
 
@@ -434,9 +434,9 @@ mod tests {
                 )),
             ),
             (
-                "((_ @bitOf 1) ((_ extract 3 2) #b000000))",
+                "((_ @bit_of 1) ((_ extract 3 2) #b000000))",
                 build_term!(pool,
-                    ((_ bitOf 1) ((_ extract 3 2) {zeros}))
+                    ((_ bit_of 1) ((_ extract 3 2) {zeros}))
                 ),
             ),
             ("(and true false)", build_term!(pool, (and true false))),
