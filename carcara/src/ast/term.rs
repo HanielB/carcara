@@ -478,15 +478,18 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
-    Bv2Nat: "bv2nat",
-    BvBbTerm: "@bbT",
+
+    UBvToInt: "ubv_to_int",
+    SBvToInt: "sbv_to_int",
+    BvBbTerm: "@bbterm",
+    BvConst: "@bv",
 
     RareList: "rare-list",
 });
 
 impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
-    BvBitOf: "@bitOf",
+    BvBitOf: "@bit_of",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
     RotateLeft: "rotate_left",
