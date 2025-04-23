@@ -115,7 +115,7 @@ impl PrimitivePool {
                 | Operator::BvSGt
                 | Operator::BvSGe => Sort::Bool,
 
-                Operator::UBvToInt | Operator::SBvToInt => Sort::Int,
+                Operator::BvSize | Operator::UBvToInt | Operator::SBvToInt => Sort::Int,
 
                 Operator::BvNot
                 | Operator::BvNeg
@@ -145,6 +145,11 @@ impl PrimitivePool {
                 }
                 Operator::BvComp => Sort::BitVec(Integer::ONE.into()),
                 Operator::BvBbTerm => Sort::BitVec(Integer::from(args.len())),
+                Operator::BvConst => {
+                    let bvsize = args[1].as_integer().unwrap();
+                    Sort::BitVec(bvsize)
+                }
+
                 Operator::BvConcat => {
                     let mut total_width = Integer::ZERO;
                     for arg in args {

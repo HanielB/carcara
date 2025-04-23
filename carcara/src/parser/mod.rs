@@ -422,6 +422,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     }
                 }
             }
+            Operator::BvSize |
             Operator::UBvToInt | Operator::SBvToInt => {
                 assert_num_args(&args, 1)?;
                 if !matches!(sorts[0], Sort::BitVec(_)) {
@@ -432,6 +433,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_num_args(&args, 1..)?;
                 SortError::assert_eq(&Sort::Bool, sorts[0])?;
                 SortError::assert_all_eq(&sorts)?;
+            }
+            Operator::BvConst => {
+                assert_num_args(&args, 2)?;
+                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                SortError::assert_eq(&Sort::Int, sorts[1])?;
             }
             Operator::BvConcat => {
                 assert_num_args(&args, 2..)?;
