@@ -422,8 +422,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     }
                 }
             }
-            Operator::BvSize |
-            Operator::UBvToInt | Operator::SBvToInt => {
+            Operator::BvSize | Operator::UBvToInt | Operator::SBvToInt => {
                 assert_num_args(&args, 1)?;
                 if !matches!(sorts[0], Sort::BitVec(_)) {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
