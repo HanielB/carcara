@@ -307,7 +307,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::Abs => {
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                // The argument must be Int unless we are allowing Int/Real subtyping
+                if self.config.allow_int_real_subtyping {
+                    SortError::assert_one_of(&[Sort::Int, Sort::Real], sorts[0])?;
+                } else {
+                    SortError::assert_eq(&Sort::Int, sorts[0])?;
+                }
             }
             Operator::LessThan | Operator::GreaterThan | Operator::LessEq | Operator::GreaterEq => {
                 assert_num_args(&args, 2..)?;
@@ -319,7 +324,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::ToReal => {
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                // If the logic contains reals but not integers, integer constants are interpreted
+                // as reals, so the argument might have sort Real instead of the expected Int
+                SortError::assert_one_of(&[Sort::Int, Sort::Real], sorts[0])?;
             }
             Operator::ToInt | Operator::IsInt => {
                 assert_num_args(&args, 1)?;
@@ -527,17 +534,39 @@ impl<'a, R: BufRead> Parser<'a, R> {
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sort = self.pool.sort(&function);
+        let mut param_function = false;
         let sorts = {
             let function_sort = sort.as_sort().unwrap();
             if let Sort::Function(sorts) = function_sort {
                 sorts
+            } else if let Sort::ParamSort(_, p_sort) = function_sort {
+                let p_function_sort = p_sort.as_sort().unwrap();
+                if let Sort::Function(sorts) = p_function_sort {
+                    param_function = true;
+                    sorts
+                } else {
+                    // Parametric function does not have function sort
+                    return Err(ParserError::NotAFunction(p_function_sort.clone()));
+                }
             } else {
                 // Function does not have function sort
                 return Err(ParserError::NotAFunction(function_sort.clone()));
             }
         };
         assert_num_args(&args, sorts.len() - 1)?;
+        let mut map = IndexMap::new();
         for i in 0..args.len() {
+            if param_function {
+                let sort_i = sorts[i].as_sort().unwrap();
+                let arg_sort_i = self.pool.sort(&args[i]).as_sort().unwrap().clone();
+                if !sort_i.match_with(&arg_sort_i, &mut map) {
+                    return Err(ParserError::IncompatibleSorts(
+                        sort_i.clone(),
+                        arg_sort_i.clone(),
+                    ));
+                }
+                continue;
+            };
             SortError::assert_eq(
                 sorts[i].as_sort().unwrap(),
                 self.pool.sort(&args[i]).as_sort().unwrap(),
@@ -1464,19 +1493,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((op, constant_args))
     }
 
-    fn parse_qualified_operator(&mut self) -> CarcaraResult<(ParamOperator, Rc<Term>)> {
-        let op_symbol = self.expect_symbol()?;
-        let op = ParamOperator::from_str(op_symbol.as_str()).map_err(|_| {
-            Error::Parser(
-                ParserError::InvalidQualifiedOp(op_symbol),
-                self.current_position,
-            )
-        })?;
-        let sort = self.parse_sort()?;
-        self.expect_token(Token::CloseParen)?;
-        Ok((op, sort))
-    }
-
     /// Constructs, check operation arguments and sort checks an indexed operation term.
     fn make_indexed_op(
         &mut self,
@@ -1628,9 +1644,33 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Reserved::As => {
-                        let (op, sort) = self.parse_qualified_operator()?;
-                        self.make_qualified_op(op, sort, Vec::new())
-                            .map_err(|err| Error::Parser(err, head_pos))
+                        let op_symbol = self.expect_symbol()?;
+                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
+                            let sort = self.parse_sort()?;
+                            self.expect_token(Token::CloseParen)?;
+                            self.make_qualified_op(op, sort, Vec::new())
+                                .map_err(|err| Error::Parser(err, head_pos))
+                        } else {
+                            let var = self.make_var(op_symbol.clone()).map_err(|_| {
+                                Error::Parser(
+                                    ParserError::InvalidQualifiedOp(op_symbol.clone()),
+                                    self.current_position,
+                                )
+                            })?;
+                            let var_sort = self.pool.sort(&var);
+                            if var_sort.is_sort_parametric() {
+                                let sort = self.parse_sort()?;
+                                self.expect_token(Token::CloseParen)?;
+                                // TODO test unification
+                                // if types are unifiable, create variable with sort
+                                Ok(self.pool.add(Term::new_var(op_symbol, sort)))
+                            } else {
+                                Err(Error::Parser(
+                                    ParserError::InvalidQualifiedOp(op_symbol),
+                                    self.current_position,
+                                ))
+                            }
+                        }
                     }
                     Reserved::Exists => self.parse_binder(Binder::Exists),
                     Reserved::Forall => self.parse_binder(Binder::Forall),
@@ -1682,11 +1722,68 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Token::ReservedWord(Reserved::As) => {
+                        println!("got here5");
                         self.next_token()?;
-                        let (op, op_sort) = self.parse_qualified_operator()?;
-                        let args = self.parse_sequence(Self::parse_term, true)?;
-                        self.make_qualified_op(op, op_sort, args)
-                            .map_err(|err| Error::Parser(err, head_pos))
+                        let op_symbol = self.expect_symbol()?;
+                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
+                            let sort = self.parse_sort()?;
+                            self.expect_token(Token::CloseParen)?;
+                            let args = self.parse_sequence(Self::parse_term, true)?;
+                            self.make_qualified_op(op, sort, args)
+                                .map_err(|err| Error::Parser(err, head_pos))
+                        } else {
+                            let var = self.make_var(op_symbol.clone()).map_err(|_| {
+                                Error::Parser(
+                                    ParserError::InvalidQualifiedOp(op_symbol.clone()),
+                                    self.current_position,
+                                )
+                            })?;
+                            let var_sort = self.pool.sort(&var);
+                            if var_sort.is_sort_parametric() {
+                                if let Sort::ParamSort(_, f_sort) = var_sort.as_sort().unwrap() {
+                                    if let Sort::Function(sorts) = f_sort.as_sort().unwrap() {
+                                        let sort = self.parse_sort()?;
+                                        self.expect_token(Token::CloseParen)?;
+                                        // unify return sort with as_sort
+                                        let ret_sort_term = sorts.last().unwrap();
+                                        let ret_sort = ret_sort_term.as_sort().unwrap();
+                                        let as_sort = sort.as_sort().unwrap();
+                                        let mut map = IndexMap::<_, _>::new();
+                                        if !ret_sort.match_with(as_sort, &mut map) {
+                                            return Err(Error::Parser(
+                                                ParserError::IncompatibleSorts(
+                                                    ret_sort.clone(),
+                                                    as_sort.clone(),
+                                                ),
+                                                self.current_position,
+                                            ));
+                                        }
+                                        let substitution: IndexMap<_, _> = map
+                                            .into_iter()
+                                            .map(|(var_name, sort)| {
+                                                let var = Term::Sort(Sort::Var(var_name));
+                                                let sort_t = Term::Sort(sort);
+                                                (self.pool.add(var), self.pool.add(sort_t))
+                                            })
+                                            .collect();
+                                        // if types are unifiable, create variable with sort after applying the substitution
+                                        let result = Substitution::new(self.pool, substitution)
+                                            .unwrap()
+                                            .apply(self.pool, &var_sort);
+                                        let func = self.pool.add(Term::new_var(op_symbol, result));
+                                        // now apply it to args
+                                        let args = self.parse_sequence(Self::parse_term, true)?;
+                                        return self
+                                            .make_app(func, args)
+                                            .map_err(|err| Error::Parser(err, head_pos));
+                                    }
+                                }
+                            }
+                            Err(Error::Parser(
+                                ParserError::InvalidQualifiedOp(op_symbol),
+                                self.current_position,
+                            ))
+                        }
                     }
                     _ => {
                         let func = self.parse_application()?;
