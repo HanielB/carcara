@@ -442,6 +442,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::Bool, sorts[0])?;
                 SortError::assert_all_eq(&sorts)?;
             }
+            Operator::BvPBbTerm => {
+                assert_num_args(&args, 1..)?;
+                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                SortError::assert_all_eq(&sorts)?;
+            }
             Operator::BvConst => {
                 assert_num_args(&args, 2)?;
                 SortError::assert_eq(&Sort::Int, sorts[0])?;
@@ -454,6 +459,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         return Err(ParserError::ExpectedBvSort(s.clone()));
                     }
                 }
+            }
+            Operator::Cl => {}
+            Operator::Delete => {
+                SortError::assert_eq(&Sort::Bool, sorts[0])?;
+                assert_num_args(&args, 1)?;
             }
             Operator::BvAdd
             | Operator::BvMul
@@ -1840,9 +1850,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 } else {
                     return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
                 }
-                SortError::assert_eq(&Sort::Int, &sorts[0])?;
+                SortError::assert_eq(&Sort::Int, sorts[0])?;
             }
             ParamOperator::BvBitOf
+            | ParamOperator::BvIntOf
             | ParamOperator::ZeroExtend
             | ParamOperator::SignExtend
             | ParamOperator::RotateLeft
@@ -2020,6 +2031,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     Reserved::Lambda => self.parse_binder(Binder::Lambda),
                     Reserved::Bang => self.parse_annotated_term(),
                     Reserved::Let => self.parse_let_term(),
+                    Reserved::Cl => {
+                        let args = self.parse_sequence(Self::parse_term, false)?;
+                        self.make_op(Operator::Cl, args)
+                            .map_err(|err| Error::Parser(err, head_pos))
+                    }
                     _ => Err(Error::Parser(
                         ParserError::UnexpectedToken(Token::ReservedWord(reserved)),
                         head_pos,

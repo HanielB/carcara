@@ -38,6 +38,7 @@
 pub mod ast;
 pub mod benchmarking;
 pub mod checker;
+mod drup;
 pub mod elaborator;
 mod external;
 pub mod parser;

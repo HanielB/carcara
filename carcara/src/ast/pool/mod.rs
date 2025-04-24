@@ -130,15 +130,18 @@ impl PrimitivePool {
                 | Operator::BvSLt
                 | Operator::BvSLe
                 | Operator::BvSGt
-                | Operator::BvSGe => Sort::Bool,
+                | Operator::BvSGe
+                | Operator::Cl
+                | Operator::Delete => Sort::Bool,
 
                 Operator::BvSize | Operator::UBvToInt | Operator::SBvToInt => Sort::Int,
 
-                Operator::BvNot
+                Operator::BvAdd
+                | Operator::BvSub
+                | Operator::BvNot
                 | Operator::BvNeg
                 | Operator::BvAnd
                 | Operator::BvOr
-                | Operator::BvAdd
                 | Operator::BvMul
                 | Operator::BvUDiv
                 | Operator::BvURem
@@ -148,7 +151,6 @@ impl PrimitivePool {
                 | Operator::BvNOr
                 | Operator::BvXor
                 | Operator::BvXNor
-                | Operator::BvSub
                 | Operator::BvSDiv
                 | Operator::BvSRem
                 | Operator::BvSMod
@@ -161,12 +163,11 @@ impl PrimitivePool {
                     Sort::BitVec(width)
                 }
                 Operator::BvComp => Sort::BitVec(Integer::ONE.into()),
-                Operator::BvBbTerm => Sort::BitVec(Integer::from(args.len())),
+                Operator::BvBbTerm | Operator::BvPBbTerm => Sort::BitVec(Integer::from(args.len())),
                 Operator::BvConst => {
                     let bvsize = args[1].as_integer().unwrap();
                     Sort::BitVec(bvsize)
                 }
-
                 Operator::BvConcat => {
                     let mut total_width = Integer::ZERO;
                     for arg in args {
@@ -307,13 +308,14 @@ impl PrimitivePool {
                     }
 
                     ParamOperator::BvConst => unreachable!(
-                        "bv const should be handled by the parser and transfromed into a constant"
+                        "bv const should be handled by the parser and transformed into a constant"
                     ),
                     ParamOperator::IntToBv => {
                         let bvsize = op_args[0].as_integer().unwrap();
                         Sort::BitVec(bvsize)
                     }
                     ParamOperator::BvBitOf | ParamOperator::Tester => Sort::Bool,
+                    ParamOperator::BvIntOf => Sort::Int,
                     ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
                     ParamOperator::ArrayConst => op_args[0].as_sort().unwrap().clone(),
                 };

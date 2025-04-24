@@ -57,6 +57,9 @@ pub enum CheckerError {
     Resolution(#[from] crate::resolution::ResolutionError),
 
     #[error(transparent)]
+    DrupFormatError(#[from] crate::drup::DrupFormatError),
+
+    #[error(transparent)]
     Cong(#[from] CongruenceError),
 
     #[error(transparent)]
@@ -111,6 +114,9 @@ pub enum CheckerError {
     #[error("cannot evaluate the fixed length of the term '{0}'")]
     LengthCannotBeEvaluated(Rc<Term>),
 
+    #[error("No {0}-th child in term {1}")]
+    NoIthChildInTerm(usize, Rc<Term>),
+
     // General errors
     #[error("expected {0} premises, got {1}")]
     WrongNumberOfPremises(Range, usize),
@@ -156,6 +162,9 @@ pub enum CheckerError {
 
     #[error("expected term '{0}' to be an integer constant")]
     ExpectedAnyInteger(Rc<Term>),
+
+    #[error("expected term '{0}' to be an non-negative integer constant")]
+    ExpectedNonnegInteger(Rc<Term>),
 
     #[error("expected operation term, got '{0}'")]
     ExpectedOperationTerm(Rc<Term>),
@@ -210,7 +219,7 @@ pub enum EqualityError<T: TypeName> {
 
 struct DisplayIndexedOp<'a>(&'a ParamOperator, &'a Vec<Rc<Term>>);
 
-impl<'a> fmt::Display for DisplayIndexedOp<'a> {
+impl fmt::Display for DisplayIndexedOp<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(_ {}", self.0)?;
         for a in self.1 {
@@ -359,7 +368,7 @@ pub enum SubproofError {
 /// A wrapper struct that implements `fmt::Display` for linear combinations.
 struct DisplayLinearComb<'a>(&'a Operator, &'a LinearComb);
 
-impl<'a> fmt::Display for DisplayLinearComb<'a> {
+impl fmt::Display for DisplayLinearComb<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn write_var(f: &mut fmt::Formatter, (var, coeff): (&Rc<Term>, &Rational)) -> fmt::Result {
             if *coeff == 1i32 {

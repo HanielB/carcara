@@ -67,11 +67,13 @@ pub fn and(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult 
 
     let and_term = get_premise_term(&premises[0])?;
     let and_contents = match_term_err!((and ...) = and_term)?;
+    let i = args[0].as_usize_err()?;
 
-    assert_eq(
-        &conclusion[0],
-        &and_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
-    )
+    if i >= and_contents.len() {
+        return Err(CheckerError::NoIthChildInTerm(i, and_term.clone()));
+    }
+
+    assert_eq(&conclusion[0], &and_contents[i])
 }
 
 pub fn not_or(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult {
@@ -82,11 +84,13 @@ pub fn not_or(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResu
     let or_term = get_premise_term(&premises[0])?;
     let or_contents = match_term_err!((not (or ...)) = or_term)?;
     let conclusion = conclusion[0].remove_negation_err()?;
+    let i = args[0].as_usize_err()?;
 
-    assert_eq(
-        conclusion,
-        &or_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
-    )
+    if i >= or_contents.len() {
+        return Err(CheckerError::NoIthChildInTerm(i, or_term.clone()));
+    }
+
+    assert_eq(conclusion, &or_contents[i])
 }
 
 pub fn or(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
@@ -461,13 +465,13 @@ mod tests {
             ",
             "Simple working examples" {
                 "(assume h1 (and p q))
-                (step t2 (cl q) :rule and :premises (h1))": true,
+                (step t2 (cl q) :rule and :premises (h1) :args (1))": true,
 
                 "(assume h1 (and p q r s))
-                (step t2 (cl p) :rule and :premises (h1))": true,
+                (step t2 (cl p) :rule and :premises (h1) :args (0))": true,
 
                 "(assume h1 (and p q r s))
-                (step t2 (cl s) :rule and :premises (h1))": true,
+                (step t2 (cl s) :rule and :premises (h1) :args (3))": true,
             }
             "Number of premises != 1" {
                 "(step t1 (cl p) :rule and)": false,
@@ -478,22 +482,22 @@ mod tests {
             }
             "Premise clause has more than one term" {
                 "(step t1 (cl (and p q) (and r s)) :rule hole)
-                (step t2 (cl p) :rule and :premises (t1))": false,
+                (step t2 (cl p) :rule and :premises (t1) :args (0))": false,
             }
             "Conclusion clause does not have exactly one term" {
                 "(assume h1 (and p q r s))
-                (step t2 (cl q s) :rule and :premises (h1))": false,
+                (step t2 (cl q s) :rule and :premises (h1) :args (1))": false,
 
                 "(assume h1 (and p q))
-                (step t2 (cl) :rule and :premises (h1))": false,
+                (step t2 (cl) :rule and :premises (h1) :args (0))": false,
             }
             "Premise is not an \"and\" operation" {
                 "(assume h1 (or p q r s))
-                (step t2 (cl r) :rule and :premises (h1))": false,
+                (step t2 (cl r) :rule and :premises (h1) :args (0))": false,
             }
             "Conclusion term is not in premise" {
                 "(assume h1 (and p q r))
-                (step t2 (cl s) :rule and :premises (h1))": false,
+                (step t2 (cl s) :rule and :premises (h1) :args (0))": false,
             }
         }
     }
@@ -509,28 +513,28 @@ mod tests {
             ",
             "Simple working examples" {
                 "(assume h1 (not (or p q)))
-                (step t2 (cl (not q)) :rule not_or :premises (h1))": true,
+                (step t2 (cl (not q)) :rule not_or :premises (h1) :args (1))": true,
 
                 "(assume h1 (not (or p q r s)))
-                (step t2 (cl (not p)) :rule not_or :premises (h1))": true,
+                (step t2 (cl (not p)) :rule not_or :premises (h1) :args (0))": true,
             }
             "Conclusion clause is of the wrong form" {
                 "(assume h1 (not (or p q r s)))
-                (step t2 (cl (not q) (not s)) :rule not_or :premises (h1))": false,
+                (step t2 (cl (not q) (not s)) :rule not_or :premises (h1) :args (1))": false,
 
                 "(assume h1 (not (or p q)))
-                (step t2 (cl q) :rule not_or :premises (h1))": false,
+                (step t2 (cl q) :rule not_or :premises (h1) :args (1))": false,
             }
             "Premise is of the wrong form" {
                 "(assume h1 (not (and p q r s)))
-                (step t2 (cl (not r)) :rule not_or :premises (h1))": false,
+                (step t2 (cl (not r)) :rule not_or :premises (h1) :args (2))": false,
 
                 "(assume h1 (or p q r s))
-                (step t2 (cl (not r)) :rule not_or :premises (h1))": false,
+                (step t2 (cl (not r)) :rule not_or :premises (h1) :args (2))": false,
             }
             "Conclusion term is not in premise" {
                 "(assume h1 (not (or p q r)))
-                (step t2 (cl (not s)) :rule not_or :premises (h1))": false,
+                (step t2 (cl (not s)) :rule not_or :premises (h1) :args (0))": false,
             }
         }
     }

@@ -374,6 +374,7 @@ pub enum Operator {
     UBvToInt,
     SBvToInt,
 
+    BvPBbTerm,
     BvBbTerm,
     BvConst,
     BvSize,
@@ -381,6 +382,10 @@ pub enum Operator {
     // Misc.
     /// The `rare-list` operator, used to represent RARE lists.
     RareList,
+
+    // The clausal operators
+    Cl,
+    Delete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -388,6 +393,7 @@ pub enum ParamOperator {
     // Indexed operators
     BvExtract,
     BvBitOf,
+    BvIntOf,
     ZeroExtend,
     SignExtend,
     RotateLeft,
@@ -503,18 +509,25 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
+
     UBvToInt: "ubv_to_int",
     SBvToInt: "sbv_to_int",
+
+    BvPBbTerm: "@pbbterm",
     BvBbTerm: "@bbterm",
     BvConst: "@bv",
     BvSize: "@bvsize",
 
     RareList: "rare-list",
+
+    Cl: "cl",
+    Delete: "@d"
 });
 
 impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
     BvBitOf: "@bit_of",
+    BvIntOf: "@int_of",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
     RotateLeft: "rotate_left",
@@ -682,8 +695,8 @@ impl Term {
     }
 
     /// Constructs a new bv term.
-    pub fn new_bv(value: impl Into<Integer>, widht: impl Into<Integer>) -> Self {
-        Term::Const(Constant::BitVec(value.into(), widht.into()))
+    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self {
+        Term::Const(Constant::BitVec(value.into(), width.into()))
     }
 
     /// Constructs a new variable term.
@@ -951,6 +964,16 @@ impl Rc<Term> {
     pub fn as_integer_err(&self) -> Result<Integer, CheckerError> {
         self.as_integer()
             .ok_or_else(|| CheckerError::ExpectedAnyInteger(self.clone()))
+    }
+
+    /// Similar to `Term::as_integer_err`, but also checks if non-negative.
+    pub fn as_usize_err(&self) -> Result<usize, CheckerError> {
+        if let Some(i) = self.as_integer() {
+            if i >= 0 {
+                return Ok(i.to_usize().unwrap());
+            }
+        }
+        Err(CheckerError::ExpectedNonnegInteger(self.clone()))
     }
 
     /// Similar to `Term::as_signed_number`, but returns a `CheckerError` on failure.

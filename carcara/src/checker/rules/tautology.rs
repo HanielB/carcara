@@ -36,11 +36,13 @@ pub fn and_pos(RuleArgs { conclusion, args, .. }: RuleArgs) -> RuleResult {
     assert_num_args(args, 1)?;
 
     let and_contents = match_term_err!((not (and ...)) = &conclusion[0])?;
+    let i = args[0].as_usize_err()?;
 
-    assert_eq(
-        &conclusion[1],
-        &and_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
-    )
+    if i >= and_contents.len() {
+        return Err(CheckerError::NoIthChildInTerm(i, conclusion[0].clone()));
+    }
+
+    assert_eq(&conclusion[1], &and_contents[i])
 }
 
 pub fn and_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
@@ -74,11 +76,13 @@ pub fn or_neg(RuleArgs { conclusion, args, .. }: RuleArgs) -> RuleResult {
 
     let or_contents = match_term_err!((or ...) = &conclusion[0])?;
     let other = conclusion[1].remove_negation_err()?;
+    let i = args[0].as_usize_err()?;
 
-    assert_eq(
-        other,
-        &or_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
-    )
+    if i >= or_contents.len() {
+        return Err(CheckerError::NoIthChildInTerm(i, conclusion[0].clone()));
+    }
+
+    assert_eq(other, &or_contents[i])
 }
 
 pub fn xor_pos1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
@@ -339,8 +343,8 @@ pub fn connective_def(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
         assert_eq(b, phi_2)?;
         assert_eq(c, phi_1)?;
         assert_eq(d, phi_3)
-    } else if let Some((first_bindings, first_inner)) = match_term!((exists ... f) = first) {
-        let (second_bindings, second_inner) = match_term_err!((not (forall ... (not s))) = second)?;
+    } else if let Some((first_bindings, first_inner)) = match_term!((forall ... f) = first) {
+        let (second_bindings, second_inner) = match_term_err!((not (exists ... (not s))) = second)?;
         assert_eq(first_inner, second_inner)?;
         assert_eq(first_bindings, second_bindings)
     } else {
@@ -418,8 +422,8 @@ mod tests {
                 (declare-fun s () Bool)
             ",
             "Simple working examples" {
-                "(step t1 (cl (not (and p q r)) r) :rule and_pos)": true,
-                "(step t1 (cl (not (and (or (not r) p) q)) (or (not r) p)) :rule and_pos)": true,
+                "(step t1 (cl (not (and p q r)) r) :rule and_pos :args (2))": true,
+                "(step t1 (cl (not (and (or (not r) p) q)) (or (not r) p)) :rule and_pos :args (0))": true,
             }
             "First term in clause is not of the correct form" {
                 "(step t1 (cl (and p q r) r) :rule and_pos)": false,
@@ -500,7 +504,7 @@ mod tests {
                 (declare-fun s () Bool)
             ",
             "Simple working examples" {
-                "(step t1 (cl (or p q r) (not r)) :rule or_neg)": true,
+                "(step t1 (cl (or p q r) (not r)) :rule or_neg :args (2))": true,
             }
             "First term in clause is not of the correct form" {
                 "(step t1 (cl (and p q r) (not r)) :rule or_neg)": false,
@@ -1195,15 +1199,15 @@ mod tests {
                     :rule connective_def)": false,
             }
             "Case #4" {
-                "(step t1 (cl (= (exists ((x Real)) p) (not (forall ((x Real)) (not p)))))
+                "(step t1 (cl (= (forall ((x Real)) p) (not (exists ((x Real)) (not p)))))
                     :rule connective_def)": true,
                 "(step t1 (cl (=
-                    (exists ((x Real) (y Real)) (= x y))
-                    (not (forall ((x Real) (y Real)) (not (= x y))))
+                    (forall ((x Real) (y Real)) (= x y))
+                    (not (exists ((x Real) (y Real)) (not (= x y))))
                 )) :rule connective_def)": true,
-                "(step t1 (cl (= (exists ((x Real)) p) (forall ((x Real)) (not p))))
+                "(step t1 (cl (= (forall ((x Real)) p) (exists ((x Real)) (not p))))
                     :rule connective_def)": false,
-                "(step t1 (cl (= (forall ((x Real)) p) (not (exists ((x Real)) (not p)))))
+                "(step t1 (cl (= (exists ((x Real)) p) (not (forall ((x Real)) (not p)))))
                     :rule connective_def)": false,
             }
         }
