@@ -1651,6 +1651,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             self.make_qualified_op(op, sort, Vec::new())
                                 .map_err(|err| Error::Parser(err, head_pos))
                         } else {
+                            // TODO this can be merged with an "if
+                            // let" to the if below so we have the
+                            // parser error just once?
+
+                            // if this is not a sort variable, then
+                            // the qualified operator is invalid
                             let var = self.make_var(op_symbol.clone()).map_err(|_| {
                                 Error::Parser(
                                     ParserError::InvalidQualifiedOp(op_symbol.clone()),
