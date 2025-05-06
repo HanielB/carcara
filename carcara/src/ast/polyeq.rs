@@ -496,7 +496,7 @@ impl PolyeqComparable for Rc<Term> {
 
 impl PolyeqComparable for Term {
     fn eq(comp: &mut Polyeq, a: &Self, b: &Self) -> bool {
-        let res = match (a, b) {
+        match (a, b) {
             (Term::Const(a1), Term::Const(b1)) => match (a1, b1) {
                 (Constant::Real(r1), Constant::Integer(i2)) if r1.is_integer() => {
                     r1.numer().clone() == i2.clone()
@@ -630,8 +630,7 @@ impl PolyeqComparable for Term {
                 }
                 false
             }
-        };
-        res
+        }
     }
 }
 
