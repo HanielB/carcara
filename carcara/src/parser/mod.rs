@@ -1743,7 +1743,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
         if let Some(value) = op_symbol.strip_prefix("bv") {
             let parsed_value = value.parse::<Integer>().unwrap();
             let args = self.parse_sequence(Self::parse_term, true)?;
-            let mut constant_args = Vec::new();
+            assert_num_args(&args, 1)?;
+
+            // test that they are constant and assign them to width and value
+
+            // let value = args[0].as_integer().unwrap();
+            // let width = args[1].as_integer().unwrap();
+
             for arg in args {
                 if let Some(i) = arg.as_signed_integer() {
                     constant_args.push(self.pool.add(Term::Const(Constant::Integer(i))));
@@ -1754,11 +1760,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            constant_args.insert(
-                0,
-                self.pool.add(Term::Const(Constant::Integer(parsed_value))),
-            );
-            return Ok((ParamOperator::BvConst, constant_args));
+             self.pool.add(Term::Const(Constant::Integer(parsed_value))),
+
+            return Ok(self.pool.add(Term::Const(Constant::BitVec(value, width))));
+
         }
 
         let op = ParamOperator::from_str(op_symbol.as_str()).map_err(|_| {
@@ -1795,6 +1800,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
         op_args: Vec<Rc<Term>>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
+        println!("{:?}", op);
+        println!("{:?}", op_args);
+        println!("{:?}", args);
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match &op {
@@ -1860,15 +1868,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
             | ParamOperator::RotateRight
             | ParamOperator::Repeat => {
                 assert_num_args(&op_args, 1)?;
-                assert_num_args(&args, 1)?;
+                // assert_num_args(&args, 1)?;
                 if let Term::Const(c) = op_args[0].as_ref() {
                     SortError::assert_eq(&Sort::Int, &c.sort())?;
                 } else {
                     return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
                 }
-                if !matches!(sorts[0], Sort::BitVec(_)) {
-                    return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
-                }
+                // if !matches!(sorts[0], Sort::BitVec(_)) {
+                //     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
+                // }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
             ParamOperator::RePower => {
@@ -1947,9 +1955,18 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             self.make_qualified_op(op, sort, Vec::new())
                                 .map_err(|err| Error::Parser(err, head_pos))
                         } else {
-                            let var = self
-                                .make_var(op_symbol.clone())
-                                .map_err(|err| Error::Parser(err, self.current_position))?;
+                            // TODO this can be merged with an "if
+                            // let" to the if below so we have the
+                            // parser error just once?
+
+                            // if this is not a sort variable, then
+                            // the qualified operator is invalid
+                            let var = self.make_var(op_symbol.clone()).map_err(|_| {
+                                Error::Parser(
+                                    ParserError::InvalidQualifiedOp(op_symbol.clone()),
+                                    self.current_position,
+                                )
+                            })?;
                             let var_sort = self.pool.sort(&var);
                             if var_sort.is_sort_parametric() {
                                 let sort = self.parse_sort()?;
@@ -2066,80 +2083,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Token::OpenParen => {
                 self.next_token()?;
-                match self.current_token {
-                    Token::ReservedWord(Reserved::Underscore) => {
-                        self.next_token()?;
-                        let (op, op_args) = self.parse_indexed_operator()?;
-                        let args = self.parse_sequence(Self::parse_term, true)?;
-                        self.make_indexed_op(op, op_args, args)
-                            .map_err(|err| Error::Parser(err, head_pos))
-                    }
-                    Token::ReservedWord(Reserved::As) => {
-                        self.next_token()?;
-                        let op_symbol = self.expect_symbol()?;
-                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
-                            let sort = self.parse_sort()?;
-                            self.expect_token(Token::CloseParen)?;
-                            let args = self.parse_sequence(Self::parse_term, true)?;
-                            self.make_qualified_op(op, sort, args)
-                                .map_err(|err| Error::Parser(err, head_pos))
-                        } else {
-                            let var = self
-                                .make_var(op_symbol.clone())
-                                .map_err(|err| Error::Parser(err, self.current_position))?;
-                            let var_sort = self.pool.sort(&var);
-                            if var_sort.is_sort_parametric() {
-                                if let Sort::ParamSort(_, f_sort) = var_sort.as_sort().unwrap() {
-                                    if let Sort::Function(sorts) = f_sort.as_sort().unwrap() {
-                                        let sort = self.parse_sort()?;
-                                        self.expect_token(Token::CloseParen)?;
-                                        // unify return sort with as_sort
-                                        let ret_sort_term = sorts.last().unwrap();
-                                        let ret_sort = ret_sort_term.as_sort().unwrap();
-                                        let as_sort = sort.as_sort().unwrap();
-                                        let mut map = IndexMap::<_, _>::new();
-                                        if !ret_sort.match_with(as_sort, &mut map) {
-                                            return Err(Error::Parser(
-                                                ParserError::IncompatibleSorts(
-                                                    ret_sort.clone(),
-                                                    as_sort.clone(),
-                                                ),
-                                                self.current_position,
-                                            ));
-                                        }
-                                        let substitution: IndexMap<_, _> = map
-                                            .into_iter()
-                                            .map(|(var_name, sort)| {
-                                                let var = Term::Sort(Sort::Var(var_name));
-                                                let sort_t = Term::Sort(sort);
-                                                (self.pool.add(var), self.pool.add(sort_t))
-                                            })
-                                            .collect();
-                                        // if types are unifiable, create variable with sort after applying the substitution
-                                        let result = Substitution::new(self.pool, substitution)
-                                            .unwrap()
-                                            .apply(self.pool, &var_sort);
-                                        let func = self.pool.add(Term::new_var(op_symbol, result));
-                                        // now apply it to args
-                                        let args = self.parse_sequence(Self::parse_term, true)?;
-                                        return self
-                                            .make_app(func, args)
-                                            .map_err(|err| Error::Parser(err, head_pos));
-                                    }
-                                }
-                            }
-                            Err(Error::Parser(
-                                ParserError::InvalidQualifiedOp(op_symbol),
-                                self.current_position,
-                            ))
-                        }
-                    }
-                    _ => {
-                        let func = self.parse_application()?;
-                        let args = self.parse_sequence(Self::parse_term, true)?;
-                        self.make_app(func, args)
-                            .map_err(|err| Error::Parser(err, head_pos))
-                    }
+                let func = self.parse_application()?;
+                let args = self.parse_sequence(Self::parse_term, true)?;
+                self.make_app(func, args)
+                    .map_err(|err| Error::Parser(err, head_pos))
                 }
             }
             _ => {
@@ -2154,6 +2101,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     fn make_sort(&mut self, name: String, args: Vec<Rc<Term>>) -> Result<Rc<Term>, ParserError> {
         let sort = match name.as_str() {
             "Bool" | "Int" | "Real" | "String" | "RegLan" if !args.is_empty() => {
+                panic!();
                 Err(ParserError::WrongNumberOfArgs(0.into(), args.len()))
             }
             "Bool" => Ok(Sort::Bool),
@@ -2163,11 +2111,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
             "RegLan" => Ok(Sort::RegLan),
             "Array" => match args.as_slice() {
                 [x, y] => Ok(Sort::Array(x.clone(), y.clone())),
-                _ => Err(ParserError::WrongNumberOfArgs(2.into(), args.len())),
+                _ => {panic!();
+Err(ParserError::WrongNumberOfArgs(2.into(), args.len()))},
             },
             other if self.state.sort_defs.get(other).is_some() => {
                 let def = self.state.sort_defs.get(other).unwrap();
                 return if def.params.len() != args.len() {
+                    panic!();
                     Err(ParserError::WrongNumberOfArgs(
                         def.params.len().into(),
                         args.len(),
@@ -2192,6 +2142,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             _ => {
                 if let Some(arity) = self.state.dtsort_declarations.get(&name) {
                     if *arity == args.len() {
+                    panic!();
                         Ok(Sort::Datatype(name, args))
                     } else {
                         Err(ParserError::WrongNumberOfArgs((*arity).into(), args.len()))
@@ -2203,6 +2154,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         }
                         Some(arity) if *arity == args.len() => Ok(Sort::Atom(name, args)),
                         Some(arity) => {
+                    panic!();
                             Err(ParserError::WrongNumberOfArgs((*arity).into(), args.len()))
                         }
                         None => Err(ParserError::UndefinedSort(name)),
@@ -2221,6 +2173,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         match name.as_str() {
             "BitVec" => {
                 if args.len() != 1 {
+                    panic!();
                     return Err(ParserError::WrongNumberOfArgs(1.into(), args.len()));
                 }
                 if let Some(width) = args[0].as_integer() {

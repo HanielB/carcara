@@ -252,7 +252,7 @@ impl PrimitivePool {
                                 .collect();
                             Substitution::new(self, substitution)
                                 .unwrap()
-                                .apply(self, &sorts.last().unwrap())
+                                .apply(self, sorts.last().unwrap())
                                 .as_sort()
                                 .unwrap()
                                 .clone()
