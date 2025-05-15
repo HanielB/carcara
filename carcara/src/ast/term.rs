@@ -592,12 +592,13 @@ impl From<SortedVar> for Term {
 }
 
 impl Sort {
-    // Whether this sort can be unified with another. The map argument
-    // will be a substitution of sort variables to sorts
+    // Whether this sort can be matched with another, i.e., whether we
+    // can find a substitution to the sort variables of `self` that
+    // will make it equal to `target`. The map argument will store the
+    // substitution
     pub fn match_with(&self, target: &Sort, map: &mut IndexMap<String, Sort>) -> bool {
         match (self, target) {
             (Sort::Var(a), _) => {
-                // TODO check that target is compatible with value associated to a, if any
                 match map.entry(a.to_string()) {
                     Entry::Vacant(e) => {
                         e.insert(target.clone());
@@ -612,42 +613,29 @@ impl Sort {
                 if a != b {
                     false
                 } else {
-                    let matching = sorts_a
-                        .iter()
-                        .zip(sorts_b.iter())
-                        .filter(|&(t_a, t_b)| {
-                            let s_a = t_a.as_sort().unwrap();
-                            let s_b = t_b.as_sort().unwrap();
-                            s_a.match_with(s_b, map)
-                        })
-                        .count();
-                    matching == sorts_a.len() && matching == sorts_b.len()
+                    sorts_a.iter().zip(sorts_b.iter()).all(|(t_a, t_b)| {
+                        let s_a = t_a.as_sort().unwrap();
+                        let s_b = t_b.as_sort().unwrap();
+                        s_a.match_with(s_b, map)
+                    })
                 }
             }
             (Sort::Function(sorts_a), Sort::Function(sorts_b)) => {
-                for (a_t, b_t) in sorts_a.iter().zip(sorts_b.iter()) {
+                sorts_a.iter().zip(sorts_b.iter()).all(|(a_t, b_t)| {
                     let a_s = a_t.as_sort().unwrap();
                     let b_s = b_t.as_sort().unwrap();
-                    if !a_s.match_with(b_s, map) {
-                        return false;
-                    }
-                }
-                true
+                    a_s.match_with(b_s, map)
+                })
             }
             (Sort::Datatype(a, sorts_a), Sort::Datatype(b, sorts_b)) => {
                 if a != b {
                     false
                 } else {
-                    let matching = sorts_a
-                        .iter()
-                        .zip(sorts_b.iter())
-                        .filter(|&(t_a, t_b)| {
-                            let s_a = t_a.as_sort().unwrap();
-                            let s_b = t_b.as_sort().unwrap();
-                            s_a.match_with(s_b, map)
-                        })
-                        .count();
-                    matching == sorts_a.len() && matching == sorts_b.len()
+                    sorts_a.iter().zip(sorts_b.iter()).all(|(t_a, t_b)| {
+                        let s_a = t_a.as_sort().unwrap();
+                        let s_b = t_b.as_sort().unwrap();
+                        s_a.match_with(s_b, map)
+                    })
                 }
             }
             (Sort::Bool, Sort::Bool)
