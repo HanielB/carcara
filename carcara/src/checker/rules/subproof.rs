@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 pub fn subproof(
     RuleArgs {
         conclusion,
-        pool,
         previous_command,
         discharge,
         polyeq_time,
@@ -18,8 +17,16 @@ pub fn subproof(
 ) -> RuleResult {
     let previous_command = previous_command.ok_or(CheckerError::MustBeLastStepInSubproof)?;
 
-    assert_clause_len(conclusion, discharge.len() + 1)?;
-
+    if !previous_command.clause.is_empty() {
+        assert_clause_len(conclusion, discharge.len() + 1)?;
+    } else if conclusion.len() != discharge.len() && conclusion.len() != (discharge.len() + 1) {
+        return Err(CheckerError::Explanation(format!(
+            "expected {0} or {1} terms in clause, got {2}",
+            discharge.len(),
+            (discharge.len() + 1),
+            conclusion.len()
+        )));
+    }
     for (assumption, t) in discharge.iter().zip(conclusion) {
         match assumption {
             ProofCommand::Assume { id: _, term } => {
@@ -30,21 +37,16 @@ pub fn subproof(
         }
     }
 
-    let phi = match previous_command.clause {
-        // If the last command has an empty clause as it's conclusion, we expect `phi` to be the
-        // boolean constant `false`
-        [] => pool.bool_false(),
-        [t] => t.clone(),
-        other => {
-            return Err(CheckerError::WrongLengthOfPremiseClause(
-                previous_command.id.to_owned(),
-                (..2).into(),
-                other.len(),
-            ))
-        }
-    };
-
-    assert_polyeq(conclusion.last().unwrap(), &phi, polyeq_time)
+    match previous_command.clause {
+        // If the last command has an empty clause as its conclusion, then either not given, or it must be "false"
+        [] => Ok(()),
+        [t] => assert_polyeq(conclusion.last().unwrap(), &t.clone(), polyeq_time),
+        other => Err(CheckerError::WrongLengthOfPremiseClause(
+            previous_command.id.to_owned(),
+            (..2).into(),
+            other.len(),
+        )),
+    }
 }
 
 pub fn bind(
