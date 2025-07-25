@@ -300,11 +300,31 @@ impl<'c> ProofChecker<'c> {
                 Premise::new(p, command)
             })
             .collect();
-        let discharge: Vec<_> = step
-            .discharge
-            .iter()
-            .map(|&i| iter.get_premise(i))
-            .collect();
+        // if subproof rule but discharge not given and this is not an elaborated proof, we compute it, otherwise we use what is given
+        // if subproof rule but discharge not given and this is not an elaborated proof, we compute it, otherwise we use what is given
+        let discharge: Vec<_> =
+            if step.discharge.is_empty() && step.rule == "subproof" && !self.config.elaborated {
+                // collect assumptions. Note that whether the conclusion
+                // of the subproof corresponds to the discharged
+                // assumptions is checked within the subproof checker.
+                let assumption_ids: Vec<usize> = iter
+                    .current_subproof()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, command)| command.is_assume())
+                    .map(|(i, _)| i)
+                    .collect();
+                // we set this so the test below of whether all assumptions in the subproof are discharged still makes sense
+                assumption_ids
+                    .into_iter()
+                    .map(|i| (iter.depth(), i))
+                    .collect()
+            } else {
+                step.discharge.clone()
+            };
+
+        let processed_discharge: Vec<_> = discharge.iter().map(|&i| iter.get_premise(i)).collect();
 
         let rule_args = RuleArgs {
             conclusion: &step.clause,
@@ -313,7 +333,7 @@ impl<'c> ProofChecker<'c> {
             pool: self.pool,
             context: &mut self.context,
             previous_command,
-            discharge: &discharge,
+            discharge: &processed_discharge,
             polyeq_time: &mut polyeq_time,
         };
 
@@ -321,7 +341,7 @@ impl<'c> ProofChecker<'c> {
 
         if iter.is_end_step() {
             let subproof = iter.current_subproof().unwrap();
-            Self::check_discharge(subproof, iter.depth(), &step.discharge)?;
+            Self::check_discharge(subproof, iter.depth(), &discharge)?;
         }
 
         if let Some(s) = stats {
