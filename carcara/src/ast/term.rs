@@ -682,6 +682,21 @@ impl Term {
         }
     }
 
+    /// Returns `true` if the term is a constant or an application of an operator we could reduce to
+    /// a constant
+    pub fn is_evaluatable(&self) -> bool {
+        matches!(
+            self,
+            Term::Const(_)
+                | Term::Op(Operator::Equals, _)
+                | Term::Op(Operator::Add, _)
+                | Term::Op(Operator::Sub, _)
+                | Term::Op(Operator::Mult, _)
+                | Term::Op(Operator::IntDiv, _)
+                | Term::Op(Operator::RealDiv, _)
+        )
+    }
+
     /// Returns `true` if the term is an integer or real constant.
     pub fn is_number(&self) -> bool {
         matches!(self, Term::Const(Constant::Real(_) | Constant::Integer(_)))
