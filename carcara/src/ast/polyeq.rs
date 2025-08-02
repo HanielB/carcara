@@ -36,6 +36,43 @@ fn to_concat(args: &[Rc<Term>]) -> Vec<Concat> {
         .collect()
 }
 
+#[derive(PartialEq, Debug, Clone)]
+enum EvalResult<'a> {
+    Rational(Rational),
+    Unvalue(&'a Term)
+}
+
+fn evaluate(n : &Term) -> EvalResult {
+    if let Some(r) = n.as_fraction() {
+        return EvalResult::Rational(r);
+    }
+    if let Term::Op(op, args) = n {
+        let eval_args : Vec<EvalResult> = args.iter()
+            .map(|arg| evaluate(arg))
+            .collect();
+        match op {
+            Operator::Add => {
+                let mut eval_total = Rational::new();
+                for t in eval_args {
+                    // whether the result of evaluating arg is a rational constant. If
+                    // any arg is not, we return the input
+                    if let EvalResult::Rational(r) = t {
+                        eval_total += r;
+                        continue;
+                    }
+                    return EvalResult::Unvalue(n);
+                }
+                EvalResult::Rational(eval_total)
+            },
+            _ => EvalResult::Unvalue(n)
+        }
+    }
+    else
+    {
+        EvalResult::Unvalue(n)
+    }
+}
+
 /// A trait that represents objects that can be compared for equality modulo reordering of
 /// equalities or alpha equivalence.
 pub trait PolyeqComparable {
@@ -75,7 +112,9 @@ pub fn alpha_equiv(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) -> bool {
 ///   equivalence.
 /// - If `is_mod_nary` is `true`, the comparator will compare terms modulo the expansion of
 ///   n-ary operators.
-/// - If `is_mod_string_concat` is `true`, the comparator will compare terms modulo the collection of
+/// - If `is_mod_string_concat` is `true`, the comparator will compare terms modulo string
+///   constants represented concatenations of characters
+/// - If `is_mod_eval` is `true`, the comparator will compare terms modulo constant evaluation
 ///
 /// String constants arguments in the String concatenation.
 #[derive(Default)]
@@ -84,6 +123,7 @@ pub struct PolyeqConfig {
     pub is_alpha_equivalence: bool,
     pub is_mod_nary: bool,
     pub is_mod_string_concat: bool,
+    pub is_mod_eval: bool,
 }
 
 impl PolyeqConfig {
@@ -122,6 +162,7 @@ pub struct Polyeq {
     de_bruijn_map: Option<DeBruijnMap>,
     is_mod_nary: bool,
     is_mod_string_concat: bool,
+    is_mod_eval: bool,
 
     current_depth: usize,
     max_depth: usize,
@@ -147,6 +188,7 @@ impl Polyeq {
             de_bruijn_map: config.is_alpha_equivalence.then(DeBruijnMap::new),
             is_mod_nary: config.is_mod_nary,
             is_mod_string_concat: config.is_mod_string_concat,
+            is_mod_eval: config.is_mod_eval,
             current_depth: 0,
             max_depth: 0,
         }
@@ -169,6 +211,11 @@ impl Polyeq {
 
     pub fn mod_string_concat(mut self, value: bool) -> Self {
         self.is_mod_string_concat = value;
+        self
+    }
+
+    pub fn mod_eval(mut self, value: bool) -> Self {
+        self.is_mod_eval = value;
         self
     }
 
@@ -239,6 +286,14 @@ impl Polyeq {
         op_b: Operator,
         args_b: &[Rc<Term>],
     ) -> bool {
+        // Modulo evaluation
+        // if self.is_mod_eval {
+        //    if is_eval_op(op_a)
+        //     let red_a: Vec<Concat> = to_concat(args_a);
+        //     let red_b: Vec<Concat> = to_concat(args_b);
+        //     return self.eq(&(a_1, a_2), &(b_1, b_2)) || self.eq(&(a_1, a_2), &(b_2, b_1));
+        // }
+
         // Modulo string concatenation
         if self.is_mod_string_concat {
             let concat_args_a: Vec<Concat> = to_concat(args_a);
@@ -607,6 +662,9 @@ impl PolyeqComparable for Term {
                 }
             }
             _ => {
+                if comp.is_mod_eval && a.is_evaluatable() && b.is_evaluatable() {
+                    return evaluate(a) == evaluate(b);
+                }
                 if comp.is_mod_string_concat {
                     return match (a, b) {
                         (
