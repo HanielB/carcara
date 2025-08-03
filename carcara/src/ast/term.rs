@@ -689,6 +689,8 @@ impl Term {
             self,
             Term::Const(_)
                 | Term::Op(Operator::Equals, _)
+                | Term::Op(Operator::Mod, _)
+                | Term::Op(Operator::Abs, _)
                 | Term::Op(Operator::Add, _)
                 | Term::Op(Operator::Sub, _)
                 | Term::Op(Operator::Mult, _)
