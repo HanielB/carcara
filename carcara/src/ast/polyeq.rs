@@ -38,37 +38,83 @@ fn to_concat(args: &[Rc<Term>]) -> Vec<Concat> {
 
 #[derive(PartialEq, Debug, Clone)]
 enum EvalResult<'a> {
+    Bool(bool),
     Rational(Rational),
-    Unvalue(&'a Term)
+    Unvalue(&'a Term),
 }
 
-fn evaluate(n : &Term) -> EvalResult {
+fn evaluate(n: &Term) -> EvalResult {
     if let Some(r) = n.as_fraction() {
         return EvalResult::Rational(r);
     }
+    if let Term::Op(Operator::Equals, args) = n {
+        if args[0] == args[1] {
+            return EvalResult::Bool(true);
+        }
+        return EvalResult::Unvalue(n);
+    }
     if let Term::Op(op, args) = n {
-        let eval_args : Vec<EvalResult> = args.iter()
-            .map(|arg| evaluate(arg))
-            .collect();
+        let eval_args: Vec<EvalResult> = args.iter().map(|arg| evaluate(arg)).collect();
         match op {
-            Operator::Add => {
-                let mut eval_total = Rational::new();
-                for t in eval_args {
+            Operator::Abs => match &eval_args[0] {
+                EvalResult::Rational(r) => EvalResult::Rational((-r).into()),
+                _ => eval_args[0].clone(),
+            },
+            Operator::Mod => match (&eval_args[0], &eval_args[1]) {
+                (EvalResult::Rational(r1), EvalResult::Rational(r2))
+                    if !r2.is_zero() && r1.is_integer() && r2.is_integer() =>
+                {
+                    EvalResult::Rational(
+                        (r1.clone().into_numer_denom().0)
+                            .modulo(&r2.clone().into_numer_denom().0)
+                            .into(),
+                    )
+                }
+                _ => EvalResult::Unvalue(n),
+            },
+            Operator::Add
+            | Operator::Sub
+            | Operator::Mult
+            | Operator::IntDiv
+            | Operator::RealDiv => {
+                // we use 1 for mult, 0 for addition. For the others will be 0 but set
+                // to what it should be (the initial value of the chain) below
+                let mut eval_total = match op {
+                    Operator::Mult => Rational::from(1),
+                    _ => Rational::new(),
+                };
+                for i in 0..eval_args.len() {
                     // whether the result of evaluating arg is a rational constant. If
                     // any arg is not, we return the input
-                    if let EvalResult::Rational(r) = t {
-                        eval_total += r;
+                    if let EvalResult::Rational(r) = &eval_args[i] {
+                        match op {
+                            Operator::Add => eval_total += r,
+                            Operator::Mult => eval_total *= r,
+                            Operator::Sub => {
+                                if i == 0 {
+                                    eval_total = r.clone();
+                                } else {
+                                    eval_total -= r;
+                                }
+                            }
+                            // div case
+                            _ => unreachable!(), // {
+                                                 //    if i == 0 {eval_total = r;}
+                                                 //    else {
+
+                                                 //        eval_total -= r;
+                                                 //    }
+                                                 // }
+                        };
                         continue;
                     }
                     return EvalResult::Unvalue(n);
                 }
                 EvalResult::Rational(eval_total)
-            },
-            _ => EvalResult::Unvalue(n)
+            }
+            _ => EvalResult::Unvalue(n),
         }
-    }
-    else
-    {
+    } else {
         EvalResult::Unvalue(n)
     }
 }
@@ -99,6 +145,7 @@ pub fn polyeq(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) -> bool {
 /// This function records how long it takes to run, and adds that duration to the `time` argument.
 pub fn alpha_equiv(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) -> bool {
     Polyeq::new()
+        .mod_eval(true)
         .mod_reordering(true)
         .alpha_equiv(true)
         .eq_with_time(a, b, time)
@@ -286,14 +333,6 @@ impl Polyeq {
         op_b: Operator,
         args_b: &[Rc<Term>],
     ) -> bool {
-        // Modulo evaluation
-        // if self.is_mod_eval {
-        //    if is_eval_op(op_a)
-        //     let red_a: Vec<Concat> = to_concat(args_a);
-        //     let red_b: Vec<Concat> = to_concat(args_b);
-        //     return self.eq(&(a_1, a_2), &(b_1, b_2)) || self.eq(&(a_1, a_2), &(b_2, b_1));
-        // }
-
         // Modulo string concatenation
         if self.is_mod_string_concat {
             let concat_args_a: Vec<Concat> = to_concat(args_a);
@@ -587,7 +626,11 @@ impl PolyeqComparable for Term {
             ) => op_a == op_b && op_args_a == op_args_b && comp.eq(args_a, args_b),
 
             (Term::Op(op_a, args_a), Term::Op(op_b, args_b)) => {
-                comp.compare_op(*op_a, args_a, *op_b, args_b)
+                (comp.is_mod_eval
+                    && a.is_evaluatable()
+                    && b.is_evaluatable()
+                    && evaluate(a) == evaluate(b))
+                    || comp.compare_op(*op_a, args_a, *op_b, args_b)
             }
             (Term::Sort(a), Term::Sort(b)) => comp.eq(a, b),
             (Term::Binder(q_a, binds_a, a), Term::Binder(q_b, binds_b, b)) => {
