@@ -74,11 +74,6 @@ macro_rules! match_term {
     (false = $var:expr $(, $flag:ident)?) => {
         if $var.is_bool_false() { Some(()) } else { None }
     };
-    (0 = $var:expr $(, $flag:ident)?) => {
-        if let Some(i) = $var.as_integer() {
-            if i == 0 { Some(()) } else { None }
-        } else { None }
-    };
     ("" = $var:expr $(, $flag:ident)?) => {
         if $var.is_empty_string() { Some(()) } else { None }
     };
@@ -93,6 +88,15 @@ macro_rules! match_term {
     };
     ((exists ... $args:tt) = $var:expr) => {
         if let $crate::ast::Term::Binder($crate::ast::Binder::Exists, bindings, inner) =
+            &$var as &$crate::ast::Term
+        {
+            match_term!($args = inner).and_then(|inner| Some((bindings, inner)))
+        } else {
+            None
+        }
+    };
+    ((choice ... $args:tt) = $var:expr) => {
+        if let $crate::ast::Term::Binder($crate::ast::Binder::Choice, bindings, inner) =
             &$var as &$crate::ast::Term
         {
             match_term!($args = inner).and_then(|inner| Some((bindings, inner)))
@@ -191,9 +195,16 @@ macro_rules! match_term {
     (@GET_VARIANT bvurem)   => { $crate::ast::Operator::BvURem };
     (@GET_VARIANT bvshl)    => { $crate::ast::Operator::BvShl };
     (@GET_VARIANT bvlshr)   => { $crate::ast::Operator::BvLShr };
-    (@GET_VARIANT bvslt)    => { $crate::ast::Operator::BvSLt };
-    (@GET_VARIANT bvult)    => { $crate::ast::Operator::BvULt };
     (@GET_VARIANT concat)   => { $crate::ast::Operator::BvConcat };
+
+    (@GET_VARIANT bvuge)    => { $crate::ast::Operator::BvUGe };
+    (@GET_VARIANT bvugt)    => { $crate::ast::Operator::BvUGt };
+    (@GET_VARIANT bvule)    => { $crate::ast::Operator::BvULe };
+    (@GET_VARIANT bvult)    => { $crate::ast::Operator::BvULt };
+    (@GET_VARIANT bvsge)    => { $crate::ast::Operator::BvSGe };
+    (@GET_VARIANT bvsgt)    => { $crate::ast::Operator::BvSGt };
+    (@GET_VARIANT bvsle)    => { $crate::ast::Operator::BvSLe };
+    (@GET_VARIANT bvslt)    => { $crate::ast::Operator::BvSLt };
 
     (@GET_VARIANT ubv_to_int)   => { $crate::ast::Operator::UBvToInt };
     (@GET_VARIANT sbv_to_int)   => { $crate::ast::Operator::SBvToInt };
@@ -212,6 +223,19 @@ macro_rules! match_term {
 
     (@GET_VARIANT strinre)    => { $crate::ast::Operator::StrInRe };
     (@GET_VARIANT reinter)    => { $crate::ast::Operator::ReIntersection };
+
+    // In the last case it can match a literal integer
+    ($lit:literal = $var:expr $(, $flag:ident)?) => {
+        if let Some(i) = $var.as_integer() {
+            if i == $lit {
+                Some(())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
 }
 
 /// A variant of `match_term` that returns a `Result<_, CheckerError>` instead of an `Option`.
@@ -253,7 +277,18 @@ macro_rules! match_term_err {
 macro_rules! build_term {
     ($pool:expr, true) => { $pool.bool_true() };
     ($pool:expr, false) => { $pool.bool_false() };
-    ($pool:expr, $int:literal) => { $pool.add(Term::Const($crate::ast::Constant::Integer($int.into()))) };
+    ($pool:expr, (let $name:ident $sort:ident)) => {{
+        let sort = $pool.add($crate::ast::Term::Sort($crate::ast::Sort::$sort));
+        $pool.add($crate::ast::Term::new_var(stringify!($name), sort))
+    }};
+    ($pool:expr, (choice (($z:literal $sort:ident)) $arg:tt)) => {{
+        let sort = $pool.add($crate::ast::Term::Sort($crate::ast::Sort::$sort));
+        let bindings = $crate::ast::BindingList(vec![($z.into(), sort)]);
+        let body = build_term!($pool, $arg);
+        $pool.add(Term::Binder(Binder::Choice, bindings, body))
+    }};
+    ($pool:expr, $int:literal) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($int.into()))) };
+    ($pool:expr, (const $name:ident)) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($name.clone()))) };
     ($pool:expr, {$terminal:expr}) => { $terminal };
     ($pool:expr, ((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+)) => {{
         let term = $crate::ast::Term::ParamOp {
