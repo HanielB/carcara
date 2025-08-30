@@ -170,12 +170,6 @@ impl PrintWithSharing for Operator {
     }
 }
 
-impl PrintWithSharing for ParamOperator {
-    fn print_with_sharing(&self, p: &mut AlethePrinter) -> io::Result<()> {
-        write!(p.inner, "{}", self)
-    }
-}
-
 struct AlethePrinter<'a> {
     pool: &'a mut PrimitivePool,
     inner: &'a mut dyn io::Write,

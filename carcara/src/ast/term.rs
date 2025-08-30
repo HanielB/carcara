@@ -30,20 +30,6 @@ pub enum Term {
 
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
-
-    /// A parameterized operation term, that is, an operation term whose operator receives extra
-    /// parameters.
-    ///
-    /// This can be either:
-    /// - An `indexed` operation term, that uses an indexed operator denoted by the `(_ ...)`
-    ///   syntax. In this case, the operator parameters must be constants.
-    /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
-    ///   syntax. In this case, the single operator parameter must be a sort.
-    ParamOp {
-        op: ParamOperator,
-        op_args: Vec<Rc<Term>>,
-        args: Vec<Rc<Term>>,
-    },
 }
 
 /// The sort of a term.
@@ -326,6 +312,9 @@ pub enum Operator {
     /// The `re.range` operator.
     ReRange,
 
+    RePower,
+    ReLoop,
+
     // BV operators (unary)
     BvNot,
     BvNeg,
@@ -366,21 +355,9 @@ pub enum Operator {
 
     BvPBbTerm,
     BvBbTerm,
-    BvConst,
+    BvConstV,
     BvSize,
 
-    // Misc.
-    /// The `rare-list` operator, used to represent RARE lists.
-    RareList,
-
-    // The clausal operators
-    Cl,
-    Delete,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ParamOperator {
-    // Indexed operators
     BvExtract,
     BvBitOf,
     BvIntOf,
@@ -393,11 +370,16 @@ pub enum ParamOperator {
 
     IntToBv,
 
-    RePower,
-    ReLoop,
-
     // Qualified operators
     ArrayConst,
+
+    // Misc.
+    /// The `rare-list` operator, used to represent RARE lists.
+    RareList,
+
+    // The clausal operators
+    Cl,
+    Delete,
 }
 
 impl_str_conversion_traits!(Operator {
@@ -505,13 +487,6 @@ impl_str_conversion_traits!(Operator {
     BvConst: "@bv",
     BvSize: "@bvsize",
 
-    RareList: "rare-list",
-
-    Cl: "cl",
-    Delete: "@d"
-});
-
-impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
     BvBitOf: "@bit_of",
     BvIntOf: "@int_of",
@@ -520,7 +495,7 @@ impl_str_conversion_traits!(ParamOperator {
     RotateLeft: "rotate_left",
     RotateRight: "rotate_right",
     Repeat: "repeat",
-    BvConst: "bv",
+    BvConstV: "bv",
 
     IntToBv: "int_to_bv",
 
@@ -528,6 +503,11 @@ impl_str_conversion_traits!(ParamOperator {
     ReLoop: "re.loop",
 
     ArrayConst: "const",
+
+    RareList: "rare-list",
+
+    Cl: "cl",
+    Delete: "@d"
 });
 
 impl std::ops::Not for Binder {
@@ -576,6 +556,22 @@ impl From<SortedVar> for Term {
     }
 }
 
+impl Operator {
+    pub fn is_parametric(&self) -> bool {
+matches!(self, Operator::RePower | Operator::ReLoop | 
+     Operator::BvExtract | 
+     Operator::BvBitOf | 
+     Operator::BvIntOf | 
+    Operator::ZeroExtend | 
+    Operator::SignExtend | 
+    Operator::RotateLeft | 
+    Operator::RotateRight | 
+    Operator::Repeat | 
+    Operator::BvConst | 
+    Operator::IntToBv | 
+    Operator::ArrayConst  )
+    }
+}
 impl Sort {
     // Whether this sort can be matched with another, i.e., whether we
     // can find a substitution to the sort variables of `self` that

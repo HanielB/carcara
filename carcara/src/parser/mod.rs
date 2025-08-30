@@ -1482,7 +1482,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(inner)
     }
 
-    fn parse_indexed_operator(&mut self) -> CarcaraResult<(ParamOperator, Vec<Rc<Term>>)> {
+    fn parse_indexed_operator(&mut self) -> CarcaraResult<(Operator, Vec<Rc<Term>>)> {
         let op_symbol = self.expect_symbol()?;
 
         if let Some(value) = op_symbol.strip_prefix("bv") {
@@ -1503,10 +1503,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 0,
                 self.pool.add(Term::Const(Constant::Integer(parsed_value))),
             );
-            return Ok((ParamOperator::BvConst, constant_args));
+            return Ok((Operator::BvConstV, constant_args));
         }
 
-        let op = ParamOperator::from_str(op_symbol.as_str()).map_err(|_| {
+
+        let op = Operator::from_str(op_symbol.as_str()).map_err(|_| {
             Error::Parser(
                 ParserError::InvalidIndexedOp(op_symbol),
                 self.current_position,
@@ -1530,14 +1531,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
     /// Constructs, check operation arguments and sort checks an indexed operation term.
     fn make_indexed_op(
         &mut self,
-        op: ParamOperator,
+        op: Operator,
         op_args: Vec<Rc<Term>>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match &op {
-            ParamOperator::BvConst => {
+            Operator::BvConstV => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 0)?;
                 let value = op_args[0].as_integer().unwrap();
@@ -1546,7 +1547,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_indexed_op_args_value(&[op_args[1].clone()], 1..)?;
                 return Ok(self.pool.add(Term::Const(Constant::BitVec(value, width))));
             }
-            ParamOperator::BvExtract => {
+            Operator::BvExtract => {
                 /*
                 ((_ extract i j) (_ BitVec m) (_ BitVec n))
 
@@ -1581,7 +1582,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            ParamOperator::IntToBv => {
+            Operator::IntToBv => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 if let Term::Const(c) = op_args[0].as_ref() {
@@ -1591,13 +1592,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 SortError::assert_eq(&Sort::Int, sorts[0])?;
             }
-            ParamOperator::BvBitOf
-            | ParamOperator::BvIntOf
-            | ParamOperator::ZeroExtend
-            | ParamOperator::SignExtend
-            | ParamOperator::RotateLeft
-            | ParamOperator::RotateRight
-            | ParamOperator::Repeat => {
+            Operator::BvBitOf
+            | Operator::BvIntOf
+            | Operator::ZeroExtend
+            | Operator::SignExtend
+            | Operator::RotateLeft
+            | Operator::RotateRight
+            | Operator::Repeat => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 if let Term::Const(c) = op_args[0].as_ref() {
@@ -1610,7 +1611,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            ParamOperator::RePower => {
+            Operator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 if let Term::Const(c) = op_args[0].as_ref() {
@@ -1621,7 +1622,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            ParamOperator::ReLoop => {
+            Operator::ReLoop => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 1)?;
                 for arg in &op_args {
@@ -1634,22 +1635,22 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            ParamOperator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
+            Operator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
         }
-        Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
+        Ok(self.pool.add(Term::Op(op, op_args.into_iter().chain(args.into_iter()).collect())))
     }
 
     /// Constructs and sort checks a qualified operation term
     fn make_qualified_op(
         &mut self,
-        op: ParamOperator,
+        op: Operator,
         op_sort: Rc<Term>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match &op {
-            ParamOperator::ArrayConst => {
+            Operator::ArrayConst => {
                 assert_num_args(&args, 1)?;
                 SortError::assert_array_sort(
                     self.pool,
@@ -1661,7 +1662,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             _ => return Err(ParserError::InvalidQualifiedOp(op.to_string())),
         }
         let op_args = vec![op_sort];
-        Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
+        Ok(self.pool.add(Term::Op(op, op_args.into_iter().chain(args.into_iter()).collect()))
     }
 
     /// Parses any term that starts with `(`, that is, any term that is not a constant or a
@@ -1674,7 +1675,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 match reserved {
                     Reserved::Underscore => {
                         let (op, op_args) = self.parse_indexed_operator()?;
-                        self.make_indexed_op(op, op_args, Vec::new())
+                        self.make_indexed_op(op, args, Vec::new())
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Reserved::As => {
@@ -1762,7 +1763,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Token::ReservedWord(Reserved::As) => {
-                        println!("got here5");
+                        // println!("got here5");
                         self.next_token()?;
                         let op_symbol = self.expect_symbol()?;
                         if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {

@@ -196,18 +196,6 @@ pub enum EqualityError<T: TypeName> {
     ExpectedToBe { expected: T, got: T },
 }
 
-struct DisplayIndexedOp<'a>(&'a ParamOperator, &'a Vec<Rc<Term>>);
-
-impl fmt::Display for DisplayIndexedOp<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(_ {}", self.0)?;
-        for a in self.1 {
-            write!(f, " {}", a)?;
-        }
-        write!(f, ")")
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum CongruenceError {
     #[error("too many premises")]
@@ -236,15 +224,6 @@ pub enum CongruenceError {
 
     #[error("term is not an application or operation: '{0}'")]
     NotApplicationOrOperation(Rc<Term>),
-
-    #[error(
-        "indexed operators don't match: '{}' and '{}'",
-        DisplayIndexedOp(&(.0).0, &(.0).1), DisplayIndexedOp(&(.1).0, &(.1).1)
-    )]
-    DifferentIndexedOperators(
-        (ParamOperator, Vec<Rc<Term>>),
-        (ParamOperator, Vec<Rc<Term>>),
-    ),
 }
 
 /// Errors relevant to the rules dealing with quantifiers.

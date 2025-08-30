@@ -178,10 +178,10 @@ macro_rules! match_term {
     (@GET_VARIANT delete)    => { $crate::ast::Operator::Delete };
 
     (@GET_VARIANT pbbterm)  => { $crate::ast::Operator::BvPBbTerm };
-    (@GET_VARIANT int_of)      => { $crate::ast::ParamOperator::BvIntOf };
+    (@GET_VARIANT int_of)      => { $crate::ast::Operator::BvIntOf };
 
     (@GET_VARIANT bbterm)      => { $crate::ast::Operator::BvBbTerm };
-    (@GET_VARIANT bit_of)      => { $crate::ast::ParamOperator::BvBitOf };
+    (@GET_VARIANT bit_of)      => { $crate::ast::Operator::BvBitOf };
     (@GET_VARIANT bvnot)    => { $crate::ast::Operator::BvNot };
     (@GET_VARIANT bvneg)    => { $crate::ast::Operator::BvNeg };
     (@GET_VARIANT bvand)    => { $crate::ast::Operator::BvAnd };
@@ -208,14 +208,14 @@ macro_rules! match_term {
 
     (@GET_VARIANT ubv_to_int)   => { $crate::ast::Operator::UBvToInt };
     (@GET_VARIANT sbv_to_int)   => { $crate::ast::Operator::SBvToInt };
-    (@GET_VARIANT int_to_bv)   => { $crate::ast::ParamOperator::IntToBv };
+    (@GET_VARIANT int_to_bv)   => { $crate::ast::Operator::IntToBv };
 
-    (@GET_VARIANT extract)     => { $crate::ast::ParamOperator::BvExtract };
-    (@GET_VARIANT zero_extend) => { $crate::ast::ParamOperator::ZeroExtend };
-    (@GET_VARIANT sign_extend) => { $crate::ast::ParamOperator::SignExtend };
-    (@GET_VARIANT rotate_left) => { $crate::ast::ParamOperator::RotateLeft };
-    (@GET_VARIANT rotate_right) => { $crate::ast::ParamOperator::RotateRight };
-    (@GET_VARIANT repeat) => { $crate::ast::ParamOperator::Repeat };
+    (@GET_VARIANT extract)     => { $crate::ast::Operator::BvExtract };
+    (@GET_VARIANT zero_extend) => { $crate::ast::Operator::ZeroExtend };
+    (@GET_VARIANT sign_extend) => { $crate::ast::Operator::SignExtend };
+    (@GET_VARIANT rotate_left) => { $crate::ast::Operator::RotateLeft };
+    (@GET_VARIANT rotate_right) => { $crate::ast::Operator::RotateRight };
+    (@GET_VARIANT repeat) => { $crate::ast::Operator::Repeat };
 
     (@GET_VARIANT strconcat) => { $crate::ast::Operator::StrConcat };
     (@GET_VARIANT strsubstr) => { $crate::ast::Operator::Substring };

@@ -4,7 +4,7 @@ pub mod advanced;
 mod storage;
 
 use super::{Binder, Operator, Rc, Sort, Substitution, Term};
-use crate::ast::{Constant, ParamOperator};
+use crate::ast::Constant;
 use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
 use storage::Storage;

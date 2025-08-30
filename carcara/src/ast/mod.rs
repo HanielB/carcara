@@ -28,7 +28,7 @@ pub use problem::*;
 pub use proof::*;
 pub use rc::Rc;
 pub use substitution::{Substitution, SubstitutionError};
-pub use term::{Binder, BindingList, Constant, Operator, ParamOperator, Sort, SortedVar, Term};
+pub use term::{Binder, BindingList, Constant, Operator, Sort, SortedVar, Term};
 
 #[cfg(test)]
 pub(crate) use node::compare_nodes;
