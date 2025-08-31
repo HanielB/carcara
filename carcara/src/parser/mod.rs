@@ -1506,13 +1506,18 @@ impl<'a, R: BufRead> Parser<'a, R> {
             return Ok((Operator::BvConstV, constant_args));
         }
 
-
         let op = Operator::from_str(op_symbol.as_str()).map_err(|_| {
             Error::Parser(
                 ParserError::InvalidIndexedOp(op_symbol),
                 self.current_position,
             )
         })?;
+        if !op.is_parametric() {
+            return Error::Parser(
+                ParserError::InvalidIndexedOp(op_symbol),
+                self.current_position,
+            );
+        }
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
         for arg in args {
@@ -1637,7 +1642,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
         }
-        Ok(self.pool.add(Term::Op(op, op_args.into_iter().chain(args.into_iter()).collect())))
+        Ok(self.pool.add(Term::Op(
+            op,
+            op_args.into_iter().chain(args.into_iter()).collect(),
+        )))
     }
 
     /// Constructs and sort checks a qualified operation term
@@ -1662,7 +1670,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
             _ => return Err(ParserError::InvalidQualifiedOp(op.to_string())),
         }
         let op_args = vec![op_sort];
-        Ok(self.pool.add(Term::Op(op, op_args.into_iter().chain(args.into_iter()).collect()))
+        Ok(self.pool.add(Term::Op(
+            op,
+            op_args.into_iter().chain(args.into_iter()).collect(),
+        )))
     }
 
     /// Parses any term that starts with `(`, that is, any term that is not a constant or a
@@ -1680,7 +1691,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     }
                     Reserved::As => {
                         let op_symbol = self.expect_symbol()?;
-                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
+                        if let Ok(op) = Operator::from_str(op_symbol.as_str()) {
                             let sort = self.parse_sort()?;
                             self.expect_token(Token::CloseParen)?;
                             self.make_qualified_op(op, sort, Vec::new())
@@ -1766,7 +1777,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         // println!("got here5");
                         self.next_token()?;
                         let op_symbol = self.expect_symbol()?;
-                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
+                        if let Ok(op) = Operator::from_str(op_symbol.as_str()) {
                             let sort = self.parse_sort()?;
                             self.expect_token(Token::CloseParen)?;
                             let args = self.parse_sequence(Self::parse_term, true)?;

@@ -558,18 +558,22 @@ impl From<SortedVar> for Term {
 
 impl Operator {
     pub fn is_parametric(&self) -> bool {
-matches!(self, Operator::RePower | Operator::ReLoop | 
-     Operator::BvExtract | 
-     Operator::BvBitOf | 
-     Operator::BvIntOf | 
-    Operator::ZeroExtend | 
-    Operator::SignExtend | 
-    Operator::RotateLeft | 
-    Operator::RotateRight | 
-    Operator::Repeat | 
-    Operator::BvConst | 
-    Operator::IntToBv | 
-    Operator::ArrayConst  )
+        matches!(
+            self,
+            Operator::RePower
+                | Operator::ReLoop
+                | Operator::BvExtract
+                | Operator::BvBitOf
+                | Operator::BvIntOf
+                | Operator::ZeroExtend
+                | Operator::SignExtend
+                | Operator::RotateLeft
+                | Operator::RotateRight
+                | Operator::Repeat
+                | Operator::BvConst
+                | Operator::IntToBv
+                | Operator::ArrayConst
+        )
     }
 }
 impl Sort {

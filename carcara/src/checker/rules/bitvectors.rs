@@ -10,9 +10,12 @@ fn build_term_vec(term: &Rc<Term>, size: usize, pool: &mut dyn TermPool) -> Vec<
         args_x.to_vec()
     } else {
         (0..size)
-            .map(|i|
-                pool.add(Term::Op(Operator::BvBitOf, vec![pool.add(Term::new_int(i)), term.clone()]))
-            )
+            .map(|i| {
+                pool.add(Term::Op(
+                    Operator::BvBitOf,
+                    vec![pool.add(Term::new_int(i)), term.clone()],
+                ))
+            })
             .collect()
     };
     term
@@ -100,7 +103,10 @@ pub fn extract(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     }
 
     for arg in right {
-        let expected_arg = Term::Op(Operator::BvBitOf, vec![pool.add(Term::new_int(index.clone())), left_x.clone()]);
+        let expected_arg = Term::Op(
+            Operator::BvBitOf,
+            vec![pool.add(Term::new_int(index.clone())), left_x.clone()],
+        );
         let new_arg = pool.add(expected_arg);
         assert_eq(&new_arg, arg)?;
         index += 1;
