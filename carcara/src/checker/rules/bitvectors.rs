@@ -11,10 +11,8 @@ fn build_term_vec(term: &Rc<Term>, size: usize, pool: &mut dyn TermPool) -> Vec<
     } else {
         (0..size)
             .map(|i| {
-                pool.add(Term::Op(
-                    Operator::BvBitOf,
-                    vec![pool.add(Term::new_int(i)), term.clone()],
-                ))
+                let i = pool.add(Term::new_int(i));
+                pool.add(Term::Op(Operator::BvBitOf, vec![i, term.clone()]))
             })
             .collect()
     };
@@ -87,7 +85,7 @@ pub fn add(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 
 pub fn extract(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
-    let (((_, left_j), left_x), right) =
+    let ((_, left_j, left_x), right) =
         match_term_err!((= (extract i j x) (bbterm ...)) = &conclusion[0])?;
 
     let left_j = left_j.as_integer().unwrap();

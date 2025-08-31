@@ -1508,15 +1508,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
         let op = Operator::from_str(op_symbol.as_str()).map_err(|_| {
             Error::Parser(
-                ParserError::InvalidIndexedOp(op_symbol),
+                ParserError::InvalidIndexedOp(op_symbol.clone()),
                 self.current_position,
             )
         })?;
         if !op.is_parametric() {
-            return Error::Parser(
+            return Err(Error::Parser(
                 ParserError::InvalidIndexedOp(op_symbol),
                 self.current_position,
-            );
+            ));
         }
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
@@ -1686,7 +1686,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 match reserved {
                     Reserved::Underscore => {
                         let (op, op_args) = self.parse_indexed_operator()?;
-                        self.make_indexed_op(op, args, Vec::new())
+                        self.make_indexed_op(op, op_args, Vec::new())
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Reserved::As => {

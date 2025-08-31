@@ -444,7 +444,7 @@ fn get_bitvector_terms(bv: &Rc<Term>, pool: &mut dyn TermPool) -> Vec<Rc<Term>> 
             .map(|i| {
                 build_term!(
                     pool,
-                    ((_ int_of { pool.add(Term::new_int(i)) }) { bv.clone() })
+                    (int_of { pool.add(Term::new_int(i)) } { bv.clone() })
                 )
             })
             .collect()
