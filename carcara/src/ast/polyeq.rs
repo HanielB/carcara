@@ -518,18 +518,6 @@ impl PolyeqComparable for Term {
             (Term::App(f_a, args_a), Term::App(f_b, args_b)) => {
                 comp.eq(f_a, f_b) && comp.eq(args_a, args_b)
             }
-            (
-                Term::ParamOp {
-                    op: op_a,
-                    op_args: op_args_a,
-                    args: args_a,
-                },
-                Term::ParamOp {
-                    op: op_b,
-                    op_args: op_args_b,
-                    args: args_b,
-                },
-            ) => op_a == op_b && op_args_a == op_args_b && comp.eq(args_a, args_b),
 
             (Term::Op(op_a, args_a), Term::Op(op_b, args_b)) => {
                 comp.compare_op(*op_a, args_a, *op_b, args_b)

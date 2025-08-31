@@ -39,12 +39,12 @@ fn check_pbblast_sum(
 
     for (i, element) in sum.iter().enumerate() {
         // Try to match (* c ((_ @int_of idx) bv))
-        let (c, idx, bv) = match match_term!((* c ((_ int_of idx) bv)) = element) {
+        let (c, idx, bv) = match match_term!((* c (int_of idx bv)) = element) {
             Some((c, (idx, bv))) => (c.as_integer_err()?, idx, bv),
             None => {
                 if i == 0 {
                     // For i==0, allow the coefficient to be omitted (defaulting to 1)
-                    match match_term!(((_ int_of idx) bitvector) = element) {
+                    match match_term!((int_of idx bitvector) = element) {
                         Some((idx, bv)) => (Integer::from(1), idx, bv),
                         None => {
                             return Err(CheckerError::Explanation(
@@ -237,7 +237,7 @@ fn check_pbblast_signed_relation(n: usize, sign: &Rc<Term>, bitvector: &Rc<Term>
     }
 
     // Check the signs
-    let (coeff, (idx, bv)) = match_term_err!((* coeff ((_ int_of idx) bv)) = sign)?;
+    let (coeff, (idx, bv)) = match_term_err!((* coeff (int_of idx bv)) = sign)?;
     let coeff = coeff.as_integer_err()?;
     let idx = idx.as_integer_err()?;
 
@@ -352,7 +352,7 @@ pub fn pbblast_pbbvar(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     let (x, pbs) = match_term_err!((= x (pbbterm ...)) = &conclusion[0])?;
 
     for (i, pb) in pbs.iter().enumerate() {
-        let (idx, bv) = match_term_err!(((_ int_of idx) bv) = pb)?;
+        let (idx, bv) = match_term_err!((int_of idx bv) = pb)?;
 
         // Convert the index term to an integer.
         let idx: Integer = idx.as_integer_err()?;

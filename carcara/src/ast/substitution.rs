@@ -224,14 +224,6 @@ impl Substitution {
                 pool.add(Term::Let(new_bindings, new_term))
             }
             Term::Const(_) | Term::Var(..) => term.clone(),
-            Term::ParamOp { op, op_args, args } => {
-                let new_args = apply_to_sequence!(args);
-                pool.add(Term::ParamOp {
-                    op: *op,
-                    op_args: op_args.clone(),
-                    args: new_args,
-                })
-            }
             Term::Sort(Sort::Atom(sort, args)) => {
                 let new_args = apply_to_sequence!(args);
                 pool.add(Term::Sort(Sort::Atom(sort.clone(), new_args)))

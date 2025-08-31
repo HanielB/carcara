@@ -207,6 +207,44 @@ impl PrimitivePool {
                 | Operator::ReOption
                 | Operator::ReRange => Sort::RegLan,
                 Operator::RareList => Sort::RareList,
+
+                Operator::BvExtract => {
+                    let i = args[0].as_integer().unwrap();
+                    let j = args[1].as_integer().unwrap();
+                    Sort::BitVec(i - j + Integer::ONE)
+                }
+                Operator::ZeroExtend | Operator::SignExtend => {
+                    let extension_width = args[0].as_integer().unwrap();
+                    let Sort::BitVec(bv_width) =
+                        self.compute_sort(&args[1]).as_sort().unwrap().clone()
+                    else {
+                        unreachable!()
+                    };
+                    Sort::BitVec(extension_width + bv_width)
+                }
+                Operator::RotateLeft | Operator::RotateRight => {
+                    self.compute_sort(&args[1]).as_sort().unwrap().clone()
+                }
+                Operator::Repeat => {
+                    let repetitions = args[0].as_integer().unwrap();
+                    let Sort::BitVec(bv_width) =
+                        self.compute_sort(&args[1]).as_sort().unwrap().clone()
+                    else {
+                        unreachable!()
+                    };
+                    Sort::BitVec(repetitions * bv_width)
+                }
+                Operator::BvConstV => unreachable!(
+                    "bv const should be handled by the parser and transformed into a constant"
+                ),
+                Operator::IntToBv => {
+                    let bvsize = args[0].as_integer().unwrap();
+                    Sort::BitVec(bvsize)
+                }
+                Operator::BvBitOf => Sort::Bool,
+                Operator::BvIntOf => Sort::Int,
+                Operator::RePower | Operator::ReLoop => Sort::RegLan,
+                Operator::ArrayConst => args[0].as_sort().unwrap().clone(),
             },
             Term::App(f, args) => {
                 match self.compute_sort(f).as_sort().unwrap() {
@@ -255,49 +293,6 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
-            Term::ParamOp { op, op_args, args } => {
-                let sort = match op {
-                    ParamOperator::BvExtract => {
-                        let i = op_args[0].as_integer().unwrap();
-                        let j = op_args[1].as_integer().unwrap();
-                        Sort::BitVec(i - j + Integer::ONE)
-                    }
-                    ParamOperator::ZeroExtend | ParamOperator::SignExtend => {
-                        let extension_width = op_args[0].as_integer().unwrap();
-                        let Sort::BitVec(bv_width) =
-                            self.compute_sort(&args[0]).as_sort().unwrap().clone()
-                        else {
-                            unreachable!()
-                        };
-                        Sort::BitVec(extension_width + bv_width)
-                    }
-                    ParamOperator::RotateLeft | ParamOperator::RotateRight => {
-                        self.compute_sort(&args[0]).as_sort().unwrap().clone()
-                    }
-                    ParamOperator::Repeat => {
-                        let repetitions = op_args[0].as_integer().unwrap();
-                        let Sort::BitVec(bv_width) =
-                            self.compute_sort(&args[0]).as_sort().unwrap().clone()
-                        else {
-                            unreachable!()
-                        };
-                        Sort::BitVec(repetitions * bv_width)
-                    }
-
-                    ParamOperator::BvConst => unreachable!(
-                        "bv const should be handled by the parser and transformed into a constant"
-                    ),
-                    ParamOperator::IntToBv => {
-                        let bvsize = op_args[0].as_integer().unwrap();
-                        Sort::BitVec(bvsize)
-                    }
-                    ParamOperator::BvBitOf => Sort::Bool,
-                    ParamOperator::BvIntOf => Sort::Int,
-                    ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
-                    ParamOperator::ArrayConst => op_args[0].as_sort().unwrap().clone(),
-                };
-                sort
-            }
         };
         let sort = self.storage.add(Term::Sort(result));
         self.sorts_cache.insert(term.clone(), sort);
@@ -385,13 +380,6 @@ impl PrimitivePool {
                 set
             }
             Term::Const(_) | Term::Sort(_) => IndexSet::new(),
-            Term::ParamOp { op: _, op_args: _, args } => {
-                let mut set = IndexSet::new();
-                for a in args {
-                    set.extend(self.free_vars_with_priorities(a, prior_pools).into_iter());
-                }
-                set
-            }
         };
         self.free_vars_cache.insert(term.clone(), set);
         self.free_vars_cache.get(term).unwrap().clone()

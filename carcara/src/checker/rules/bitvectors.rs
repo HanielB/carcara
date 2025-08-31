@@ -88,7 +88,7 @@ pub fn add(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 pub fn extract(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (((_, left_j), left_x), right) =
-        match_term_err!((= ((_ extract i j) x) (bbterm ...)) = &conclusion[0])?;
+        match_term_err!((= (extract i j x) (bbterm ...)) = &conclusion[0])?;
 
     let left_j = left_j.as_integer().unwrap();
     let mut index = left_j;

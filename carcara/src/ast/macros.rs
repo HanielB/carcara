@@ -105,21 +105,6 @@ macro_rules! match_term {
         }
     };
     ($bind:ident = $var:expr) => { Some($var) };
-    (((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+) = $var:expr) => {{
-        if let $crate::ast::Term::ParamOp {
-            op: match_term!(@GET_VARIANT $indexed_op),
-            op_args,
-            args,
-        } = &$var as &$crate::ast::Term {
-            match_term!(@ARGS ($($op_args)+) = op_args.as_slice()).and_then(|op_args| {
-                match_term!(@ARGS ($($args)+) = args.as_slice()).map(|args| {
-                    (op_args, args)
-                })
-            })
-        } else {
-            None
-        }
-    }};
     (($op:tt $($args:tt)+) = $var:expr) => {{
         if let $crate::ast::Term::Op(match_term!(@GET_VARIANT $op), args) =
             &$var as &$crate::ast::Term
@@ -290,14 +275,6 @@ macro_rules! build_term {
     ($pool:expr, $int:literal) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($int.into()))) };
     ($pool:expr, (const $name:ident)) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($name.clone()))) };
     ($pool:expr, {$terminal:expr}) => { $terminal };
-    ($pool:expr, ((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+)) => {{
-        let term = $crate::ast::Term::ParamOp {
-            op: match_term!(@GET_VARIANT $indexed_op),
-            op_args: vec![ $(build_term!($pool, $op_args)),+ ],
-            args: vec![ $(build_term!($pool, $args)),+ ],
-        };
-        $pool.add(term)
-    }};
     ($pool:expr, ($op:tt [$arg:expr])) => {{
         let term = $crate::ast::Term::Op(
             match_term!(@GET_VARIANT $op),
@@ -419,24 +396,23 @@ mod tests {
 
         let term = parse_term(&mut p, "((_ extract 3 1) (_ bv0 5))");
         let ((i, j), b): ((&Rc<Term>, &Rc<Term>), &Rc<Term>) =
-            match_term!(((_ extract i j) b) = term).unwrap();
+            match_term!((extract i j b) = term).unwrap();
         assert_eq!(3, i.as_integer().unwrap());
         assert_eq!(1, j.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), **b);
 
         let term = parse_term(&mut p, "((_ @bit_of 2) (_ bv0 5))");
-        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!(((_ bit_of i) ...) = term).unwrap();
+        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!((bit_of i ...) = term).unwrap();
         assert_eq!(2, i.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
 
         let term = parse_term(&mut p, "((_ @int_of 2) (_ bv0 5))");
-        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!(((_ int_of i) ...) = term).unwrap();
+        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!((int_of i ...) = term).unwrap();
         assert_eq!(2, i.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
 
         let term = parse_term(&mut p, "((_ zero_extend 3) (_ bv0 5))");
-        let (i, b): (&[Rc<Term>], &[Rc<Term>]) =
-            match_term!(((_ zero_extend ...) ...) = term).unwrap();
+        let (i, b): (&[Rc<Term>], &[Rc<Term>]) = match_term!((zero_extend ... ...) = term).unwrap();
         assert_eq!(3, i[0].as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
     }

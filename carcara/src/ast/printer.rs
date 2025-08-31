@@ -348,17 +348,6 @@ impl<'a> AlethePrinter<'a> {
                 term.print_with_sharing(self)?;
                 write!(self.inner, ")")
             }
-            Term::ParamOp { op, op_args, args } => {
-                if !args.is_empty() {
-                    write!(self.inner, "(")?;
-                }
-                write!(self.inner, "(_ {}", op)?;
-                self.write_s_expr_tail(op_args)?;
-                if !args.is_empty() {
-                    self.write_s_expr_tail(args)?;
-                }
-                Ok(())
-            }
         }
     }
 
