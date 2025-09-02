@@ -395,7 +395,7 @@ mod tests {
         }
 
         let term = parse_term(&mut p, "((_ extract 3 1) (_ bv0 5))");
-        let ((i, j), b): ((&Rc<Term>, &Rc<Term>), &Rc<Term>) =
+        let (i, j, b): (&Rc<Term>, &Rc<Term>, &Rc<Term>) =
             match_term!((extract i j b) = term).unwrap();
         assert_eq!(3, i.as_integer().unwrap());
         assert_eq!(1, j.as_integer().unwrap());
@@ -466,13 +466,13 @@ mod tests {
             (
                 "((_ @bit_of 1) ((_ extract 3 2) #b000000))",
                 build_term!(pool,
-                    ((_ bit_of 1) ((_ extract 3 2) {zeros.clone()}))
+                    (bit_of 1 (extract 3 2 {zeros.clone()}))
                 ),
             ),
             (
                 "((_ @int_of 1) ((_ extract 3 2) #b000000))",
                 build_term!(pool,
-                    ((_ int_of 1) ((_ extract 3 2) {zeros.clone()}))
+                    (int_of 1 (extract 3 2 {zeros.clone()}))
                 ),
             ),
             ("(and true false)", build_term!(pool, (and true false))),

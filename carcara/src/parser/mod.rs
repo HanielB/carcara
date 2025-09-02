@@ -502,6 +502,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_all_eq(&sorts)?;
             }
             Operator::RareList => SortError::assert_all_eq(&sorts)?,
+            _ => unreachable!(),
         }
         Ok(self.pool.add(Term::Op(op, args)))
     }
@@ -1641,6 +1642,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
             Operator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
+            _ => unreachable!(),
         }
         Ok(self.pool.add(Term::Op(
             op,
