@@ -402,19 +402,19 @@ mod tests {
         assert_eq!(Term::new_bv(0, 5), **b);
 
         let term = parse_term(&mut p, "((_ @bit_of 2) (_ bv0 5))");
-        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!((bit_of i ...) = term).unwrap();
+        let (i, b): (&Rc<Term>, &Rc<Term>) = match_term!((bit_of i t) = term).unwrap();
         assert_eq!(2, i.as_integer().unwrap());
-        assert_eq!(Term::new_bv(0, 5), *b[0]);
+        assert_eq!(Term::new_bv(0, 5), **b);
 
         let term = parse_term(&mut p, "((_ @int_of 2) (_ bv0 5))");
-        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!((int_of i ...) = term).unwrap();
+        let (i, b): (&Rc<Term>, &Rc<Term>) = match_term!((int_of i t) = term).unwrap();
         assert_eq!(2, i.as_integer().unwrap());
-        assert_eq!(Term::new_bv(0, 5), *b[0]);
+        assert_eq!(Term::new_bv(0, 5), **b);
 
         let term = parse_term(&mut p, "((_ zero_extend 3) (_ bv0 5))");
-        let (i, b): (&[Rc<Term>], &[Rc<Term>]) = match_term!((zero_extend ... ...) = term).unwrap();
-        assert_eq!(3, i[0].as_integer().unwrap());
-        assert_eq!(Term::new_bv(0, 5), *b[0]);
+        let (i, b): (&Rc<Term>, &Rc<Term>) = match_term!((zero_extend i b) = term).unwrap();
+        assert_eq!(3, i.as_integer().unwrap());
+        assert_eq!(Term::new_bv(0, 5), **b);
     }
 
     #[test]
