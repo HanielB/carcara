@@ -19,38 +19,31 @@ fn sat_refutation_external_check(
     log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
     write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude).unwrap();
 
-    // transform each AND arg, if any, into a string and build a
-    // string "(and ... )" so that each lemma has its own names
-    let lemmas_as_str = if lemmas.len() == 1 {
-        let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemmas[0].as_op() {
-            Term::Op(Operator::Or, lemma_lits.to_vec())
+    // transform each AND arg, if any, into a string and put each
+    // lemma string in a different line in the file below.
+    let mut lemmas_str = String::new();
+    use std::fmt::Write;
+    let mut first = true;
+    lemmas.iter().for_each(|lemma| {
+        let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
+            if lemma_lits.len() == 1 {
+                lemma_lits[0].as_ref().clone()
+            } else {
+                Term::Op(Operator::Or, lemma_lits.to_vec())
+            }
         } else {
             unreachable!();
         };
-        format!("{}", lemma_or)
-    } else {
-        let mut str_aux = String::new();
-        use std::fmt::Write;
-        write!(&mut str_aux, "(and").unwrap();
-        lemmas.iter().for_each(|lemma| {
-            let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
-                Term::Op(Operator::Or, lemma_lits.to_vec())
-            } else {
-                unreachable!();
-            };
-            write!(&mut str_aux, " {}", lemma_or).unwrap();
-        });
-        write!(&mut str_aux, ")").unwrap();
-        str_aux
-    };
+        if first {
+            write!(&mut lemmas_str, "{}", lemma_or).unwrap();
+            first = false;
+        } else {
+            write!(&mut lemmas_str, "\n{}", lemma_or).unwrap();
+        }
+    });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
-    write!(
-        File::create(lemmas_path.clone()).unwrap(),
-        "{}",
-        lemmas_as_str
-    )
-    .unwrap();
+    write!(File::create(lemmas_path.clone()).unwrap(), "{}", lemmas_str).unwrap();
     log::info!("[sat_refutation check] Invoke oracle");
 
     let string = format!("(\n{}\n{}\n{}\n)", cnf_path, prelude_path, lemmas_path);
@@ -86,6 +79,7 @@ fn sat_refutation_external_check(
     if res == b"true\n" {
         return Ok(());
     }
+    println!("{:?}\n", String::from_utf8(res.to_vec()));
     return Err(CheckerError::Explanation(format!(
         "External checker {} did not validate step",
         checker_path
