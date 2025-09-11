@@ -515,6 +515,14 @@ impl<'c> ProofChecker<'c> {
             "la_mult_pos" => extras::la_mult_pos,
             "la_mult_neg" => extras::la_mult_neg,
             "mod_simplify" => extras::mod_simplify,
+
+            // array rules
+            "arrays_idx" => arrays::idx,
+            "arrays_row" => arrays::row,
+            "arrays_row_contra" => arrays::row_contra,
+            "arrays_ext" => arrays::ext,
+
+            // bitblasting rules
             "bv_bitblast_step_const" => bitvectors::value,
             "bv_bitblast_step_var" => bitvectors::var,
             "bv_bitblast_step_bvand" => bitvectors::and,
