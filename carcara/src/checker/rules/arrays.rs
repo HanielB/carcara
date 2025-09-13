@@ -59,6 +59,10 @@ pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult 
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
     let (a, b) = match_term_err!((not (= a b)) = premise)?;
+    // build (choice (x I) (not (= (select a x) (select b x)))) where
+    // the type of x comes from the array sort of a. With that I can
+    // check alpha equiv of (select a choice) with the lhs of
+    // conclusion and likewise for the rhs
 
     Ok(())
 }
