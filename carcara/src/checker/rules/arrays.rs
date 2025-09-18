@@ -58,11 +58,26 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
 pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
-    let (a, b) = match_term_err!((not (= a b)) = premise)?;
+    let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
+    let ((ac, i1), (bc, i2)) = match_term_err!((not (= (select ac k1) (select bc k2))) = &conclusion[0])?;
+    // arrays the same in premise and conclusion
+    assert_eq(ap, ac)?;
+    assert_eq(bp, bc)?;
+    // same index
+    assert_eq(i1, i2)?;
     // build (choice (x I) (not (= (select a x) (select b x)))) where
     // the type of x comes from the array sort of a. With that I can
     // check alpha equiv of (select a choice) with the lhs of
     // conclusion and likewise for the rhs
+
+    let var = pool.add(Term::new_var(sel, sel_sort_t.clone()))
+    let alpha_equiv_conclusion =
+        build_term!(pool,
+                    (not (= (select ap )))
+
+        )
+
+    // check index is (choice (x I) (not (= (select a x) (select b x))))
 
     Ok(())
 }
