@@ -1,10 +1,8 @@
 use super::{
-    assert_clause_len, assert_eq, assert_polyeq, assert_num_premises, get_premise_term, CheckerError, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_num_premises, assert_polyeq, get_premise_term,
+    CheckerError, RuleArgs, RuleResult,
 };
-use crate::{
-    ast::{Sort, Term, Binder, BindingList},
-};
-
+use crate::ast::{Binder, BindingList, Sort, Term};
 
 pub fn idx(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -59,11 +57,20 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     Ok(())
 }
 
-pub fn ext(RuleArgs { conclusion, premises, pool, polyeq_time, .. }: RuleArgs) -> RuleResult {
+pub fn ext(
+    RuleArgs {
+        conclusion,
+        premises,
+        pool,
+        polyeq_time,
+        ..
+    }: RuleArgs,
+) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
     let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
-    let ((ac, i1), (bc, i2)) = match_term_err!((not (= (select ac k1) (select bc k2))) = &conclusion[0])?;
+    let ((ac, i1), (bc, i2)) =
+        match_term_err!((not (= (select ac k1) (select bc k2))) = &conclusion[0])?;
     // arrays the same in premise and conclusion
     assert_eq(ap, ac)?;
     assert_eq(bp, bc)?;
@@ -83,12 +90,15 @@ pub fn ext(RuleArgs { conclusion, premises, pool, polyeq_time, .. }: RuleArgs) -
     };
     let x = pool.add(Term::new_var("x", index_sort.clone()));
     let body = build_term!(pool, (not (= (select { ap.clone() } { x.clone() }) (select { bp.clone() } { x.clone() }))));
-    let choice = pool.add(Term::Binder(Binder::Choice, BindingList(vec![("x".to_string(), index_sort.clone())]), body));
+    let choice = pool.add(Term::Binder(
+        Binder::Choice,
+        BindingList(vec![("x".to_string(), index_sort.clone())]),
+        body,
+    ));
 
-    let alpha_equiv_conclusion =
-        build_term!(pool,
-                    (not (= (select {ap.clone()} {choice.clone()}) (select {bp.clone()} {choice.clone()})))
-        );
+    let alpha_equiv_conclusion = build_term!(pool,
+                (not (= (select {ap.clone()} {choice.clone()}) (select {bp.clone()} {choice.clone()})))
+    );
 
     assert_polyeq(&conclusion[0], &alpha_equiv_conclusion, polyeq_time)
 }
