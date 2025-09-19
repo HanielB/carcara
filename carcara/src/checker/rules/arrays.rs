@@ -1,6 +1,10 @@
 use super::{
-    assert_clause_len, assert_eq, assert_num_premises, get_premise_term, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_polyeq, assert_num_premises, get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
+use crate::{
+    ast::{Sort, Term, Binder, BindingList},
+};
+
 
 pub fn idx(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -55,7 +59,7 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     Ok(())
 }
 
-pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
+pub fn ext(RuleArgs { conclusion, premises, pool, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
     let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
@@ -70,14 +74,21 @@ pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult 
     // check alpha equiv of (select a choice) with the lhs of
     // conclusion and likewise for the rhs
 
-    let var = pool.add(Term::new_var(sel, sel_sort_t.clone()))
+    // check index is (choice (x I) (not (= (select a x) (select b x))))
+    let Sort::Array(index_sort, _) = pool.sort(ap).as_sort().cloned().unwrap() else {
+        return Err(CheckerError::Explanation(format!(
+            "Could not get Array sort from term {}",
+            ap
+        )));
+    };
+    let x = pool.add(Term::new_var("x", index_sort.clone()));
+    let body = build_term!(pool, (not (= (select { ap.clone() } { x.clone() }) (select { bp.clone() } { x.clone() }))));
+    let choice = pool.add(Term::Binder(Binder::Choice, BindingList(vec![("x".to_string(), index_sort.clone())]), body));
+
     let alpha_equiv_conclusion =
         build_term!(pool,
-                    (not (= (select ap )))
+                    (not (= (select {ap.clone()} {choice.clone()}) (select {bp.clone()} {choice.clone()})))
+        );
 
-        )
-
-    // check index is (choice (x I) (not (= (select a x) (select b x))))
-
-    Ok(())
+    assert_polyeq(&conclusion[0], &alpha_equiv_conclusion, polyeq_time)
 }
