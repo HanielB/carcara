@@ -503,6 +503,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 SortError::assert_all_eq(&sorts)?;
             }
+            Operator::Pow2 => {
+                assert_num_args(&args, 1)?;
+                SortError::assert_eq(&Sort::Int, sorts[0])?;
+            }
             Operator::RareList => SortError::assert_all_eq(&sorts)?,
         }
         Ok(self.pool.add(Term::Op(op, args)))
