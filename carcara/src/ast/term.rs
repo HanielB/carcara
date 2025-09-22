@@ -383,6 +383,9 @@ pub enum Operator {
     /// The `rare-list` operator, used to represent RARE lists.
     RareList,
 
+    // power of 2 to x
+    Pow2,
+
     // The clausal operators
     Cl,
     Delete,
@@ -519,6 +522,7 @@ impl_str_conversion_traits!(Operator {
     BvSize: "@bvsize",
 
     RareList: "rare-list",
+    Pow2: "int.pow2",
 
     Cl: "cl",
     Delete: "@d"
