@@ -14,6 +14,7 @@ fn sat_refutation_external_check(
     prelude: &ProblemPrelude,
     checker_path: String,
     lemmas: &Vec<Rc<Term>>,
+    lemmas_to_th_ids: &HashMap<Rc<Term>, String>,
 ) -> RuleResult {
     let prelude_path = format!("prelude_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
@@ -23,7 +24,6 @@ fn sat_refutation_external_check(
     // lemma string in a different line in the file below.
     let mut lemmas_str = String::new();
     use std::fmt::Write;
-    let mut first = true;
     lemmas.iter().for_each(|lemma| {
         let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
             if lemma_lits.len() == 1 {
@@ -34,12 +34,12 @@ fn sat_refutation_external_check(
         } else {
             unreachable!();
         };
-        if first {
-            write!(&mut lemmas_str, "{}", lemma_or).unwrap();
-            first = false;
-        } else {
-            write!(&mut lemmas_str, "\n{}", lemma_or).unwrap();
-        }
+        write!(
+            &mut lemmas_str,
+            "{};{}\n",
+            lemmas_to_th_ids[lemma], lemma_or
+        )
+        .unwrap();
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
@@ -107,11 +107,13 @@ pub fn sat_refutation(
     // add them as unit clauses with a literal corresponding to the
     // whole clause.
 
+    let mut lemmas_to_th_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
     let premise_clauses = collect_premise_clauses(
         pool,
         &premise_steps,
+        &mut lemmas_to_th_ids,
         &mut lemmas_to_step_ids,
         &mut clause_id_to_lemma,
     );
@@ -153,7 +155,13 @@ pub fn sat_refutation(
                     lemmas.len()
                 )));
             }
-            sat_refutation_external_check(cnf_path, prelude, checker_path, &lemmas)
+            sat_refutation_external_check(
+                cnf_path,
+                prelude,
+                checker_path,
+                &lemmas,
+                &lemmas_to_th_ids,
+            )
         }
         None => {
             let cnf_path = gen_dimacs(

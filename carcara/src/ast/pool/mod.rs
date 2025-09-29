@@ -58,6 +58,8 @@ pub trait TermPool {
     /// a term multiple times.
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
 
+    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>>;
+
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef;
 
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -77,6 +79,7 @@ pub struct PrimitivePool {
     pub(crate) storage: Storage,
     pub(crate) free_vars_cache: IndexMap<Rc<Term>, IndexSet<Rc<Term>>>,
     pub(crate) sorts_cache: IndexMap<Rc<Term>, Rc<Term>>,
+    pub(crate) binders_cache: IndexMap<(Rc<Term>, Binder), Rc<Term>>,
     pub(crate) dt_defs: IndexMap<Rc<Term>, DatatypeDef>,
 }
 
@@ -455,6 +458,10 @@ impl TermPool for PrimitivePool {
 
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>> {
         self.free_vars_with_priorities(term, [])
+    }
+
+    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>> {
+        IndexSet::<Rc<Term>>::new()
     }
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {

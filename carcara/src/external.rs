@@ -2,7 +2,7 @@ use super::*;
 use crate::ast::*;
 use crate::elaborator::{mutate, IdHelper};
 use crate::{checker, parser, CarcaraResult};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::{
     fs::File,
@@ -196,8 +196,10 @@ pub fn gen_dimacs<'a>(
 pub fn collect_premise_clauses(
     pool: &mut dyn TermPool,
     premise_steps: &Vec<&ProofCommand>,
+    lemmas_to_th_ids: &mut HashMap<Rc<Term>, String>,
     lemmas_to_step_ids: &mut HashMap<Rc<Term>, String>,
-    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>,
+    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>
+    // choice_terms: &mut HashSet<Rc<Term>>,
 ) -> Vec<Vec<Rc<Term>>> {
     let mut premise_clauses: Vec<Vec<_>> = Vec::new();
     let mut _or_lits: Vec<Rc<Term>> = Vec::new();
@@ -209,6 +211,16 @@ pub fn collect_premise_clauses(
                 // unities. If they are not singleton clauses, we add the
                 // whole clause as a clause
                 if step.rule == "hole" {
+                    // println!("{:?}", step.args);
+                    // if step.args.len() > 0
+                    // {println!("{:?}", step.args[0].as_string());}
+                    let th_id = if step.args.len() == 2
+                        && step.args[0].as_string().unwrap() == "THEORY_LEMMA"
+                    {
+                        step.args[1].as_string().unwrap()
+                    } else {
+                        "none".to_string()
+                    };
                     let lemma_opt = match &step.clause[..] {
                         [term] => match term.as_ref() {
                             Term::Op(Operator::Or, or_args) => {
@@ -216,6 +228,7 @@ pub fn collect_premise_clauses(
                                     pool.add(Term::Op(Operator::RareList, or_args.to_vec()));
                                 if !lemmas_to_step_ids.contains_key(&lemma) {
                                     lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                    lemmas_to_th_ids.insert(lemma.clone(), th_id);
                                     premise_clauses.push(or_args.to_vec());
                                     Some(lemma)
                                 } else {
@@ -308,6 +321,7 @@ pub fn collect_premise_clauses(
             }
         }
     });
+    // premise_clauses.iter().for_each(|c| c.iter.for_each(|l| {}));
     premise_clauses
 }
 

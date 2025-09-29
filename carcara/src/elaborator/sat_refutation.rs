@@ -220,11 +220,13 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
     let command_refs = commands.iter().map(|c| c).collect();
     log::info!("[sat_refutation elab] Start elaboration");
 
+    let mut lemmas_to_th_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
     let premise_clauses = collect_premise_clauses(
         elaborator.pool,
         &command_refs,
+        &mut lemmas_to_th_ids,
         &mut lemmas_to_step_ids,
         &mut clause_id_to_lemma,
     );

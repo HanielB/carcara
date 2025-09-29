@@ -1,4 +1,4 @@
-use super::super::{Rc, Term};
+use super::super::{Rc, Term, Binder};
 use super::{DatatypeDef, PrimitivePool, TermPool};
 use indexmap::IndexSet;
 use std::any::Any;
@@ -71,6 +71,10 @@ impl TermPool for ContextPool {
         self.global_pool.dt_def(sort)
     }
 
+    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>> {
+        IndexSet::<Rc<Term>>::new()
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -141,6 +145,10 @@ impl TermPool for LocalPool {
                 &self.ctx_pool.inner.read().unwrap(),
             ],
         )
+    }
+
+    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>> {
+        IndexSet::<Rc<Term>>::new()
     }
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
