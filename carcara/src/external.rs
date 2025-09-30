@@ -41,6 +41,7 @@ pub enum ExternalError {
 pub fn get_problem_string(
     pool: &mut PrimitivePool,
     prelude: &ProblemPrelude,
+    choice_const_assert: &Vec<(Rc<Term>, Rc<Term>)>,
     conclusion: &[Rc<Term>],
 ) -> String {
     use std::fmt::Write;
@@ -52,6 +53,10 @@ pub fn get_problem_string(
     let mut bytes = Vec::new();
     printer::write_lia_smt_instance(pool, prelude, &mut bytes, conclusion, false).unwrap();
     write!(&mut problem, "{}", String::from_utf8(bytes).unwrap()).unwrap();
+    choice_const_assert.iter().for_each(|(k, assert)| {
+        writeln!(&mut problem, "(declare-const {} {})", k, pool.sort(k)).unwrap();
+        writeln!(&mut problem, "(assert {})", assert).unwrap();
+    });
 
     writeln!(&mut problem, "(check-sat)").unwrap();
     writeln!(&mut problem, "(get-proof)").unwrap();
@@ -84,6 +89,7 @@ pub fn get_solver_proof(
     problem: String,
     cvc5_path: &String,
 ) -> Result<(Vec<ProofCommand>, bool), ExternalError> {
+    // println!("Problem:\n{}", problem);
     let mut process = Command::new(cvc5_path)
         .args([
             "--proof-format=alethe".to_string(),
@@ -198,8 +204,8 @@ pub fn collect_premise_clauses(
     premise_steps: &Vec<&ProofCommand>,
     lemmas_to_th_ids: &mut HashMap<Rc<Term>, String>,
     lemmas_to_step_ids: &mut HashMap<Rc<Term>, String>,
-    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>
-    // choice_terms: &mut HashSet<Rc<Term>>,
+    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>,
+    choice_terms: &mut HashSet<Rc<Term>>,
 ) -> Vec<Vec<Rc<Term>>> {
     let mut premise_clauses: Vec<Vec<_>> = Vec::new();
     let mut _or_lits: Vec<Rc<Term>> = Vec::new();
@@ -321,7 +327,18 @@ pub fn collect_premise_clauses(
             }
         }
     });
-    // premise_clauses.iter().for_each(|c| c.iter.for_each(|l| {}));
+    premise_clauses.iter().for_each(|c| {
+        c.iter().for_each(|l| {
+            let choices_l = pool.collect_binders(l, Binder::Choice);
+            choices_l.iter().for_each(|l_cs| {
+                choice_terms.insert(l_cs.clone());
+            });
+        })
+    });
+    log::debug!(
+        "\t[collecting premises] Collected choices {:?}",
+        choice_terms
+    );
     premise_clauses
 }
 

@@ -7,10 +7,6 @@ use thiserror::Error;
 /// The error type for errors when constructing or applying substitutions.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum SubstitutionError {
-    /// A term in the left-hand side of the substitution was not a variable.
-    #[error("term in the left-hand side of substitution is not a variable: '{0}'")]
-    NotAVariable(Rc<Term>),
-
     /// One of the mappings in the substitution was mapping a term to a term of a different sort.
     #[error("trying to substitute term '{0}' with a term of a different sort: '{1}'")]
     DifferentSorts(Rc<Term>, Rc<Term>),
@@ -56,7 +52,7 @@ impl Substitution {
     }
 
     /// Constructs a singleton substitution mapping `x` to `t`. This returns an error if the sorts
-    /// of the given terms are not the same, or if `x` is not a variable term.
+    /// of the given terms are not the same.
     pub fn single(pool: &mut dyn TermPool, x: Rc<Term>, t: Rc<Term>) -> SubstitutionResult<Self> {
         let mut this = Self::empty();
         this.insert(pool, x, t)?;
@@ -64,16 +60,12 @@ impl Substitution {
     }
 
     /// Constructs a new substitution from an arbitrary mapping of terms to other terms. This
-    /// returns an error if any term in the left-hand side is not a variable, or if any term is
-    /// mapped to a term of a different sort.
+    /// returns an error if any term is mapped to a term of a different sort.
     pub fn new(
         pool: &mut dyn TermPool,
         map: IndexMap<Rc<Term>, Rc<Term>>,
     ) -> SubstitutionResult<Self> {
         for (k, v) in &map {
-            if !k.is_var() && !k.is_sort_var() {
-                return Err(SubstitutionError::NotAVariable(k.clone()));
-            }
             if pool.sort(k) != pool.sort(v) {
                 return Err(SubstitutionError::DifferentSorts(k.clone(), v.clone()));
             }
@@ -92,16 +84,13 @@ impl Substitution {
     }
 
     /// Extends the substitution by adding a new mapping from `x` to `t`. This returns an error if
-    /// the sorts of the given terms are not the same, or if `x` is not a variable term.
+    /// the sorts of the given terms are not the same.
     pub(crate) fn insert(
         &mut self,
         pool: &mut dyn TermPool,
         x: Rc<Term>,
         t: Rc<Term>,
     ) -> SubstitutionResult<()> {
-        if !x.is_var() && !x.is_sort_var() {
-            return Err(SubstitutionError::NotAVariable(x));
-        }
         if pool.sort(&x) != pool.sort(&t) {
             return Err(SubstitutionError::DifferentSorts(x, t));
         }

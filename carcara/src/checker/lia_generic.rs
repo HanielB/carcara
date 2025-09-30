@@ -110,21 +110,54 @@ pub fn sat_refutation(
     let mut lemmas_to_th_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
+    let mut choice_terms: HashSet<Rc<Term>> = HashSet::new();
     let premise_clauses = collect_premise_clauses(
         pool,
         &premise_steps,
         &mut lemmas_to_th_ids,
         &mut lemmas_to_step_ids,
         &mut clause_id_to_lemma,
+        &mut choice_terms,
     );
     log::info!(
-        "[sat_refutation check] Premises yield {} clauses of which {} are lemmas",
+        "[sat_refutation check] Premises yield {} clauses of which {} are lemmas (and {} choices)",
         premise_clauses.len(),
-        lemmas_to_step_ids.len()
+        lemmas_to_step_ids.len(),
+        choice_terms.len()
     );
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
+
+    // create constants for each choice term and a substitution
+    let mut choice_id = 0;
+    let mut choice_const_assert = Vec::new();
+    let substitution: IndexMap<_, _> = choice_terms
+        .iter()
+        .map(|epsilon| {
+            let (bindings, body) = match_term_err!((choice ... body) = epsilon)?;
+            let (_, var_sort) = &bindings[0];
+            let choice_const = pool.add(Term::new_var(
+                format!("epsilon{}", choice_id),
+                var_sort.clone(),
+            ));
+            choice_id += 1;
+            // create the entry (k, (=> (exists ((v T)) F[v]) (F[k])))
+            let exists = pool.add(Term::Binder(Binder::Exists, bindings.clone(), body.clone()));
+            let var = pool.add(Term::from(bindings[0].clone()));
+            let mut s = Substitution::single(pool, var.clone(), choice_const.clone())?;
+            let sko_body = s.apply(pool, &body);
+            choice_const_assert.push((
+                choice_const.clone(),
+                build_term!(pool, (=> {exists} {sko_body})),
+            ));
+            Ok((epsilon.clone(), choice_const.clone()))
+        })
+        .collect::<Result<_, CheckerError>>()?;
+    let mut substitution = Substitution::new(pool, substitution)?;
+    log::debug!("\t[sat_refutation check] substitution {:?}", substitution);
+    let handling_choice = choice_id > 0;
+
     match checker_path {
         Some(checker_path) => {
             let cnf_path = gen_dimacs(
@@ -192,16 +225,38 @@ pub fn sat_refutation(
                         None => panic!("&a isn't a B!"),
                     };
                     let cvc5_path = cvc5_path.unwrap();
+
+                    let prelude = if handling_choice {
+                        ProblemPrelude {
+                            logic: Some("ALL".into()),
+                            ..prelude.clone()
+                        }
+                    } else {
+                        prelude.clone()
+                    };
+
                     // for each core lemma, we will run cvc5, parse the proof in, and check it
                     for i in 0..core_lemmas.len() {
-                        // println!("\tCheck lemma {:?}", lemma);
-                        let problem =
-                            get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
+                        let lemma = if handling_choice {
+                            &core_lemmas[i]
+                                .iter()
+                                .map(|l| substitution.apply(primitive_pool, &l))
+                                .collect::<Vec<Rc<Term>>>()
+                        } else {
+                            &core_lemmas[i]
+                        };
+                        log::debug!("\t[sat_refutation check] Check lemma: {:?}", lemma);
+                        let problem = get_problem_string(
+                            primitive_pool,
+                            &prelude,
+                            &choice_const_assert,
+                            &lemma[..],
+                        );
 
                         if let Err(e) =
                             get_solver_proof(primitive_pool, problem.clone(), &cvc5_path)
                         {
-                            println!("\t\tFailed: {:?}", core_lemmas[i]);
+                            println!("\t\tFailed: {:?}", lemma);
                             return Err(CheckerError::External(e));
                         }
                     }

@@ -480,9 +480,7 @@ impl TermPool for PrimitivePool {
                 set.extend(self.collect_binders(inner, binder).into_iter());
                 set
             }
-            Term::Let(_, inner) => {
-                self.collect_binders(inner, binder)
-            }
+            Term::Let(_, inner) => self.collect_binders(inner, binder),
             Term::Match(term, patterns) => {
                 let mut set = self.collect_binders(term, binder);
                 for (_, _, res) in patterns {
@@ -490,15 +488,13 @@ impl TermPool for PrimitivePool {
                 }
                 set
             }
-            Term::Var(..) => {
-                let mut set = IndexSet::with_capacity(1);
-                set.insert(term.clone());
-                set
-            }
             Term::Var(..) | Term::Const(_) | Term::Sort(_) => IndexSet::new(),
         };
         self.binders_cache.insert((term.clone(), binder), set);
-        self.binders_cache.get(&(term.clone(), binder)).unwrap().clone()
+        self.binders_cache
+            .get(&(term.clone(), binder))
+            .unwrap()
+            .clone()
     }
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {

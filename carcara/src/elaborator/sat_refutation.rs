@@ -223,12 +223,14 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
     let mut lemmas_to_th_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
+    let mut choice_terms: HashSet<Rc<Term>> = HashSet::new();
     let premise_clauses = collect_premise_clauses(
         elaborator.pool,
         &command_refs,
         &mut lemmas_to_th_ids,
         &mut lemmas_to_step_ids,
         &mut clause_id_to_lemma,
+        &mut choice_terms,
     );
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
@@ -260,9 +262,11 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         let smt_solver = options.smt_solver.as_ref().to_string();
         // for each core lemma, we will run cvc5, parse the proof in, and check it
         for i in 0..core_lemmas.len() {
+            let choice_const_assert = Vec::<(Rc<Term>, Rc<Term>)>::new();
             let problem = get_problem_string(
                 elaborator.pool,
                 &elaborator.problem.prelude.clone(),
+                &choice_const_assert,
                 &core_lemmas[i][..],
             );
             log::debug!("\tGet proof for lemma {}", i);

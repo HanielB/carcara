@@ -1,4 +1,4 @@
-use super::super::{Rc, Term, Binder};
+use super::super::{Binder, Rc, Term};
 use super::{DatatypeDef, PrimitivePool, TermPool};
 use indexmap::IndexSet;
 use std::any::Any;
