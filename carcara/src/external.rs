@@ -41,8 +41,7 @@ pub enum ExternalError {
 pub fn get_problem_string(
     pool: &mut PrimitivePool,
     prelude: &ProblemPrelude,
-    choice_const_assert: &Vec<(Rc<Term>, Rc<Term>)>,
-    conclusion: &[Rc<Term>],
+    assertions: &Vec<Rc<Term>>,
 ) -> String {
     use std::fmt::Write;
 
@@ -51,13 +50,8 @@ pub fn get_problem_string(
     write!(&mut problem, "{}", prelude).unwrap();
 
     let mut bytes = Vec::new();
-    printer::write_lia_smt_instance(pool, prelude, &mut bytes, conclusion, false).unwrap();
+    printer::write_asserts(pool, prelude, &mut bytes, assertions, false).unwrap();
     write!(&mut problem, "{}", String::from_utf8(bytes).unwrap()).unwrap();
-    choice_const_assert.iter().for_each(|(k, assert)| {
-        writeln!(&mut problem, "(declare-const {} {})", k, pool.sort(k)).unwrap();
-        writeln!(&mut problem, "(assert {})", assert).unwrap();
-    });
-
     writeln!(&mut problem, "(check-sat)").unwrap();
     writeln!(&mut problem, "(get-proof)").unwrap();
     writeln!(&mut problem, "(exit)").unwrap();

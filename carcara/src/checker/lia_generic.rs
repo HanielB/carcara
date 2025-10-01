@@ -137,8 +137,9 @@ pub fn sat_refutation(
         .map(|epsilon| {
             let (bindings, body) = match_term_err!((choice ... body) = epsilon)?;
             let (_, var_sort) = &bindings[0];
+            let choice_const_name = format!("epsilon{}", choice_id);
             let choice_const = pool.add(Term::new_var(
-                format!("epsilon{}", choice_id),
+                choice_const_name.clone(),
                 var_sort.clone(),
             ));
             choice_id += 1;
@@ -148,6 +149,7 @@ pub fn sat_refutation(
             let mut s = Substitution::single(pool, var.clone(), choice_const.clone())?;
             let sko_body = s.apply(pool, &body);
             choice_const_assert.push((
+                choice_const_name.clone(),
                 choice_const.clone(),
                 build_term!(pool, (=> {exists} {sko_body})),
             ));
@@ -226,9 +228,16 @@ pub fn sat_refutation(
                     };
                     let cvc5_path = cvc5_path.unwrap();
 
+                    let mut choice_assertions = Vec::new();
                     let prelude = if handling_choice {
+                        let mut choice_const_declarations = choice_const_assert.iter().map(|(name, k, assert)| {
+                            choice_assertions.push(assert.clone());
+                            (name.clone(), primitive_pool.sort(k).clone())
+                        }).collect::<Vec<(String, Rc<Term>)>>();
+                        choice_const_declarations.extend(prelude.function_declarations.clone());
                         ProblemPrelude {
                             logic: Some("ALL".into()),
+                            function_declarations : choice_const_declarations,
                             ..prelude.clone()
                         }
                     } else {
@@ -245,13 +254,17 @@ pub fn sat_refutation(
                         } else {
                             &core_lemmas[i]
                         };
+                        // build assertions
+                        let mut assertions = Vec::from(choice_assertions.clone());
+                        lemma.iter().for_each(|l| { assertions.push(build_term!(primitive_pool, (not {l.clone()}))) });
+
                         log::debug!("\t[sat_refutation check] Check lemma: {:?}", lemma);
                         let problem = get_problem_string(
                             primitive_pool,
                             &prelude,
-                            &choice_const_assert,
-                            &lemma[..],
+                            &assertions,
                         );
+                        // println!("Problem:\n{}", problem);
 
                         if let Err(e) =
                             get_solver_proof(primitive_pool, problem.clone(), &cvc5_path)
