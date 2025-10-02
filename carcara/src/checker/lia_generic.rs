@@ -12,13 +12,17 @@ use std::{
 fn sat_refutation_external_check(
     cnf_path: String,
     prelude: &ProblemPrelude,
+    choice_assertions: &Vec<Rc<Term>>,
     checker_path: String,
     lemmas: &Vec<Rc<Term>>,
     lemmas_to_th_ids: &HashMap<Rc<Term>, String>,
 ) -> RuleResult {
     let prelude_path = format!("prelude_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
-    write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude).unwrap();
+    let mut prelude_file_str = String::new();
+    writeln!(&mut prelude_file_str, "{}", prelude).unwrap();
+    choice_assertions.iter().for_each(|a| {writeln!(&mut prelude_file_str, "(assert {})", a).unwrap();});
+    write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude_file_str).unwrap();
 
     // transform each AND arg, if any, into a string and put each
     // lemma string in a different line in the file below.
@@ -34,10 +38,15 @@ fn sat_refutation_external_check(
         } else {
             unreachable!();
         };
+        // write!(
+        //     &mut lemmas_str,
+        //     "{};{}\n",
+        //     lemmas_to_th_ids[lemma], lemma_or
+        // )
         write!(
             &mut lemmas_str,
-            "{};{}\n",
-            lemmas_to_th_ids[lemma], lemma_or
+            "{}\n",
+            lemma_or
         )
         .unwrap();
     });
@@ -138,10 +147,7 @@ pub fn sat_refutation(
             let (bindings, body) = match_term_err!((choice ... body) = epsilon)?;
             let (_, var_sort) = &bindings[0];
             let choice_const_name = format!("epsilon{}", choice_id);
-            let choice_const = pool.add(Term::new_var(
-                choice_const_name.clone(),
-                var_sort.clone(),
-            ));
+            let choice_const = pool.add(Term::new_var(choice_const_name.clone(), var_sort.clone()));
             choice_id += 1;
             // create the entry (k, (=> (exists ((v T)) F[v]) (F[k])))
             let exists = pool.add(Term::Binder(Binder::Exists, bindings.clone(), body.clone()));
@@ -158,7 +164,25 @@ pub fn sat_refutation(
         .collect::<Result<_, CheckerError>>()?;
     let mut substitution = Substitution::new(pool, substitution)?;
     log::debug!("\t[sat_refutation check] substitution {:?}", substitution);
+    let mut choice_assertions = Vec::new();
     let handling_choice = choice_id > 0;
+    let prelude = if handling_choice {
+        let mut choice_const_declarations = choice_const_assert
+            .iter()
+            .map(|(name, k, assert)| {
+                choice_assertions.push(assert.clone());
+                (name.clone(), pool.sort(k).clone())
+            })
+            .collect::<Vec<(String, Rc<Term>)>>();
+        choice_const_declarations.extend(prelude.function_declarations.clone());
+        ProblemPrelude {
+            logic: Some("ALL".into()),
+            function_declarations: choice_const_declarations,
+            ..prelude.clone()
+        }
+    } else {
+        prelude.clone()
+    };
 
     match checker_path {
         Some(checker_path) => {
@@ -176,7 +200,7 @@ pub fn sat_refutation(
             let lemmas: Vec<Rc<Term>> = (0..premise_clauses.len())
                 .filter_map(|i| {
                     if let Some(lemma) = clause_id_to_lemma.get(&i) {
-                        Some(lemma.clone())
+                        Some(if handling_choice {substitution.apply(pool, &lemma) } else {lemma.clone()})
                     } else {
                         None
                     }
@@ -192,7 +216,8 @@ pub fn sat_refutation(
             }
             sat_refutation_external_check(
                 cnf_path,
-                prelude,
+                &prelude,
+                &choice_assertions,
                 checker_path,
                 &lemmas,
                 &lemmas_to_th_ids,
@@ -228,22 +253,6 @@ pub fn sat_refutation(
                     };
                     let cvc5_path = cvc5_path.unwrap();
 
-                    let mut choice_assertions = Vec::new();
-                    let prelude = if handling_choice {
-                        let mut choice_const_declarations = choice_const_assert.iter().map(|(name, k, assert)| {
-                            choice_assertions.push(assert.clone());
-                            (name.clone(), primitive_pool.sort(k).clone())
-                        }).collect::<Vec<(String, Rc<Term>)>>();
-                        choice_const_declarations.extend(prelude.function_declarations.clone());
-                        ProblemPrelude {
-                            logic: Some("ALL".into()),
-                            function_declarations : choice_const_declarations,
-                            ..prelude.clone()
-                        }
-                    } else {
-                        prelude.clone()
-                    };
-
                     // for each core lemma, we will run cvc5, parse the proof in, and check it
                     for i in 0..core_lemmas.len() {
                         let lemma = if handling_choice {
@@ -256,14 +265,12 @@ pub fn sat_refutation(
                         };
                         // build assertions
                         let mut assertions = Vec::from(choice_assertions.clone());
-                        lemma.iter().for_each(|l| { assertions.push(build_term!(primitive_pool, (not {l.clone()}))) });
+                        lemma.iter().for_each(|l| {
+                            assertions.push(build_term!(primitive_pool, (not {l.clone()})))
+                        });
 
                         log::debug!("\t[sat_refutation check] Check lemma: {:?}", lemma);
-                        let problem = get_problem_string(
-                            primitive_pool,
-                            &prelude,
-                            &assertions,
-                        );
+                        let problem = get_problem_string(primitive_pool, &prelude, &assertions);
                         // println!("Problem:\n{}", problem);
 
                         if let Err(e) =

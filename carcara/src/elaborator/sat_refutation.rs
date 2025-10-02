@@ -262,7 +262,10 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         let smt_solver = options.smt_solver.as_ref().to_string();
         // for each core lemma, we will run cvc5, parse the proof in, and check it
         for i in 0..core_lemmas.len() {
-            let asserts = &core_lemmas[i].iter().map(|l| {build_term!(elaborator.pool, (not {l.clone()})) }).collect();
+            let asserts = &core_lemmas[i]
+                .iter()
+                .map(|l| build_term!(elaborator.pool, (not {l.clone()})))
+                .collect();
             let problem = get_problem_string(
                 elaborator.pool,
                 &elaborator.problem.prelude.clone(),
