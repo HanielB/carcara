@@ -35,6 +35,10 @@ pub struct Substitution {
     /// The substitution's mappings.
     map: IndexMap<Rc<Term>, Rc<Term>>,
 
+    /// Whether the substitption should be applied in a capture-avoiding way or not. By default this
+    /// will be true but can be set to false.
+    avoid_capture: bool,
+
     /// The variables that should be renamed to preserve capture-avoidance, if they are bound by a
     /// binder term.
     should_be_renamed: Option<IndexSet<String>>,
@@ -46,6 +50,7 @@ impl Substitution {
     pub fn empty() -> Self {
         Self {
             map: IndexMap::new(),
+            avoid_capture: true,
             should_be_renamed: None,
             cache: IndexMap::new(),
         }
@@ -73,6 +78,7 @@ impl Substitution {
 
         Ok(Self {
             map,
+            avoid_capture: true,
             should_be_renamed: None,
             cache: IndexMap::new(),
         })
@@ -126,6 +132,10 @@ impl Substitution {
         if was_present {
             self.should_be_renamed = None;
         }
+    }
+
+    pub fn set_capture_avoidance(&mut self, avoid_capture: bool) {
+        self.avoid_capture = avoid_capture;
     }
 
     /// Computes which binder variables will need to be renamed, and stores the result in
@@ -317,7 +327,9 @@ impl Substitution {
         binding_list: &[SortedVar],
         inner: &Rc<Term>,
     ) -> Rc<Term> {
-        self.compute_should_be_renamed(pool);
+        if self.avoid_capture {
+            self.compute_should_be_renamed(pool);
+        }
 
         // In some situations, if the substitution has only one mapping (say, `x -> t`) we can skip
         // applying the substitution to a binder term altogether. This can happen if the variable
@@ -328,7 +340,10 @@ impl Substitution {
         // we can just skip the substitution entirely, which is way faster in some cases. In
         // particular, the skolemization rules require this optimization to have acceptable
         // performance.
-        if self.can_skip_instead_of_renaming(binding_list) {
+        //
+        // TODO guarding this with "avoid_capture" as well to guarantee I'm not breaking anything
+        // (i.e., by not computing "should_be_renamed" maybe this will be applied inadvertently)
+        if self.avoid_capture && self.can_skip_instead_of_renaming(binding_list) {
             return original_term.clone();
         }
 
@@ -356,6 +371,9 @@ impl Substitution {
         binding_list: &[SortedVar],
         is_value_list: bool,
     ) -> (BindingList, Self) {
+        if !self.avoid_capture {
+            return (BindingList(binding_list.to_vec()), Self::empty());
+        }
         let mut new_substitution = Self::empty();
         let mut new_vars = IndexSet::new();
         let new_binding_list = binding_list
