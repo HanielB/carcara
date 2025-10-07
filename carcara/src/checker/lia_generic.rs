@@ -21,8 +21,15 @@ fn sat_refutation_external_check(
     log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
     let mut prelude_file_str = String::new();
     writeln!(&mut prelude_file_str, "{}", prelude).unwrap();
-    choice_assertions.iter().for_each(|a| {writeln!(&mut prelude_file_str, "(assert {})", a).unwrap();});
-    write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude_file_str).unwrap();
+    choice_assertions.iter().for_each(|a| {
+        writeln!(&mut prelude_file_str, "(assert {})", a).unwrap();
+    });
+    write!(
+        File::create(prelude_path.clone()).unwrap(),
+        "{}",
+        prelude_file_str
+    )
+    .unwrap();
 
     // transform each AND arg, if any, into a string and put each
     // lemma string in a different line in the file below.
@@ -43,12 +50,7 @@ fn sat_refutation_external_check(
         //     "{};{}\n",
         //     lemmas_to_th_ids[lemma], lemma_or
         // )
-        write!(
-            &mut lemmas_str,
-            "{}\n",
-            lemma_or
-        )
-        .unwrap();
+        write!(&mut lemmas_str, "{}\n", lemma_or).unwrap();
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
@@ -138,40 +140,59 @@ pub fn sat_refutation(
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
 
-    // create constants for each choice term and a substitution
+    // create constants for each choice term and a substitution from that choice term into the
+    // constant representing it.
     let mut choice_id = 0;
-    let mut choice_const_assert = Vec::new();
+    let mut choice_term_const_name = Vec::new();
     let substitution: IndexMap<_, _> = choice_terms
         .iter()
         .map(|epsilon| {
-            let (bindings, body) = match_term_err!((choice ... body) = epsilon)?;
+            log::debug!(
+                "\t[sat_refutation check] Collected choice term: {}",
+                epsilon
+            );
+            let (bindings, _) = match_term_err!((choice ... body) = epsilon)?;
             let (_, var_sort) = &bindings[0];
             let choice_const_name = format!("epsilon{}", choice_id);
             let choice_const = pool.add(Term::new_var(choice_const_name.clone(), var_sort.clone()));
             choice_id += 1;
-            // create the entry (k, (=> (exists ((v T)) F[v]) (F[k])))
-            let exists = pool.add(Term::Binder(Binder::Exists, bindings.clone(), body.clone()));
-            let var = pool.add(Term::from(bindings[0].clone()));
-            let mut s = Substitution::single(pool, var.clone(), choice_const.clone())?;
-            let sko_body = s.apply(pool, &body);
-            choice_const_assert.push((
-                choice_const_name.clone(),
-                choice_const.clone(),
-                build_term!(pool, (=> {exists} {sko_body})),
-            ));
+            choice_term_const_name.push((epsilon.clone(), choice_const.clone(), choice_const_name));
             Ok((epsilon.clone(), choice_const.clone()))
         })
         .collect::<Result<_, CheckerError>>()?;
     let mut substitution = Substitution::new(pool, substitution)?;
+    substitution.set_capture_avoidance(false);
     log::debug!("\t[sat_refutation check] substitution {:?}", substitution);
     let mut choice_assertions = Vec::new();
     let handling_choice = choice_id > 0;
     let prelude = if handling_choice {
-        let mut choice_const_declarations = choice_const_assert
+        let mut choice_const_declarations = choice_term_const_name
             .iter()
-            .map(|(name, k, assert)| {
+            .map(|(choice_term, k, k_name)| {
+                // create an assertion (=> (exists ((v T)) F[v]) (F[k])) to properly define k. Note that
+                // since F may contain choice terms, we normalize it according to the substitution
+                // first.
+                let (bindings, body) = match_term!((choice ... body) = choice_term).unwrap();
+                let choice_body_norm = substitution.apply(pool, &body);
+                let exists = pool.add(Term::Binder(
+                    Binder::Exists,
+                    bindings.clone(),
+                    choice_body_norm.clone(),
+                ));
+                let var = pool.add(Term::from(bindings[0].clone()));
+                let mut s = Substitution::single(pool, var.clone(), k.clone()).unwrap();
+                s.set_capture_avoidance(false);
+                let constant_definding_form = s.apply(pool, &choice_body_norm);
+                let assert = build_term!(pool, (=> {exists} {constant_definding_form}));
+                if !pool.collect_binders(&assert, Binder::Choice).is_empty() {
+                    log::debug!(
+                        "\t[sat_refutation check] assert has choice terms: {}",
+                        assert
+                    );
+                    unreachable!();
+                }
                 choice_assertions.push(assert.clone());
-                (name.clone(), pool.sort(k).clone())
+                (k_name.clone(), pool.sort(k).clone())
             })
             .collect::<Vec<(String, Rc<Term>)>>();
         choice_const_declarations.extend(prelude.function_declarations.clone());
@@ -200,7 +221,11 @@ pub fn sat_refutation(
             let lemmas: Vec<Rc<Term>> = (0..premise_clauses.len())
                 .filter_map(|i| {
                     if let Some(lemma) = clause_id_to_lemma.get(&i) {
-                        Some(if handling_choice {substitution.apply(pool, &lemma) } else {lemma.clone()})
+                        Some(if handling_choice {
+                            substitution.apply(pool, &lemma)
+                        } else {
+                            lemma.clone()
+                        })
                     } else {
                         None
                     }
@@ -271,12 +296,14 @@ pub fn sat_refutation(
 
                         log::debug!("\t[sat_refutation check] Check lemma: {:?}", lemma);
                         let problem = get_problem_string(primitive_pool, &prelude, &assertions);
-                        // println!("Problem:\n{}", problem);
 
                         if let Err(e) =
                             get_solver_proof(primitive_pool, problem.clone(), &cvc5_path)
                         {
-                            println!("\t\tFailed: {:?}", lemma);
+                            log::debug!(
+                                "\t[sat_refutation check] Failed to check with problem\n:{:?}",
+                                problem
+                            );
                             return Err(CheckerError::External(e));
                         }
                     }
