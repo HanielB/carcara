@@ -1,5 +1,6 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
+use crate::checker::printer::AlethePrinter;
 use crate::external::*;
 use std::collections::HashMap;
 use std::process;
@@ -10,6 +11,7 @@ use std::{
 };
 
 fn sat_refutation_external_check(
+    pool: &mut PrimitivePool,
     cnf_path: String,
     prelude: &ProblemPrelude,
     choice_assertions: &Vec<Rc<Term>>,
@@ -35,21 +37,33 @@ fn sat_refutation_external_check(
     // lemma string in a different line in the file below.
     let mut lemmas_str = String::new();
     use std::fmt::Write;
+    let mut counter = 0;
     lemmas.iter().for_each(|lemma| {
         let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
             if lemma_lits.len() == 1 {
-                lemma_lits[0].as_ref().clone()
+                lemma_lits[0].clone()
             } else {
-                Term::Op(Operator::Or, lemma_lits.to_vec())
+                pool.add(Term::Op(Operator::Or, lemma_lits.to_vec()))
             }
         } else {
             unreachable!();
         };
+        let mut bytes = Vec::new();
+        printer::write_term(
+            pool,
+            prelude,
+            &mut bytes,
+            &lemma_or,
+            true,
+            format!("@p{}_", counter),
+        );
+        counter += 1;
         write!(
             &mut lemmas_str,
             "{};{}\n",
-            lemmas_to_th_ids[lemma], lemma_or
+            lemmas_to_th_ids[lemma], String::from_utf8(bytes).unwrap()
         );
+        // write!(&mut lemmas_str, "{}\n", String::from_utf8(bytes).unwrap()).unwrap();
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
@@ -238,7 +252,17 @@ pub fn sat_refutation(
                     lemmas.len()
                 )));
             }
+            let borrowed_term_pool = pool;
+            let primitive_pool: &mut PrimitivePool = match borrowed_term_pool
+                .as_any_mut()
+                .downcast_mut::<PrimitivePool>()
+            {
+                Some(b) => b,
+                None => panic!("&a isn't a B!"),
+            };
+
             sat_refutation_external_check(
+                primitive_pool,
                 cnf_path,
                 &prelude,
                 &choice_assertions,

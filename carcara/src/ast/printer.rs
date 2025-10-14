@@ -53,7 +53,7 @@ pub fn write_lia_smt_instance(
     let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
     // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
     // in SMT-LIB.
-    printer.term_sharing_variable_prefix = "p_";
+    printer.term_sharing_variable_prefix = "p_".to_string();
     // Since we are printing an SMT-LIB problem, we have to be
     // compliant. For Carcara, this means that arithmetic constants
     // cannot use the GMP notation
@@ -72,7 +72,7 @@ pub fn _write_smt_instance(
     let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
     // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
     // in SMT-LIB.
-    printer.term_sharing_variable_prefix = "p_";
+    printer.term_sharing_variable_prefix = "p_".to_string();
     // Since we are printing an SMT-LIB problem, we have to be
     // compliant. For Carcara, this means that arithmetic constants
     // cannot use the GMP notation
@@ -90,7 +90,7 @@ pub fn write_asserts(
     let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
     // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
     // in SMT-LIB.
-    printer.term_sharing_variable_prefix = "p_";
+    printer.term_sharing_variable_prefix = "p_".to_string();
     // Since we are printing an SMT-LIB problem, we have to be
     // compliant. For Carcara, this means that arithmetic constants
     // cannot use the GMP notation
@@ -101,6 +101,24 @@ pub fn write_asserts(
         assertion.print_with_sharing(&mut printer)?;
         writeln!(printer.inner, ")")?;
     }
+    Ok(())
+}
+
+pub fn write_term(
+    pool: &mut PrimitivePool,
+    prelude: &ProblemPrelude,
+    dest: &mut dyn io::Write,
+    term: &Rc<Term>,
+    use_sharing: bool,
+    prefix: String,
+) -> io::Result<()> {
+    let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
+    printer.term_sharing_variable_prefix = prefix;
+    // Since we are printing an SMT-LIB problem, we have to be
+    // compliant. For Carcara, this means that arithmetic constants
+    // cannot use the GMP notation
+    printer.smt_lib_strict = true;
+    term.print_with_sharing(&mut printer)?;
     Ok(())
 }
 
@@ -195,11 +213,11 @@ impl PrintWithSharing for ParamOperator {
     }
 }
 
-struct AlethePrinter<'a> {
+pub struct AlethePrinter<'a> {
     pool: &'a mut PrimitivePool,
     inner: &'a mut dyn io::Write,
     term_indices: Option<IndexMap<Rc<Term>, usize>>,
-    term_sharing_variable_prefix: &'static str,
+    term_sharing_variable_prefix: String,
     global_vars: HashSet<Rc<Term>>,
     defined_constants: HashMap<Rc<Term>, String>,
     smt_lib_strict: bool,
@@ -289,11 +307,15 @@ impl<'a> AlethePrinter<'a> {
             pool,
             inner: dest,
             term_indices: use_sharing.then(IndexMap::new),
-            term_sharing_variable_prefix: "@p_",
+            term_sharing_variable_prefix: "@p_".to_string(),
             global_vars: global_variables,
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
         }
+    }
+
+    pub fn set_prefix(&mut self, prefix: String) {
+        self.term_sharing_variable_prefix = prefix;
     }
 
     fn write_s_expr<H, T>(&mut self, head: &H, tail: &[T]) -> io::Result<()>
@@ -314,7 +336,7 @@ impl<'a> AlethePrinter<'a> {
         write!(self.inner, ")")
     }
 
-    fn write_raw_term(&mut self, term: &Term) -> io::Result<()> {
+    pub fn write_raw_term(&mut self, term: &Term) -> io::Result<()> {
         match term {
             Term::Const(c) => {
                 if self.smt_lib_strict {
@@ -513,7 +535,7 @@ impl fmt::Display for Term {
             pool: &mut pool,
             inner: &mut buf,
             term_indices: use_sharing.then(IndexMap::new),
-            term_sharing_variable_prefix: "@p_",
+            term_sharing_variable_prefix: "@p_".to_string(),
             global_vars: HashSet::new(),
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
