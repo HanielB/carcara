@@ -45,12 +45,11 @@ fn sat_refutation_external_check(
         } else {
             unreachable!();
         };
-        // write!(
-        //     &mut lemmas_str,
-        //     "{};{}\n",
-        //     lemmas_to_th_ids[lemma], lemma_or
-        // )
-        write!(&mut lemmas_str, "{}\n", lemma_or).unwrap();
+        write!(
+            &mut lemmas_str,
+            "{};{}\n",
+            lemmas_to_th_ids[lemma], lemma_or
+        );
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
