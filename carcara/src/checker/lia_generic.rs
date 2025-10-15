@@ -58,12 +58,12 @@ fn sat_refutation_external_check(
             format!("@p{}_", counter),
         );
         counter += 1;
-        write!(
-            &mut lemmas_str,
-            "{};{}\n",
-            lemmas_to_th_ids[lemma], String::from_utf8(bytes).unwrap()
-        );
-        // write!(&mut lemmas_str, "{}\n", String::from_utf8(bytes).unwrap()).unwrap();
+        // write!(
+        //     &mut lemmas_str,
+        //     "{};{}\n",
+        //     lemmas_to_th_ids[lemma], String::from_utf8(bytes).unwrap()
+        // );
+        write!(&mut lemmas_str, "{}\n", String::from_utf8(bytes).unwrap()).unwrap();
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
