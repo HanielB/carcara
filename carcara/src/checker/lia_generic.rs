@@ -58,12 +58,16 @@ fn sat_refutation_external_check(
             format!("@p{}_", counter),
         );
         counter += 1;
-        // write!(
-        //     &mut lemmas_str,
-        //     "{};{}\n",
-        //     lemmas_to_th_ids[lemma], String::from_utf8(bytes).unwrap()
-        // );
-        write!(&mut lemmas_str, "{}\n", String::from_utf8(bytes).unwrap()).unwrap();
+        if !lemmas_to_th_ids.contains_key(lemma) {
+            log::debug!("Lemma {} not in map {:?}", lemma, lemmas_to_th_ids);
+            unreachable!();
+        }
+        write!(
+            &mut lemmas_str,
+            "{};{}\n",
+            lemmas_to_th_ids[lemma],
+            String::from_utf8(bytes).unwrap()
+        );
     });
     let lemmas_path = format!("lemmas_{}.smt2", process::id());
     log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
@@ -244,6 +248,15 @@ pub fn sat_refutation(
                     }
                 })
                 .collect();
+            // we also need to update the lemmas_to_th_ids map with the choice terms
+            let rw_lemmas_to_th_ids = if handling_choice {
+                lemmas_to_th_ids
+                    .iter()
+                    .map(|(k, v)| (substitution.apply(pool, &k), v.clone()))
+                    .collect()
+            } else {
+                lemmas_to_th_ids
+            };
 
             if clause_id_to_lemma.len() != lemmas.len() {
                 return Err(CheckerError::Explanation(format!(
@@ -268,7 +281,7 @@ pub fn sat_refutation(
                 &choice_assertions,
                 checker_path,
                 &lemmas,
-                &lemmas_to_th_ids,
+                &rw_lemmas_to_th_ids,
             )
         }
         None => {
