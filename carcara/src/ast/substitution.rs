@@ -397,7 +397,7 @@ impl Substitution {
                     {
                         break;
                     }
-                    new_var.push('\'');
+                    new_var.push_str("_renamed");
                     changed = true;
                 }
 

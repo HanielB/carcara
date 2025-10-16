@@ -186,11 +186,43 @@ pub fn sat_refutation(
         let mut choice_const_declarations = choice_term_const_name
             .iter()
             .map(|(choice_term, k, k_name)| {
-                // create an assertion (=> (exists ((v T)) F[v]) (F[k])) to properly define k. Note that
-                // since F may contain choice terms, we normalize it according to the substitution
-                // first.
+                // create an assertion
+                //
+                //  (forall ((x1 T1) ... (xn Tn)) (=> (exists ((v T)) F[v, x1,...,xn]) (F[k, x1,...,xn])))
+                //
+                // to properly define k, where the variables x1...xn are created to stand-in for the
+                // choice terms that occur in the definition of k. We replace them by the intruduced
+                // variables.
+                //
+                // The rationale is that we want to define k for all values it may depend on, not
+                // only the choice terms used during the original Skolemization process. Since we
+                // will try to revalidate the Skolemization lemma, we cannot force the Skolemization
+                // to be done with exactly the terms used originally, otherwise we would not really
+                // be checking anything (the lemma would just correspond to `false`).
                 let (bindings, body) = match_term!((choice ... body) = choice_term).unwrap();
-                let choice_body_norm = substitution.apply(pool, &body);
+                let mut counter = 0;
+                let mut internal_substitution = IndexMap::new();
+                let mut forall_bindings = Vec::new();
+                let (choice_var_name, choice_var_sort) = &bindings[0];
+                // let choice_var = Term::from(bindings[0].clone());
+                let univ_vars = pool
+                    .collect_binders(&body, Binder::Choice)
+                    .iter()
+                    .map(|c| {
+                        let univ_var_name = format!("{}{}", choice_var_name, counter);
+                        counter += 1;
+                        let c_sort = pool.sort(&c);
+                        let univ_var =
+                            pool.add(Term::new_var(univ_var_name.clone(), c_sort.clone()));
+                        internal_substitution.insert(c.clone(), univ_var.clone());
+                        forall_bindings.push((univ_var_name, c_sort.clone()));
+                        univ_var
+                    })
+                    .collect::<Vec<Rc<Term>>>();
+                let mut internal_substitution =
+                    Substitution::new(pool, internal_substitution).unwrap();
+                internal_substitution.set_capture_avoidance(false);
+                let choice_body_norm = internal_substitution.apply(pool, &body);
                 let exists = pool.add(Term::Binder(
                     Binder::Exists,
                     bindings.clone(),
@@ -200,14 +232,23 @@ pub fn sat_refutation(
                 let mut s = Substitution::single(pool, var.clone(), k.clone()).unwrap();
                 s.set_capture_avoidance(false);
                 let constant_definding_form = s.apply(pool, &choice_body_norm);
-                let assert = build_term!(pool, (=> {exists} {constant_definding_form}));
-                if !pool.collect_binders(&assert, Binder::Choice).is_empty() {
-                    log::debug!(
-                        "\t[sat_refutation check] assert has choice terms: {}",
-                        assert
-                    );
-                    unreachable!();
-                }
+                let assert = if !univ_vars.is_empty() {
+                    let inner_assert = build_term!(pool, (=> {exists} {constant_definding_form}));
+                    pool.add(Term::Binder(
+                        Binder::Forall,
+                        BindingList(forall_bindings),
+                        inner_assert,
+                    ))
+                } else {
+                    build_term!(pool, (=> {exists} {constant_definding_form}))
+                };
+                // if !pool.collect_binders(&assert, Binder::Choice).is_empty() {
+                //     log::debug!(
+                //         "\t[sat_refutation check] assert has choice terms: {}",
+                //         assert
+                //     );
+                //     unreachable!();
+                // }
                 choice_assertions.push(assert.clone());
                 (k_name.clone(), pool.sort(k).clone())
             })
@@ -337,7 +378,7 @@ pub fn sat_refutation(
                             get_solver_proof(primitive_pool, problem.clone(), &cvc5_path)
                         {
                             log::debug!(
-                                "\t[sat_refutation check] Failed to check with problem\n:{:?}",
+                                "\t[sat_refutation check] Failed to check with problem:\n{}",
                                 problem
                             );
                             return Err(CheckerError::External(e));
