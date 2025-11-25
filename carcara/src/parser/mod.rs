@@ -252,7 +252,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::Equals | Operator::Distinct => {
                 assert_num_args(&args, 2..)?;
-                SortError::assert_all_eq(&sorts)?;
+                // If we allow mixed arithmetic and one of the sorts is arithmetic, we check
+                // accordingly
+                if self.config.allow_int_real_subtyping
+                    && (sorts[0] == &Sort::Int || sorts[0] == &Sort::Real)
+                {
+                    for s in sorts {
+                        SortError::assert_one_of(&[Sort::Int, Sort::Real], s)?;
+                    }
+                } else {
+                    SortError::assert_all_eq(&sorts)?;
+                }
             }
             Operator::Ite => {
                 assert_num_args(&args, 3)?;
@@ -318,10 +328,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::LessThan | Operator::GreaterThan | Operator::LessEq | Operator::GreaterEq => {
                 assert_num_args(&args, 2..)?;
-                // All the arguments must be either Int or Real sorted, but they don't need to all
-                // have the same sort
-                for s in sorts {
-                    SortError::assert_one_of(&[Sort::Int, Sort::Real], s)?;
+                // All the arguments must be either Int or Real sorted, but they need to all
+                // have the same sort only if mixed arithmetic is not allowed
+                if self.config.allow_int_real_subtyping {
+                    for s in sorts {
+                        SortError::assert_one_of(&[Sort::Int, Sort::Real], s)?;
+                    }
+                } else {
+                    SortError::assert_one_of(&[Sort::Int, Sort::Real], sorts[0])?;
+                    SortError::assert_all_eq(&sorts)?;
                 }
             }
             Operator::ToReal => {
