@@ -4,14 +4,14 @@ mod parallel;
 mod rules;
 
 use crate::{
-    ast::*,
+    ast::{rare_rules::Rules, *},
     benchmarking::{CollectResults, OnlineBenchmarkResults},
     CarcaraResult, Error,
 };
 use error::{CheckerError, SubproofError};
 use indexmap::{IndexMap, IndexSet};
 pub use parallel::{scheduler::Scheduler, ParallelProofChecker};
-use rules::{rare::check_rare, Premise, Rule, RuleArgs, RuleResult};
+use rules::{Premise, Rule, RuleArgs, RuleResult};
 use std::{
     collections::HashSet,
     fmt,
@@ -100,16 +100,18 @@ pub struct ProofChecker<'c> {
     context: ContextStack,
     reached_empty_clause: bool,
     is_holey: bool,
+    rare_rules: &'c Rules,
 }
 
 impl<'c> ProofChecker<'c> {
-    pub fn new(pool: &'c mut PrimitivePool, config: Config) -> Self {
+    pub fn new(pool: &'c mut PrimitivePool, rare_rules: &'c Rules, config: Config) -> Self {
         ProofChecker {
             pool,
             config,
             context: ContextStack::new(),
             reached_empty_clause: false,
             is_holey: false,
+            rare_rules,
         }
     }
 
@@ -321,6 +323,7 @@ impl<'c> ProofChecker<'c> {
             previous_command,
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
+            rare_rules: self.rare_rules,
         };
 
         if self.config.allowed_rules.contains(&step.rule) {
@@ -527,6 +530,8 @@ impl<'c> ProofChecker<'c> {
 
             "evaluate" => extras::evaluate,
 
+            "rare_rewrite" => rare::check_rare,
+
             // array rules
             "arrays_idx" => arrays::idx,
             "arrays_row" => arrays::row,
@@ -616,7 +621,6 @@ impl<'c> ProofChecker<'c> {
             // resolution rule will be called. Until that is decided and added to the specification,
             // we define a new specialized rule that calls it
             "strict_resolution" => resolution::strict_resolution,
-            "rare_rewrite" => check_rare,
             _ => return None,
         })
     }

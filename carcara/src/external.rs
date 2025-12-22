@@ -10,6 +10,9 @@ use std::{
     process::{Command, Stdio},
 };
 use thiserror::Error;
+use crate::ast::rare_rules::RareStatements;
+use indexmap::IndexMap;
+
 
 #[derive(Debug, Error)]
 pub enum ExternalError {
@@ -74,7 +77,8 @@ pub fn parse_and_check_solver_proof(
 
     let (problem, proof, _) = parser::parse_instance_with_pool(problem, proof, None, config, pool)?;
     let config = checker::Config::new().ignore_unknown_rules(true);
-    let res = checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
+    let rules = RareStatements { rules: IndexMap::new() };
+    let res = checker::ProofChecker::new(pool, &rules, config).check(&problem, &proof)?;
     Ok((proof.commands, res))
 }
 
