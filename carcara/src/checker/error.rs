@@ -298,10 +298,10 @@ pub enum QuantifierError {
     },
 
     #[error("unknown binding introduced in right-hand side: '{0}'")]
-    CnfNewBindingIntroduced(String),
+    NewBindingIntroduced(String),
 
     #[error("binding is missing in right-hand side: '{0}'")]
-    CnfBindingIsMissing(String),
+    BindingIsMissing(String),
 
     #[error("result clause doensn't appear in CNF of original term: '{0}'")]
     ClauseDoesntAppearInCnf(Rc<Term>),
