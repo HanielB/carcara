@@ -289,6 +289,12 @@ impl<'c> ProofChecker<'c> {
         let time = Instant::now();
         let mut polyeq_time = Duration::ZERO;
 
+        if self.config.allowed_rules.contains(&step.rule) {
+            log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
+            self.is_holey = true;
+            return Ok(());
+        }
+
         if !step.discharge.is_empty() && step.rule != "subproof" {
             return Err(CheckerError::Subproof(SubproofError::DischargeInWrongRule));
         }
