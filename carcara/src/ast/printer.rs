@@ -164,12 +164,14 @@ impl PrintWithSharing for Rc<Term> {
             if !cannot_use_sharing {
                 return if let Some(i) = indices.get(self) {
                     write!(p.inner, "{}{}", p.term_sharing_variable_prefix, i)
-                } else {
+                } else if p.use_sharing {
                     let i = indices.len();
                     indices.insert(self.clone(), i);
                     write!(p.inner, "(! ")?;
                     p.write_raw_term(self)?;
                     write!(p.inner, " :named {}{})", p.term_sharing_variable_prefix, i)
+                } else {
+                    p.write_raw_term(self)
                 };
             }
         }
@@ -221,6 +223,7 @@ pub struct AlethePrinter<'a> {
     global_vars: HashSet<Rc<Term>>,
     defined_constants: HashMap<Rc<Term>, String>,
     smt_lib_strict: bool,
+    use_sharing: bool,
 }
 
 impl PrintProof for AlethePrinter<'_> {
@@ -311,6 +314,7 @@ impl<'a> AlethePrinter<'a> {
             global_vars: global_variables,
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
+            use_sharing: use_sharing,
         }
     }
 
@@ -385,7 +389,11 @@ impl<'a> AlethePrinter<'a> {
                 write!(self.inner, "({} ", binder)?;
                 bindings.print_with_sharing(self)?;
                 write!(self.inner, " ")?;
+                // we for now we avoid creating names within binders.
+                let placeHolder = self.use_sharing;
+                self.use_sharing = false;
                 term.print_with_sharing(self)?;
+                self.use_sharing = placeHolder;
                 write!(self.inner, ")")
             }
             Term::Let(bindings, term) => {
@@ -539,6 +547,7 @@ impl fmt::Display for Term {
             global_vars: HashSet::new(),
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
+            use_sharing: use_sharing,
         };
         printer.write_raw_term(self).unwrap();
         let result = std::str::from_utf8(&buf).unwrap();
