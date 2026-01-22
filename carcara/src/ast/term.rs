@@ -378,6 +378,7 @@ pub enum Operator {
     BvBbTerm,
     BvConst,
     BvSize,
+    
 
     // Misc.
     /// The `rare-list` operator, used to represent RARE lists.
@@ -385,6 +386,10 @@ pub enum Operator {
 
     // power of 2 to x
     Pow2,
+
+    // parametric integer and
+    PIAND,
+
 
     // The clausal operators
     Cl,
@@ -523,6 +528,7 @@ impl_str_conversion_traits!(Operator {
 
     RareList: "rare-list",
     Pow2: "int.pow2",
+    PIAND: "piand",
 
     Cl: "cl",
     Delete: "@d"

@@ -225,6 +225,7 @@ impl PrimitivePool {
                 | Operator::ReOption
                 | Operator::ReRange => Sort::RegLan,
                 Operator::Pow2 => Sort::Int,
+                Operator::PIAND => Sort::Int,
                 Operator::RareList => Sort::RareList,
             },
             Term::App(f, args) => {

@@ -912,6 +912,7 @@ fn nary_case(op: Operator) -> Option<NaryCase> {
         | Operator::BvConst
         | Operator::BvSize
         | Operator::Pow2
+        | Operator::PIAND
         | Operator::RareList => None,
 
         // Clausal
