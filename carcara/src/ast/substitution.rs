@@ -7,6 +7,10 @@ use thiserror::Error;
 /// The error type for errors when constructing or applying substitutions.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum SubstitutionError {
+    /// A term in the left-hand side of the substitution was not a variable.
+    #[error("term in the left-hand side of substitution is not a variable: '{0}'")]
+    NotAVariable(Rc<Term>),
+
     /// One of the mappings in the substitution was mapping a term to a term of a different sort.
     #[error("trying to substitute term '{0}' with a term of a different sort: '{1}'")]
     DifferentSorts(Rc<Term>, Rc<Term>),
@@ -71,7 +75,12 @@ impl Substitution {
         map: IndexMap<Rc<Term>, Rc<Term>>,
     ) -> SubstitutionResult<Self> {
         for (k, v) in &map {
-            if pool.sort(k) != pool.sort(v) {
+            if !k.is_var() && !k.is_sort_var() {
+                return Err(SubstitutionError::NotAVariable(k.clone()));
+            }
+            if pool.sort(k) != pool.sort(v)
+                && !pool.sort(k).as_sort().is_some_and(Sort::is_polymorphic)
+            {
                 return Err(SubstitutionError::DifferentSorts(k.clone(), v.clone()));
             }
         }
