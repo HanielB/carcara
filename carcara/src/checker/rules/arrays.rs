@@ -76,7 +76,7 @@ pub fn ext(
     assert_eq(bp, bc)?;
     // same index
     assert_eq(i1, i2)?;
-    // build (choice (x I) (not (= (select a x) (select b x)))) where
+    // build (choice (x I) (or (= a b) (not (= (select a x) (select b x))))) where
     // the type of x comes from the array sort of a. With that I can
     // check alpha equiv of (select a choice) with the lhs of
     // conclusion and likewise for the rhs
@@ -89,7 +89,7 @@ pub fn ext(
         )));
     };
     let x = pool.add(Term::new_var("x", index_sort.clone()));
-    let body = build_term!(pool, (not (= (select { ap.clone() } { x.clone() }) (select { bp.clone() } { x.clone() }))));
+    let body = build_term!(pool, (or (= {ap.clone()} {bp.clone()}) (not (= (select { ap.clone() } { x.clone() }) (select { bp.clone() } { x.clone() })))));
     let choice = pool.add(Term::Binder(
         Binder::Choice,
         BindingList(vec![("x".to_string(), index_sort.clone())]),
