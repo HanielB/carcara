@@ -23,9 +23,9 @@ fn sat_refutation_external_check(
     log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
     let mut prelude_file_str = String::new();
     writeln!(&mut prelude_file_str, "{}", prelude).unwrap();
-    choice_assertions.iter().for_each(|a| {
-        writeln!(&mut prelude_file_str, "(assert {})", a).unwrap();
-    });
+    // choice_assertions.iter().for_each(|a| {
+    //     writeln!(&mut prelude_file_str, "(assert {})", a).unwrap();
+    // });
     write!(
         File::create(prelude_path.clone()).unwrap(),
         "{}",
@@ -282,7 +282,36 @@ pub fn sat_refutation(
                 .filter_map(|i| {
                     if let Some(lemma) = clause_id_to_lemma.get(&i) {
                         Some(if handling_choice {
-                            substitution.apply(pool, &lemma)
+                            let choice_assertions: Vec<_> = pool
+                                .collect_binders(lemma, Binder::Choice)
+                                .iter()
+                                .map(|epsilon| epsilon_to_assertion[epsilon].clone())
+                                .collect();
+                            let rw_lemma = substitution.apply(pool, &lemma);
+                            if choice_assertions.is_empty() {
+                                rw_lemma
+                            } else {
+                                // recreate the lemma adding the negation of the conjunction of the
+                                // assertions as one of the literals
+                                let res_lemma = if let Some((Operator::RareList, lemma_lits)) =
+                                    rw_lemma.as_op()
+                                {
+                                    let mut lits = Vec::from(lemma_lits);
+                                    let choice_definitions = if choice_assertions.len() > 1 {
+                                        pool.add(Term::Op(Operator::And, choice_assertions))
+                                    } else {
+                                        choice_assertions[0].clone()
+                                    };
+                                    lits.push(
+                                        pool.add(Term::Op(Operator::Not, vec![choice_definitions])),
+                                    );
+                                    pool.add(Term::Op(Operator::RareList, lits.to_vec()))
+                                } else {
+                                    unreachable!();
+                                };
+                                res_lemma
+                            }
+                            // substitution.apply(pool, &lemma)
                         } else {
                             lemma.clone()
                         })
@@ -295,7 +324,37 @@ pub fn sat_refutation(
             let rw_lemmas_to_th_ids = if handling_choice {
                 lemmas_to_th_ids
                     .iter()
-                    .map(|(k, v)| (substitution.apply(pool, &k), v.clone()))
+                    .map(|(k, v)| {
+                        // collect choices before we apply substitution in lemma
+                        let choice_assertions: Vec<_> = pool
+                            .collect_binders(k, Binder::Choice)
+                            .iter()
+                            .map(|epsilon| epsilon_to_assertion[epsilon].clone())
+                            .collect();
+                        let rw_lemma = substitution.apply(pool, &k);
+                        if choice_assertions.is_empty() {
+                            (rw_lemma, v.clone())
+                        } else {
+                            // recreate the lemma adding the negation of the conjunction of the
+                            // assertions as one of the literals
+                            let lemma =
+                                if let Some((Operator::RareList, lemma_lits)) = rw_lemma.as_op() {
+                                    let mut lits = Vec::from(lemma_lits);
+                                    let choice_definitions = if choice_assertions.len() == 1 {
+                                        pool.add(Term::Op(Operator::And, choice_assertions))
+                                    } else {
+                                        choice_assertions[0].clone()
+                                    };
+                                    lits.push(
+                                        pool.add(Term::Op(Operator::Not, vec![choice_definitions])),
+                                    );
+                                    pool.add(Term::Op(Operator::RareList, lits.to_vec()))
+                                } else {
+                                    unreachable!();
+                                };
+                            (lemma, v.clone())
+                        }
+                    })
                     .collect()
             } else {
                 lemmas_to_th_ids
