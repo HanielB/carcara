@@ -88,6 +88,7 @@ pub fn get_solver_proof(
         .args([
             "--proof-format=alethe".to_string(),
             "--no-symmetry-breaker".to_string(),
+            "--enum-inst".to_string(),
             "--tlimit=30000".to_string(),
         ])
         .stdin(Stdio::piped())

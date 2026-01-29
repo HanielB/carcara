@@ -182,6 +182,10 @@ pub fn sat_refutation(
     log::debug!("\t[sat_refutation check] substitution {:?}", substitution);
     let mut choice_assertions = Vec::new();
     let handling_choice = choice_id > 0;
+    // maps all assertions needed to define the choice term that appears in a given lemma
+    let mut epsilon_to_assertion: HashMap<&Rc<Term>, Rc<Term>> = HashMap::new();
+    let mut epsilon_to_dependencies: HashMap<&Rc<Term>, Vec<Rc<Term>>> = HashMap::new();
+
     let prelude = if handling_choice {
         let mut choice_const_declarations = choice_term_const_name
             .iter()
@@ -204,11 +208,12 @@ pub fn sat_refutation(
                 let mut internal_substitution = IndexMap::new();
                 let mut forall_bindings = Vec::new();
                 let (choice_var_name, choice_var_sort) = &bindings[0];
-                // let choice_var = Term::from(bindings[0].clone());
+                let mut choice_dependencies = Vec::new();
                 let univ_vars = pool
                     .collect_binders(&body, Binder::Choice)
                     .iter()
                     .map(|c| {
+                        choice_dependencies.push(c.clone());
                         let univ_var_name = format!("{}{}", choice_var_name, counter);
                         counter += 1;
                         let c_sort = pool.sort(&c);
@@ -242,14 +247,11 @@ pub fn sat_refutation(
                 } else {
                     build_term!(pool, (=> {exists} {constant_definding_form}))
                 };
-                // if !pool.collect_binders(&assert, Binder::Choice).is_empty() {
-                //     log::debug!(
-                //         "\t[sat_refutation check] assert has choice terms: {}",
-                //         assert
-                //     );
-                //     unreachable!();
-                // }
                 choice_assertions.push(assert.clone());
+
+                epsilon_to_assertion.insert(choice_term, assert.clone());
+                epsilon_to_dependencies.insert(choice_term, choice_dependencies);
+
                 (k_name.clone(), pool.sort(k).clone())
             })
             .collect::<Vec<(String, Rc<Term>)>>();
@@ -357,19 +359,42 @@ pub fn sat_refutation(
 
                     // for each core lemma, we will run cvc5, parse the proof in, and check it
                     for i in 0..core_lemmas.len() {
+                        let mut lemma_choices = Vec::new();
                         let lemma = if handling_choice {
                             &core_lemmas[i]
                                 .iter()
-                                .map(|l| substitution.apply(primitive_pool, &l))
+                                .map(|l| {
+                                    primitive_pool
+                                        .collect_binders(l, Binder::Choice)
+                                        .iter()
+                                        .for_each(|epsilon| {
+                                            lemma_choices.push(epsilon.clone());
+                                        });
+                                    // log::debug!("\t\t[sat_refutation check] Choices of lemma: {:?}", choices_l);
+                                    substitution.apply(primitive_pool, &l)
+                                })
                                 .collect::<Vec<Rc<Term>>>()
                         } else {
                             &core_lemmas[i]
                         };
                         // build assertions
-                        let mut assertions = Vec::from(choice_assertions.clone());
+                        let mut assertions = Vec::new();
                         lemma.iter().for_each(|l| {
                             assertions.push(build_term!(primitive_pool, (not {l.clone()})))
                         });
+                        // assertions.extend(choice_assertions.clone());
+                        lemma_choices.iter().for_each(|epsilon| {
+                            if !epsilon_to_assertion.contains_key(epsilon) {
+                                log::debug!(
+                                    "\t[sat_refutation check] choice not in map: {:?}\nmap: {:?}",
+                                    epsilon,
+                                    epsilon_to_assertion
+                                );
+                                unreachable!();
+                            }
+                            assertions.push(epsilon_to_assertion[epsilon].clone());
+                        });
+                        // let mut assertions = Vec::from(choice_assertions.clone());
 
                         log::debug!("\t[sat_refutation check] Check lemma: {:?}", lemma);
                         let problem = get_problem_string(primitive_pool, &prelude, &assertions);
