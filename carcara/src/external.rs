@@ -212,9 +212,6 @@ pub fn collect_premise_clauses(
                 // unities. If they are not singleton clauses, we add the
                 // whole clause as a clause
                 if step.rule == "hole" {
-                    // println!("{:?}", step.args);
-                    // if step.args.len() > 0
-                    // {println!("{:?}", step.args[0].as_string());}
                     let th_id = if step.args.len() == 2
                         && step.args[0].as_string().unwrap() == "THEORY_LEMMA"
                     {
@@ -241,6 +238,7 @@ pub fn collect_premise_clauses(
                                     pool.add(Term::Op(Operator::RareList, vec![term.clone()]));
                                 if !lemmas_to_step_ids.contains_key(&lemma) {
                                     lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                    lemmas_to_th_ids.insert(lemma.clone(), th_id);
                                     premise_clauses.push(vec![term.clone()]);
                                     Some(lemma)
                                 } else {
@@ -252,6 +250,7 @@ pub fn collect_premise_clauses(
                             let lemma = pool.add(Term::Op(Operator::RareList, step.clause.clone()));
                             if !lemmas_to_step_ids.contains_key(&lemma) {
                                 lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                lemmas_to_th_ids.insert(lemma.clone(), th_id);
                                 premise_clauses.push(step.clause.clone());
                                 Some(lemma)
                             } else {
@@ -271,19 +270,6 @@ pub fn collect_premise_clauses(
                                 Term::Op(Operator::Or, or_args) => {
                                     // add as a non-singleton clause
                                     premise_clauses.push(or_args.to_vec());
-                                    // or_args.iter().for_each(|lit| {
-                                    // match lit.as_op() {
-                                    //     Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
-                                    //     Some((Operator::Not, not_args)) => {
-                                    //         if let Some((Operator::Or, _)) = not_args[0].as_op() {
-                                    //             or_lits.push(not_args[0].clone());
-                                    //         }
-
-                                    //     },
-                                    //     _ => {}
-                                    // }
-                                    // }
-                                    // );
                                 }
                                 _ => {}
                             }
@@ -291,19 +277,6 @@ pub fn collect_premise_clauses(
                         }
                         _ => {
                             premise_clauses.push(step.clause.clone());
-                            // step.clause.iter().for_each(|lit| {
-                            //         match lit.as_op() {
-                            //             Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
-                            //             Some((Operator::Not, not_args)) => {
-                            //                 if let Some((Operator::Or, _)) = not_args[0].as_op() {
-                            //                     or_lits.push(not_args[0].clone());
-                            //                 }
-
-                            //             },
-                            //             _ => {}
-                            //         }
-                            //     }
-                            //     );
                         }
                     }
                 }
