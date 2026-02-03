@@ -340,7 +340,7 @@ pub fn sat_refutation(
                             let lemma =
                                 if let Some((Operator::RareList, lemma_lits)) = rw_lemma.as_op() {
                                     let mut lits = Vec::from(lemma_lits);
-                                    let choice_definitions = if choice_assertions.len() == 1 {
+                                    let choice_definitions = if choice_assertions.len() > 1 {
                                         pool.add(Term::Op(Operator::And, choice_assertions))
                                     } else {
                                         choice_assertions[0].clone()
