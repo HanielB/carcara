@@ -736,3 +736,56 @@ pub fn ac_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         &apply_ac_simp(pool, &mut IndexMap::new(), original),
     )
 }
+
+pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    let mut cache = IndexMap::new();
+    let (t11, t22) =
+    match (t1, t2) {
+        (Term::Op(op_a, _), Term::Op(op_b, _)) => {
+            if op_a != op_b { (t1, t2)} else {
+                (apply_aci_simp(pool, &mut cache, t1), apply_aci_simp(pool, &mut cache, t2))
+
+            }
+                comp.compare_op(*op_a, args_a, *op_b, args_b)
+            }
+
+    assert_eq(&t11, &t22)
+}
+
+fn apply_aci_simp(
+    pool: &mut dyn TermPool,
+    cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
+    term: &Rc<Term>,
+    op: Operator,
+) -> Rc<Term> {
+    if let Some(t) = cache.get(term) {
+        return t.clone();
+    }
+    let result = match term.as_ref() {
+        // flatten and remove duplicate on the result
+        Term::Op(opp, args) if opp == op => {
+            let args: Vec<_> = args
+                .iter()
+                .flat_map(|term| {
+                    let term = apply_aci_simp(pool, cache, term, op);
+                    match term.as_ref() {
+                        Term::Op(inner_op, inner_args) if inner_op == op => inner_args.clone(),
+                        _ => vec![term.clone()],
+                    }
+                })
+                .dedup()
+                .collect();
+            if args.len() == 1 {
+                return args[0].clone();
+            } else {
+                Term::Op(*op, args)
+            }
+        }
+        _ => return term.clone(),
+    };
+    let result = pool.add(result);
+    cache.insert(term.clone(), result.clone());
+    result
+}
