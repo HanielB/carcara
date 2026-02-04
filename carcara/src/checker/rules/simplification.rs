@@ -741,16 +741,19 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
     let mut cache = IndexMap::new();
-    let (t11, t22) =
-    match (t1, t2) {
+    let (t11, t22) = match (t1, t2) {
         (Term::Op(op_a, _), Term::Op(op_b, _)) => {
-            if op_a != op_b { (t1, t2)} else {
-                (apply_aci_simp(pool, &mut cache, t1), apply_aci_simp(pool, &mut cache, t2))
-
+            if op_a != op_b {
+                (t1, t2)
+            } else {
+                (
+                    apply_aci_simp(pool, &mut cache, t1),
+                    apply_aci_simp(pool, &mut cache, t2),
+                )
             }
-                comp.compare_op(*op_a, args_a, *op_b, args_b)
-            }
-
+        }
+        _ => (t1, t2),
+    };
     assert_eq(&t11, &t22)
 }
 
@@ -763,6 +766,30 @@ fn apply_aci_simp(
     if let Some(t) = cache.get(term) {
         return t.clone();
     }
+    let identity = match op {
+        Operator::Or => Term::new_bool(false),
+        Operator::And => Term::new_bool(true),
+        // TODO modularize this so it's not repeated below
+        Operator::Plus => match term.as_ref() {
+            Term::Op(_, args) => match pool.sort(&args[0]).as_sort().unwrap() {
+                Sort::Int => Term::new_int(0),
+                Sort::Real => Term::new_real(0),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        },
+        Operator::Mult => match term.as_ref() {
+            Term::Op(_, args) => match pool.sort(&args[0]).as_sort().unwrap() {
+                Sort::Int => Term::new_int(1),
+                Sort::Real => Term::new_real(1),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        },
+        _ => {
+            return term.clone();
+        }
+    };
     let result = match term.as_ref() {
         // flatten and remove duplicate on the result
         Term::Op(opp, args) if opp == op => {
@@ -778,9 +805,21 @@ fn apply_aci_simp(
                 .dedup()
                 .collect();
             if args.len() == 1 {
-                return args[0].clone();
+                args[0].clone()
             } else {
-                Term::Op(*op, args)
+                // remove identity, if any
+                let new_args = args
+                    .iter()
+                    .filter(|t| {
+                        if let (Term::Const(c)) = t.as_ref() {
+                            c == identity
+                        } else {
+                            false
+                        }
+                    })
+                    .cloned()
+                    .collect();
+                Term::Op(*op, new_args)
             }
         }
         _ => return term.clone(),
