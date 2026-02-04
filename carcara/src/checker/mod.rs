@@ -525,6 +525,8 @@ impl<'c> ProofChecker<'c> {
             "poly_simp" => linear_arithmetic::poly_simp,
             "aci_simp" => simplification::aci_simp,
 
+            "evaluate" => extras::evaluate,
+
             // array rules
             "arrays_idx" => arrays::idx,
             "arrays_row" => arrays::row,
