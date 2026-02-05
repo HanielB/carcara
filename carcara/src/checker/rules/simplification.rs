@@ -741,27 +741,20 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
     let mut cache = IndexMap::new();
-    let (t11, t22) = match (t1, t2) {
-        (Term::Op(op_a, _), Term::Op(op_b, _)) => {
-            if op_a != op_b {
-                (t1, t2)
-            } else {
-                (
-                    apply_aci_simp(pool, &mut cache, t1),
-                    apply_aci_simp(pool, &mut cache, t2),
-                )
-            }
-        }
-        _ => (t1, t2),
-    };
-    assert_eq(&t11, &t22)
+    let t11 = if let Term::Op(op, _) = t1.as_ref() {
+        &apply_aci_simp(pool, &mut cache, t1, op)
+    } else { t1 };
+    let t22 = if let Term::Op(op, _) = t2.as_ref() {
+        &apply_aci_simp(pool, &mut cache, t2, op)
+    } else { t2 };
+    assert_eq(t11, t22)
 }
 
 fn apply_aci_simp(
     pool: &mut dyn TermPool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
     term: &Rc<Term>,
-    op: Operator,
+    op: &Operator,
 ) -> Rc<Term> {
     if let Some(t) = cache.get(term) {
         return t.clone();
@@ -770,7 +763,7 @@ fn apply_aci_simp(
         Operator::Or => Term::new_bool(false),
         Operator::And => Term::new_bool(true),
         // TODO modularize this so it's not repeated below
-        Operator::Plus => match term.as_ref() {
+        Operator::Add => match term.as_ref() {
             Term::Op(_, args) => match pool.sort(&args[0]).as_sort().unwrap() {
                 Sort::Int => Term::new_int(0),
                 Sort::Real => Term::new_real(0),
@@ -810,21 +803,14 @@ fn apply_aci_simp(
                 // remove identity, if any
                 let new_args = args
                     .iter()
-                    .filter(|t| {
-                        if let (Term::Const(c)) = t.as_ref() {
-                            c == identity
-                        } else {
-                            false
-                        }
-                    })
+                    .filter(|t| t.is_const() && t.as_ref() == &identity)
                     .cloned()
                     .collect();
-                Term::Op(*op, new_args)
+                pool.add(Term::Op(*op, new_args))
             }
         }
-        _ => return term.clone(),
+        _ => term.clone(),
     };
-    let result = pool.add(result);
     cache.insert(term.clone(), result.clone());
     result
 }
