@@ -131,8 +131,7 @@ pub fn value(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (v, res_args) = match_term_err!((= v (bbterm ...)) = &conclusion[0])?;
 
-    if let Some((m, w)) = v.as_bitvector() {
-        let size = w.to_usize().unwrap();
+    if let Some((m, size)) = v.as_bitvector() {
         let true_term = pool.bool_true();
         let false_term = pool.bool_false();
         // the number of arguments of bbterm must be the same as the width of v
@@ -174,7 +173,6 @@ pub fn var(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
             x
         )));
     };
-    let size = size.to_usize().unwrap();
     let x = build_term_vec(x, size, pool);
 
     assert_eq(&pool.add(Term::Op(Operator::BvBbTerm, x)), res)
@@ -199,8 +197,6 @@ pub fn and(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
             )));
         }
     }
-
-    let size = size.to_usize().unwrap();
 
     // the conjunction is build left-to-right
     let mut i = 1;
@@ -246,8 +242,6 @@ pub fn or(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         }
     }
 
-    let size = size.to_usize().unwrap();
-
     // the disjunction is build left-to-right
     let mut i = 1;
     let mut expected_res = bvor_args[0].clone();
@@ -292,8 +286,6 @@ pub fn xor(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         }
     }
 
-    let size = size.to_usize().unwrap();
-
     // the conjunction is build left-to-right
     let mut i = 1;
     let mut expected_res = bvxor_args[0].clone();
@@ -325,8 +317,6 @@ pub fn xnor(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         unreachable!();
     };
 
-    let size = size.to_usize().unwrap();
-
     let x = build_term_vec(x, size, pool);
     let y = build_term_vec(y, size, pool);
 
@@ -352,8 +342,6 @@ pub fn not(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         unreachable!();
     };
 
-    let size = size.to_usize().unwrap();
-
     let x = build_term_vec(x, size, pool);
 
     let res_args: Vec<_> = (0..size)
@@ -377,8 +365,6 @@ pub fn ult(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-
-    let size = size.to_usize().unwrap();
 
     let x = build_term_vec(x, size, pool);
     let y = build_term_vec(y, size, pool);
@@ -404,8 +390,6 @@ pub fn slt(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-
-    let size = size.to_usize().unwrap();
 
     let x = build_term_vec(x, size, pool);
     let y = build_term_vec(y, size, pool);
@@ -464,8 +448,6 @@ pub fn add(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         }
     }
 
-    let size = size.to_usize().unwrap();
-
     let mut i = 1;
     let mut expected_res = add_args[0].clone();
     while i < add_args.len() {
@@ -496,8 +478,6 @@ pub fn mult(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         }
     }
 
-    let size = size.to_usize().unwrap();
-
     let mut i = 1;
     let mut expected_res = mult_args[0].clone();
     while i < mult_args.len() {
@@ -514,8 +494,6 @@ pub fn neg(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-
-    let size = size.to_usize().unwrap();
 
     let x = build_term_vec(x, size, pool);
 
@@ -550,7 +528,6 @@ pub fn equality(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let size = size.to_usize().unwrap();
 
     let x = build_term_vec(x, size, pool);
     let y = build_term_vec(y, size, pool);
@@ -579,7 +556,6 @@ pub fn comp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let size = size.to_usize().unwrap();
 
     let x = build_term_vec(x, size, pool);
     let y = build_term_vec(y, size, pool);
@@ -637,7 +613,7 @@ pub fn concat(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (concat_args, res_args) = match_term_err!((= (concat ...) (bbterm ...)) = &conclusion[0])?;
 
-    let Sort::BitVec(size) = pool
+    let Sort::BitVec(mut size) = pool
         .sort(&concat_args[concat_args.len() - 1])
         .as_sort()
         .cloned()
@@ -645,7 +621,7 @@ pub fn concat(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     else {
         unreachable!();
     };
-    let mut size = size.to_usize().unwrap();
+    // let mut size = size.to_usize().unwrap();
     let mut expected_res = build_term_vec(&concat_args[concat_args.len() - 1], size, pool);
 
     let mut i = 1;
@@ -658,7 +634,7 @@ pub fn concat(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         else {
             unreachable!();
         };
-        let size_i = size_i.to_usize().unwrap();
+        // let size_i = size_i.to_usize().unwrap();
         expected_res.extend(build_term_vec(
             &concat_args[concat_args.len() - 1 - i],
             size_i,
@@ -694,7 +670,6 @@ pub fn sign_extend(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let Sort::BitVec(size) = pool.sort(x).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let size = size.to_usize().unwrap();
     let mut x = build_term_vec(x, size, pool);
 
     for _j in 0..i {
