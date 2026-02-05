@@ -71,7 +71,7 @@ impl TermPool for ContextPool {
         self.global_pool.dt_def(sort)
     }
 
-    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>> {
+    fn collect_binders(&mut self, _term: &Rc<Term>, _binder: Binder) -> IndexSet<Rc<Term>> {
         IndexSet::<Rc<Term>>::new()
     }
 
@@ -147,7 +147,7 @@ impl TermPool for LocalPool {
         )
     }
 
-    fn collect_binders(&mut self, term: &Rc<Term>, binder: Binder) -> IndexSet<Rc<Term>> {
+    fn collect_binders(&mut self, _term: &Rc<Term>, _binder: Binder) -> IndexSet<Rc<Term>> {
         IndexSet::<Rc<Term>>::new()
     }
 

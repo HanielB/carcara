@@ -743,10 +743,14 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let mut cache = IndexMap::new();
     let t11 = if let Term::Op(op, _) = t1.as_ref() {
         &apply_aci_simp(pool, &mut cache, t1, op)
-    } else { t1 };
+    } else {
+        t1
+    };
     let t22 = if let Term::Op(op, _) = t2.as_ref() {
         &apply_aci_simp(pool, &mut cache, t2, op)
-    } else { t2 };
+    } else {
+        t2
+    };
     assert_eq(t11, t22)
 }
 

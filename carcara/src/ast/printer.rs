@@ -318,10 +318,6 @@ impl<'a> AlethePrinter<'a> {
         }
     }
 
-    pub fn set_prefix(&mut self, prefix: String) {
-        self.term_sharing_variable_prefix = prefix;
-    }
-
     fn write_s_expr<H, T>(&mut self, head: &H, tail: &[T]) -> io::Result<()>
     where
         H: PrintWithSharing + ?Sized,
@@ -389,11 +385,13 @@ impl<'a> AlethePrinter<'a> {
                 write!(self.inner, "({} ", binder)?;
                 bindings.print_with_sharing(self)?;
                 write!(self.inner, " ")?;
-                // we for now we avoid creating names within binders.
-                let placeHolder = self.use_sharing;
+                // For now we avoid creating names within binders,
+                // which is valid SMT-LIB if the terms are closed but
+                // is not supported by some solvers, such as cvc5.
+                let place_holder = self.use_sharing;
                 self.use_sharing = false;
                 term.print_with_sharing(self)?;
-                self.use_sharing = placeHolder;
+                self.use_sharing = place_holder;
                 write!(self.inner, ")")
             }
             Term::Let(bindings, term) => {

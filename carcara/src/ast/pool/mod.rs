@@ -412,7 +412,7 @@ impl PrimitivePool {
                     let mut res_vars = self.free_vars_with_priorities(res, prior_pools);
                     for bound_var in bindings {
                         let term = self.add_with_priorities(bound_var.clone().into(), prior_pools);
-                        res_vars.remove(&term);
+                        res_vars.shift_remove(&term);
                     }
                     vars.extend(res_vars.into_iter());
                 }

@@ -1,6 +1,5 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
-use crate::checker::printer::AlethePrinter;
 use crate::external::*;
 use std::collections::HashMap;
 use std::process;
@@ -14,7 +13,7 @@ fn sat_refutation_external_check(
     pool: &mut PrimitivePool,
     cnf_path: String,
     prelude: &ProblemPrelude,
-    choice_assertions: &Vec<Rc<Term>>,
+    _choice_assertions: &Vec<Rc<Term>>,
     checker_path: String,
     lemmas: &Vec<Rc<Term>>,
     lemmas_to_th_ids: &HashMap<Rc<Term>, String>,
@@ -49,7 +48,7 @@ fn sat_refutation_external_check(
             unreachable!();
         };
         let mut bytes = Vec::new();
-        printer::write_term(
+        let _ = printer::write_term(
             pool,
             prelude,
             &mut bytes,
@@ -207,7 +206,7 @@ pub fn sat_refutation(
                 let mut counter = 0;
                 let mut internal_substitution = IndexMap::new();
                 let mut forall_bindings = Vec::new();
-                let (choice_var_name, choice_var_sort) = &bindings[0];
+                let (choice_var_name, _choice_var_sort) = &bindings[0];
                 let mut choice_dependencies = Vec::new();
                 let univ_vars = pool
                     .collect_binders(&body, Binder::Choice)

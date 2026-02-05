@@ -90,6 +90,7 @@ impl Rc<Term> {
             | Term::App(_, _)
             | Term::Sort(_)
             | Term::Binder(_, _, _)
+            | Term::Match(_, _)
             | Term::Let(_, _) => None,
             Term::ParamOp { .. } => None, // TODO
         }?;
@@ -330,6 +331,7 @@ fn eval_op(op: Operator, args: Vec<&Value>) -> Option<Value> {
         | Operator::BvPBbTerm
         | Operator::BvBbTerm
         | Operator::BvConst
+        | Operator::Pow2
         | Operator::BvSize => return None,
 
         // TODO: Rare
