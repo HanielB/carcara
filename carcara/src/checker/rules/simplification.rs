@@ -800,17 +800,12 @@ fn apply_aci_simp(
                     }
                 })
                 .dedup()
+                .filter(|t| t.as_ref() != &identity)
                 .collect();
             if args.len() == 1 {
                 args[0].clone()
             } else {
-                // remove identity, if any
-                let new_args = args
-                    .iter()
-                    .filter(|t| t.is_const() && t.as_ref() == &identity)
-                    .cloned()
-                    .collect();
-                pool.add(Term::Op(*op, new_args))
+                pool.add(Term::Op(*op, args))
             }
         }
         _ => term.clone(),
