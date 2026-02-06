@@ -1,7 +1,9 @@
 use super::*;
+use crate::ast::rare_rules::RareStatements;
 use crate::ast::*;
 use crate::elaborator::{mutate, IdHelper};
 use crate::{checker, parser, CarcaraResult};
+use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::{
@@ -10,9 +12,6 @@ use std::{
     process::{Command, Stdio},
 };
 use thiserror::Error;
-use crate::ast::rare_rules::RareStatements;
-use indexmap::IndexMap;
-
 
 #[derive(Debug, Error)]
 pub enum ExternalError {

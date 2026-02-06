@@ -272,7 +272,9 @@ impl SortError {
                     if v.len() != 2 {
                         let any = pool.add(Term::Sort(any.clone()));
                         return Err(Self {
-                            expected: vec![Sort::Array(any.clone(), any)].into_boxed_slice().to_vec(),
+                            expected: vec![Sort::Array(any.clone(), any)]
+                                .into_boxed_slice()
+                                .to_vec(),
                             got: got.clone(),
                         });
                     }

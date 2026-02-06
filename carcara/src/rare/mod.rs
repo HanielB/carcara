@@ -219,8 +219,8 @@ pub fn rewrite_meta_terms(
                 op_args: new_op_args,
                 args: new_args,
             })
-        },
-        Term::Match(_,_) => unreachable!(),
+        }
+        Term::Match(_, _) => unreachable!(),
     }
 }
 
