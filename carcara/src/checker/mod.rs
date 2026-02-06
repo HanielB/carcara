@@ -533,6 +533,10 @@ impl<'c> ProofChecker<'c> {
 
             "rare_rewrite" => rare::check_rare,
 
+            "miniscope_distribute" => quantifier::miniscope_distribute,
+            "miniscope_split" => quantifier::miniscope_split,
+            "miniscope_ite" => quantifier::miniscope_ite,
+
             // array rules
             "arrays_idx" => arrays::idx,
             "arrays_row" => arrays::row,
