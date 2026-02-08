@@ -1048,12 +1048,19 @@ impl Constant {
 impl Operator {
     pub fn is_assoc(&self) -> bool {
         match self {
-            Operator::And | Operator::Or | Operator::Add | Operator::Mult | Operator::BvAdd | Operator::BvOr | Operator::BvMul | Operator::BvAnd | Operator::BvConcat  => true,
+            Operator::And
+            | Operator::Or
+            | Operator::Add
+            | Operator::Mult
+            | Operator::BvAdd
+            | Operator::BvOr
+            | Operator::BvMul
+            | Operator::BvAnd
+            | Operator::BvConcat => true,
             _ => false,
         }
     }
 }
-
 
 impl Sort {
     pub fn is_polymorphic(&self) -> bool {

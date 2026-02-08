@@ -267,7 +267,7 @@ fn eval_op(op: Operator, args: Vec<&Value>) -> Option<Value> {
             let two = Value::Integer(Integer::from(2));
             let twos = vec![two; v];
             arith_op!(*, twos)
-        },
+        }
 
         Operator::LessThan => comparison_op!(<, args),
         Operator::GreaterThan => comparison_op!(>, args),
@@ -518,7 +518,10 @@ fn eval_param_op(op: ParamOperator, op_args: Vec<&Value>, args: Vec<&Value>) -> 
         }
 
         // TODO: Strings, Arrays
-        ParamOperator::RePower | ParamOperator::ReLoop | ParamOperator::ArrayConst | ParamOperator::Tester => return None,
+        ParamOperator::RePower
+        | ParamOperator::ReLoop
+        | ParamOperator::ArrayConst
+        | ParamOperator::Tester => return None,
     })
 }
 

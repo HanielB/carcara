@@ -2,9 +2,12 @@ use super::{
     assert_clause_len, assert_eq, assert_is_bool_constant, CheckerError, EqualityError, RuleArgs,
     RuleResult,
 };
-use crate::{ast::*, utils::{DedupIterator, MultiSet}};
+use crate::{
+    ast::*,
+    utils::{DedupIterator, MultiSet},
+};
 use indexmap::{IndexMap, IndexSet};
-use rug::{Integer,Rational};
+use rug::{Integer, Rational};
 
 /// A macro to define the possible transformations for a "simplify" rule.
 macro_rules! simplify {
@@ -740,9 +743,8 @@ pub fn ac_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 // Term is given as argument as well because if the operator is
 // parametric, such as a BV operator, the width of the arguments will
 // be relevant.
-fn identity_of_op(pool: &mut dyn TermPool,
-op: &Operator, term: &Rc<Term>) -> Option<Term> {
-  match op {
+fn identity_of_op(pool: &mut dyn TermPool, op: &Operator, term: &Rc<Term>) -> Option<Term> {
+    match op {
         Operator::Or => Some(Term::new_bool(false)),
         Operator::And => Some(Term::new_bool(true)),
         // TODO modularize this so it's not repeated below
@@ -764,12 +766,7 @@ op: &Operator, term: &Rc<Term>) -> Option<Term> {
         },
         Operator::BvAdd | Operator::BvOr => match term.as_ref() {
             Term::Op(_, args) => {
-                let Sort::BitVec(size) = pool
-                    .sort(&args[0])
-                    .as_sort()
-                    .cloned()
-                    .unwrap()
-                else {
+                let Sort::BitVec(size) = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
                     unreachable!();
                 };
                 Some(Term::new_bv(Integer::from(0), size))
@@ -778,19 +775,14 @@ op: &Operator, term: &Rc<Term>) -> Option<Term> {
         },
         Operator::BvMul | Operator::BvAnd => match term.as_ref() {
             Term::Op(_, args) => {
-                let Sort::BitVec(size) = pool
-                    .sort(&args[0])
-                    .as_sort()
-                    .cloned()
-                    .unwrap()
-                else {
+                let Sort::BitVec(size) = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
                     unreachable!();
                 };
                 Some(Term::new_bv(Integer::from(1), size))
             }
             _ => unreachable!(),
         },
-        _ => None
+        _ => None,
     }
 }
 
@@ -813,15 +805,17 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         t2
     };
     match (t11.as_ref(), t22.as_ref()) {
-        (Term::Op(op1, args1), Term::Op(op2, args2)) if op1.is_assoc() && *op1 != Operator::BvConcat && op1 == op2 => {
+        (Term::Op(op1, args1), Term::Op(op2, args2))
+            if op1.is_assoc() && *op1 != Operator::BvConcat && op1 == op2 =>
+        {
             let args1_multiset: MultiSet<_> = args1.iter().collect();
             let args2_multiset: MultiSet<_> = args2.iter().collect();
-                if args1_multiset != args2_multiset {
-                    return Err(CheckerError::ShuffleArgsNotEqual);
-                }
+            if args1_multiset != args2_multiset {
+                return Err(CheckerError::ShuffleArgsNotEqual);
+            }
             Ok(())
-        },
-        _ =>  assert_eq(t11, t22)
+        }
+        _ => assert_eq(t11, t22),
     }
 }
 
@@ -830,10 +824,10 @@ fn apply_aci_simp(
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
     term: &Rc<Term>,
     op: &Operator,
-    identity: &Option<Term>
+    identity: &Option<Term>,
 ) -> Rc<Term> {
     if !op.is_assoc() {
-        return term.clone()
+        return term.clone();
     }
     if let Some(t) = cache.get(term) {
         return t.clone();
