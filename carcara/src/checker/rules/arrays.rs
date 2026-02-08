@@ -52,8 +52,8 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     // arrays are the same in the lhs and rhs of the premise
     assert_eq(a1, a2)?;
     // indices are the same in conclusion and premise
-    assert_eq(ip, ic)?;
-    assert_eq(jp2, jc)?;
+    assert_eq(ip, jc)?;
+    assert_eq(jp2, ic)?;
     Ok(())
 }
 
