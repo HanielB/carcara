@@ -1056,6 +1056,7 @@ impl Operator {
             | Operator::BvOr
             | Operator::BvMul
             | Operator::BvAnd
+            | Operator::BvXor
             | Operator::BvConcat => true,
             _ => false,
         }
