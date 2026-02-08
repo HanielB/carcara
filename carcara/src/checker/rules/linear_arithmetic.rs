@@ -104,6 +104,9 @@ impl LinearComb {
                 inner_coeff *= coeff;
                 self.add_term(var, &inner_coeff);
             }
+            Term::Op(Operator::ToReal, args) => {
+                self.add_term(&args[0], coeff);
+            }
             _ => {
                 if let Some(mut r) = term.as_fraction() {
                     r *= coeff;
