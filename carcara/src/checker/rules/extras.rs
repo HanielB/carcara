@@ -80,16 +80,10 @@ pub fn weakening(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult 
     assert_num_premises(premises, 1)?;
     let premise = premises[0].clause;
     assert_clause_len(conclusion, premise.len()..)?;
-
-    let premise_set: IndexSet<_> = premise.iter().collect();
-    let conclusion_set: IndexSet<_> = conclusion.iter().collect();
-    if premise_set.is_subset(&conclusion_set) {
-        Ok(())
-    } else {
-        Err(CheckerError::Explanation(
-            "Premise is not a subset of conclusion".to_string(),
-        ))
+    for (t, u) in premise.iter().zip(conclusion) {
+        assert_eq(t, u)?;
     }
+    Ok(())
 }
 
 pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
