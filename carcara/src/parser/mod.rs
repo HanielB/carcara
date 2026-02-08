@@ -1351,11 +1351,28 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
                     self.make_op(op, args)
                         .map_err(|err| Error::Parser(err, pos))
+                } else if let Ok(op) = ParamOperator::from_str(&s) {
+                    // Parametric operators can be applied in a flat
+                    // way. The last argument will be the true
+                    // argument, and the previous ones the operator
+                    // argumentsq
+                    let args = self.parse_sequence(Self::parse_term, true)?;
+                    if let Some((last, op_args)) = args.split_last() {
+                        self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
+                            .map_err(|err| Error::Parser(err, pos))
+                    } else {
+                        return Err(Error::Parser(
+                            ParserError::InvalidIndexedOp(op.to_string()),
+                            pos,
+                        ));
+                    }
                 } else {
                     self.make_var(s).map_err(|err| Error::Parser(err, pos))
                 };
             }
-            (Token::OpenParen, _) => return self.parse_application(),
+            (Token::OpenParen, _) => {
+                return self.parse_application();
+            }
             (other, pos) => {
                 return Err(Error::Parser(ParserError::UnexpectedToken(other), pos));
             }
@@ -1747,6 +1764,24 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 let args = self.parse_sequence(Self::parse_term, true)?;
                 self.make_op(operator, args)
                     .map_err(|err| Error::Parser(err, head_pos))
+            }
+            Token::Symbol(s) if ParamOperator::from_str(s).is_ok() => {
+                // Parametric operators can be applied in a flat
+                // way. The last argument will be the true
+                // argument, and the previous ones the operator
+                // argumentsq
+                let op = ParamOperator::from_str(s).unwrap();
+                self.next_token()?;
+                let args = self.parse_sequence(Self::parse_term, true)?;
+                if let Some((last, op_args)) = args.split_last() {
+                    self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
+                        .map_err(|err| Error::Parser(err, head_pos))
+                } else {
+                    return Err(Error::Parser(
+                        ParserError::InvalidIndexedOp(op.to_string()),
+                        head_pos,
+                    ));
+                }
             }
             Token::Symbol(s) if s == "eo" => {
                 // "Let" constructions unfold
