@@ -1,4 +1,4 @@
-use super::{Constant, Operator, ParamOperator, Rc, Term};
+use super::{Constant, Operator, ParamOperator, Rc, Sort, Term};
 use rug::{Integer, Rational};
 use std::collections::{HashMap, HashSet};
 
@@ -108,6 +108,14 @@ impl Rc<Term> {
 
         let result = match self.as_ref() {
             Term::Const(c) => Some(Value::from_constant(c.clone())),
+            // special case where a value can be obtained without evaluating the argument
+            Term::Op(op, args) if *op == Operator::BvSize => {
+                if let Sort::BitVec(size) = args[0].raw_sort() {
+                    Some(Value::Integer(Integer::from(size)))
+                } else {
+                    None
+                }
+            }
             Term::Op(op, args) => {
                 // To avoid lifetime issues, first we compute the evaluation of each argument and
                 // then collect the values into a vector by looking into the cache
