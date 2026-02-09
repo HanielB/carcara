@@ -226,8 +226,7 @@ impl PrimitivePool {
                     }
                 }
                 Operator::Ite => self.compute_sort(&args[1]).as_sort().unwrap().clone(),
-                Operator::Abs => self.compute_sort(&args[0]).as_sort().unwrap().clone(),
-                Operator::Add | Operator::Sub | Operator::Mult => {
+                Operator::Add | Operator::Sub | Operator::Mult | Operator::Abs => {
                     if args
                         .iter()
                         .any(|a| self.compute_sort(a).as_sort().unwrap() == &Sort::Real)
