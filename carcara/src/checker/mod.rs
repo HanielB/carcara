@@ -526,7 +526,7 @@ impl<'c> ProofChecker<'c> {
             "la_mult_neg" => extras::la_mult_neg,
             "mod_simplify" => extras::mod_simplify,
 
-            "poly_simp" => linear_arithmetic::poly_simp,
+            "poly_simp" => polynomial::poly_simp,
             "aci_simp" => simplification::aci_simp,
 
             "evaluate" => extras::evaluate,
