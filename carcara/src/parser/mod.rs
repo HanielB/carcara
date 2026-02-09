@@ -1634,19 +1634,23 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     self.make_op(op, args)
                         .map_err(|err| Error::Parser(err, pos))
                 } else if let Ok(op) = ParamOperator::from_str(&s) {
-                    // Parametric operators can be applied in a flat
-                    // way. The last argument will be the true
-                    // argument, and the previous ones the operator
-                    // argumentsq
-                    let args = self.parse_sequence(Self::parse_term, true)?;
-                    if let Some((last, op_args)) = args.split_last() {
-                        self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
-                            .map_err(|err| Error::Parser(err, pos))
+                    if op != ParamOperator::BvConst {
+                        // Parametric operators can be applied in a flat
+                        // way. The last argument will be the true
+                        // argument, and the previous ones the operator
+                        // arguments
+                        let args = self.parse_sequence(Self::parse_term, true)?;
+                        if let Some((last, op_args)) = args.split_last() {
+                            self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
+                                .map_err(|err| Error::Parser(err, pos))
+                        } else {
+                            return Err(Error::Parser(
+                                ParserError::InvalidIndexedOp(op.to_string()),
+                                pos,
+                            ));
+                        }
                     } else {
-                        return Err(Error::Parser(
-                            ParserError::InvalidIndexedOp(op.to_string()),
-                            pos,
-                        ));
+                        self.make_var(s).map_err(|err| Error::Parser(err, pos))
                     }
                 } else {
                     self.make_var(s).map_err(|err| Error::Parser(err, pos))
