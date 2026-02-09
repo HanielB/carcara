@@ -764,7 +764,7 @@ fn identity_of_op(pool: &mut dyn TermPool, op: &Operator, term: &Rc<Term>) -> Op
             },
             _ => unreachable!(),
         },
-        Operator::BvAdd | Operator::BvOr => match term.as_ref() {
+        Operator::BvAdd | Operator::BvOr | Operator::BvXor => match term.as_ref() {
             Term::Op(_, args) => {
                 let Sort::BitVec(size) = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
                     unreachable!();
