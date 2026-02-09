@@ -519,7 +519,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 SortError::assert_all_eq(&sorts)?;
             }
-            Operator::Pow2 => {
+            Operator::Pow2 | Operator::Log2 | Operator::IsPow2 => {
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, sorts[0])?;
             }

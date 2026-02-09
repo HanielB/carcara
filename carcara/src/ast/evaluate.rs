@@ -269,6 +269,7 @@ fn eval_op(op: Operator, args: Vec<&Value>) -> Option<Value> {
             Value::Real(r) => Value::Real(r.clone().abs()),
             _ => return None,
         },
+        // TODO if args[0] is negative, yield 0. Also for Log2
         Operator::Pow2 => {
             let v = args[0].as_int()?;
             let v = v.to_usize()?;
@@ -276,7 +277,8 @@ fn eval_op(op: Operator, args: Vec<&Value>) -> Option<Value> {
             let twos = vec![two; v];
             arith_op!(*, twos)
         }
-
+        // TODO
+        Operator::Log2 | Operator::IsPow2 => return None,
         Operator::LessThan => comparison_op!(<, args),
         Operator::GreaterThan => comparison_op!(>, args),
         Operator::LessEq => comparison_op!(<=, args),
