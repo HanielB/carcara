@@ -292,9 +292,9 @@ fn eval_op(op: Operator, args: Vec<&Value>) -> Option<Value> {
             let v = args[0].as_int()?;
             if v <= 0 {
                 Value::Integer(Integer::from(0))
+            } else {
+                Value::Integer(Integer::from(v.significant_bits() - 1))
             }
-            else {
-            Value::Integer(Integer::from(v.significant_bits() - 1))}
         }
         Operator::IsPow2 => {
             let v = args[0].as_int()?;

@@ -526,7 +526,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             // Note that we cannot enforce that the sorts of the
             // arguments are the same because for example for BV rules
             // the types may differ
-            Operator::RareList => {},
+            Operator::RareList => {}
         }
         Ok(self.pool.add(Term::Op(op, args)))
     }
