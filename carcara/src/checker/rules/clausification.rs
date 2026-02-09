@@ -5,6 +5,7 @@ use super::{
 };
 use crate::ast::*;
 use indexmap::IndexMap;
+use rug::Integer;
 
 pub fn distinct_elim(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -25,6 +26,21 @@ pub fn distinct_elim(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult 
         // second term must be `false`
         args if pool.sort(&args[0]).as_sort().unwrap() == &Sort::Bool => {
             if second_term.is_bool_false() {
+                Ok(())
+            } else {
+                Err(CheckerError::ExpectedBoolConstant(
+                    false,
+                    second_term.clone(),
+                ))
+            }
+        }
+        // If there are more than 2^n BV arguments of sort (_ Bitvec n) to the distinct operator, the
+        // second term must be `false`
+        args if matches!(pool.sort(&args[0]).as_sort().unwrap(), Sort::BitVec(_)) => {
+            let Sort::BitVec(size) = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
+                unreachable!();
+            };
+            if args.len() <= Integer::from(1) << size || second_term.is_bool_false() {
                 Ok(())
             } else {
                 Err(CheckerError::ExpectedBoolConstant(
