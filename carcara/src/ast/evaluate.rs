@@ -67,7 +67,7 @@ impl Value {
         let (val, w) = self.as_bitvec()?;
         let val = if val.get_bit((w - 1) as u32) {
             let m = Integer::from(1) << w;
-            m.clone() - val
+            val - m.clone()
         } else {
             val.clone()
         };
