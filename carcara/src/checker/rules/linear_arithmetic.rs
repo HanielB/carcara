@@ -104,6 +104,17 @@ impl LinearComb {
                 inner_coeff *= coeff;
                 self.add_term(var, &inner_coeff);
             }
+            Term::Op(Operator::RealDiv, args) if args.len() == 2 => {
+                if let Some(r) = args[1].as_fraction() {
+                    if !r.is_zero() {
+                        self.add_term(&args[0], &(coeff / r));
+                    } else {
+                        self.insert(term.clone(), coeff.clone());
+                    }
+                } else {
+                    self.insert(term.clone(), coeff.clone());
+                }
+            }
             Term::Op(Operator::ToReal, args) => {
                 self.add_term(&args[0], coeff);
             }
