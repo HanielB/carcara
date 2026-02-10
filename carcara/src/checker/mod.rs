@@ -527,6 +527,8 @@ impl<'c> ProofChecker<'c> {
             "mod_simplify" => extras::mod_simplify,
 
             "poly_simp" => polynomial::poly_simp,
+            "bv_poly_simp" => polynomial::bv_poly_simp,
+
             "aci_simp" => simplification::aci_simp,
 
             "evaluate" => extras::evaluate,
