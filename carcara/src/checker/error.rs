@@ -357,6 +357,9 @@ pub enum QuantifierError {
 
     #[error("binding '{0}' appears as free variable in term '{1}'")]
     MiniscopeFreeVar(String, Rc<Term>),
+
+    #[error("binder '{0}' does not match lhs binder'")]
+    MiniscopeWrongQuant(Binder),
 }
 
 /// Errors relevant to the linear arithmetic rules.
