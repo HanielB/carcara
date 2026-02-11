@@ -528,6 +528,7 @@ impl<'c> ProofChecker<'c> {
 
             "poly_simp" => polynomial::poly_simp,
             "bv_poly_simp" => polynomial::bv_poly_simp,
+            "poly_simp_rel" => polynomial::poly_simp_rel,
 
             "aci_simp" => simplification::aci_simp,
 
