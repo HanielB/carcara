@@ -410,3 +410,11 @@
   :args (t1 s1)
   :conclusion (= (distinct t1 s1) (not (= t1 s1)))
 )
+
+;;; used by Alethe's translation
+
+(declare-rare-rule ite-eq ((@T0 Type) (C Bool) (t1 @T0) (t2 @T1))
+  :args (C t1 t2)
+  :conclusion (= (ite C (= (ite C t1 t2) t1) (= (ite C t1 t2) t2)) true))
+
+;;; BV
