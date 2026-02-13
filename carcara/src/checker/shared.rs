@@ -101,7 +101,7 @@ pub fn check_step_core<CR: CollectResults + Send + Default>(
     let time = Instant::now();
 
     if context.config.allowed_rules.contains(&step.rule) {
-        *context.is_holey = true;
+        log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
         return Ok(());
     }
 
