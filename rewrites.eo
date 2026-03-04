@@ -422,11 +422,13 @@
    :args (t xs)
    :conclusion (= (or (not (= t t)) xs) (or xs)))
 
-;; (define-rule bool-not-false ((t Bool)) (not (= t t)) false)
-
 (declare-rare-rule bool-not-false ((t Bool))
    :args (t)
    :conclusion (= (not (= t t)) false))
+
+(declare-rare-rule distinct-false ((@T0 Type) (t @T0) (xs @T0 :list) (ys @T0 :list) (zs @T0 :list))
+   :args (t xs ys zs)
+   :conclusion (= (distinct xs t ys t zs) false))
 
 ;;; BV
 
