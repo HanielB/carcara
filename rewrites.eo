@@ -430,6 +430,14 @@
    :args (t xs ys zs)
    :conclusion (= (distinct xs t ys t zs) false))
 
+(declare-rare-rule abs-elim-int ((t Int))
+   :args (t)
+   :conclusion (= (abs t) (ite (< t 0) (- t) t)))
+
+(declare-rare-rule abs-elim-real ((t Real))
+   :args (t)
+   :conclusion (= (abs t) (ite (< t 0/1) (- t) t)))
+
 ;;; BV
 
 ;; (declare-rare-rule bv-concat-extract-merge ((@n0 Int) (@n1 Int) (@n2 Int) (xs1 (BitVec @n0) :list) (s1 (BitVec @n1)) (ys1 (BitVec @n2) :list) (i1 Int) (j1 Int) (j2 Int) (k1 Int))
