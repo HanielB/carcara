@@ -438,6 +438,14 @@
    :args (t)
    :conclusion (= (abs t) (ite (< t 0/1) (- t) t)))
 
+(declare-rare-rule mult-tangent-lower ((@T0 Type) (x @T0) (y @T0) (a @T0) (b @T0))
+   :args (x y a b)
+   :conclusion (= (<= (* x y) (- (+ (* b x) (* a y)) (* a b))) (or (and (<= x a) (>= y b)) (and (>= x a) (<= y b)))))
+
+(declare-rare-rule mult-tangent-upper ((@T0 Type) (x @T0) (y @T0) (a @T0) (b @T0))
+   :args (x y a b)
+   :conclusion (= (>= (* x y) (- (+ (* b x) (* a y)) (* a b))) (or (and (<= x a) (<= y b)) (and (>= x a) (>= y b)))))
+
 ;;; BV
 
 ;; (declare-rare-rule bv-concat-extract-merge ((@n0 Int) (@n1 Int) (@n2 Int) (xs1 (BitVec @n0) :list) (s1 (BitVec @n1)) (ys1 (BitVec @n2) :list) (i1 Int) (j1 Int) (j2 Int) (k1 Int))
