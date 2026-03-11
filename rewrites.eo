@@ -412,6 +412,11 @@
   :conclusion (= (distinct t1 s1) (not (= t1 s1)))
 )
 
+(declare-rare-rule arith-mod-over-mod-1 ((c Int) (r Int))
+  :args (c r)
+  :premises ((= (= c 0) false))
+  :conclusion (= (mod (mod r c) c) (mod r c)))
+
 ;;; used by Alethe's translation
 
 (declare-rare-rule ite-eq ((@T0 Type) (C Bool) (t1 @T0) (t2 @T1))
