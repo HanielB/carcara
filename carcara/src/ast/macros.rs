@@ -175,6 +175,11 @@ macro_rules! match_term {
     (@GET_VARIANT >=)       => { $crate::ast::Operator::GreaterEq };
 
     (@GET_VARIANT to_real)  => { $crate::ast::Operator::ToReal };
+    (@GET_VARIANT to_int)  => { $crate::ast::Operator::ToInt };
+    (@GET_VARIANT is_int)  => { $crate::ast::Operator::IsInt };
+
+    (@GET_VARIANT log2)  => { $crate::ast::Operator::Log2 };
+    (@GET_VARIANT pow2)  => { $crate::ast::Operator::Pow2 };
 
     (@GET_VARIANT cl)    => { $crate::ast::Operator::Cl };
     (@GET_VARIANT delete)    => { $crate::ast::Operator::Delete };
