@@ -228,7 +228,7 @@ macro_rules! match_term {
 
     // In the last case it can match a literal integer
     ($lit:literal = $var:expr) => {
-        if let Some(i) = $var.as_integer() {
+        if let Some(i) = $var.as_number() {
             if i == $lit {
                 Some(())
             } else {
