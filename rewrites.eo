@@ -435,6 +435,14 @@
    :args (t xs ys zs)
    :conclusion (= (distinct xs t ys t zs) false))
 
+(declare-rare-rule mod-elim ((a Int) (b Int))
+  :args (a b)
+  :conclusion (= (mod a b) (- a (* b (div a b)))))
+
+(declare-rare-rule is_int-elim ((x Real))
+  :args (x)
+  :conclusion (= (is_int x) (= x (to_real (to_int x)))))
+
 (declare-rare-rule abs-elim-int ((t Int))
    :args (t)
    :conclusion (= (abs t) (ite (< t 0) (- t) t)))
