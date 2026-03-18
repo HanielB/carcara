@@ -318,46 +318,19 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
     Ok(())
 }
 
-pub fn mod_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
-    assert_clause_len(conclusion, 1)?;
-
-    let (((a1, b1), (a2, (b2, (a3, b3)))), (((b4, (a4, b5)), a5), (a6, (b6, ((a7, b7), c))))) = match_term_err!(
-        (and (= (mod a b) (- a (* b (div a b))))
-          (and
-            (<= (* b (div a b)) a)
-            (< a (* b (+ (div a b) c))))) = &conclusion[0])?;
-    assert_all_eq(&[a1, a2, a3, a4, a5, a6, a7])?;
-    assert_all_eq(&[b1, b2, b3, b4, b5, b6, b7])?;
-
-    let c = c.as_number_err()?;
-
-    if b1.as_number_err()? > 0 {
-        if c != Rational::from(1) {
-            unreachable!();
-        }
-    }
-    else {
-        if c != Rational::from(-1) {
-            unreachable!();
-        }
-    }
-    Ok(())
-}
-
 pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let (((a1, b1), (a2, b2)), (((b3, (a3, b4)), a4), (a5, (b5, ((a6, b6), c))))) = match_term_err!(
-        (and (= (div a b) (div a b))
+    let (((b3, (a3, b4)), a4), (a5, (b5, ((a6, b6), c)))) = match_term_err!(
           (and
             (<= (* b (div a b)) a)
-            (< a (* b (+ (div a b) c))))) = &conclusion[0])?;
-    assert_all_eq(&[a1, a2, a3, a4, a5, a6])?;
-    assert_all_eq(&[b1, b2, b3, b4, b5, b6])?;
+            (< a (* b (+ (div a b) c)))) = &conclusion[0])?;
+    assert_all_eq(&[a3, a4, a5, a6])?;
+    assert_all_eq(&[b3, b4, b5, b6])?;
 
     let c = c.as_number_err()?;
 
-    if b1.as_number_err()? > 0 {
+    if b3.as_number_err()? > 0 {
         if c != Rational::from(1) {
             unreachable!();
         }
@@ -373,12 +346,11 @@ pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 pub fn log2_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let ((x1, x2), ((((), x3), ((x4, x5), (x6, (x7, ())))), (((), x8), (x9, ())))) = match_term_err!(
-        (and (= (log2 x) (log2 x))
+    let ((((), x3), ((x4, x5), (x6, (x7, ())))), (((), x8), (x9, ()))) = match_term_err!(
           (and
             (=> (< 0 x) (and (<= (pow2 (log2 x)) x) (< x (pow2 (+ (log2 x) 1)))))
-            (=> (not (< 0 x)) (= (log2 x) 0)))) = &conclusion[0])?;
-    assert_all_eq(&[x1, x2, x3, x4, x5, x6, x7, x8, x9])?;
+            (=> (not (< 0 x)) (= (log2 x) 0))) = &conclusion[0])?;
+    assert_all_eq(&[x3, x4, x5, x6, x7, x8, x9])?;
 
     Ok(())
 }
@@ -386,25 +358,11 @@ pub fn log2_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 pub fn to_int_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let ((x1, x2), (((), (x3, x4)), ((x5, x6), ()))) = match_term_err!(
-        (and (= (to_int x) (to_int x))
+    let (((), (x3, x4)), ((x5, x6), ())) = match_term_err!(
           (and
             (<= 0.0 (- x (to_real (to_int x))))
-            (< (- x (to_real (to_int x))) 1.0))) = &conclusion[0])?;
-    assert_all_eq(&[x1, x2, x3, x4, x5, x6])?;
-
-    Ok(())
-}
-
-pub fn is_int_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
-    assert_clause_len(conclusion, 1)?;
-
-    let ((x1, (x2, x3)), (((), (x4, x5)), ((x6, x7), ()))) = match_term_err!(
-        (and (= (is_int x) (= x (to_real (to_int x))))
-          (and
-            (<= 0.0 (- x (to_real (to_int x))))
-           (< (- x (to_real (to_int x))) 1.0))) = &conclusion[0])?;
-    assert_all_eq(&[x1, x2, x3, x4, x5, x6, x7])?;
+            (< (- x (to_real (to_int x))) 1.0)) = &conclusion[0])?;
+    assert_all_eq(&[x3, x4, x5, x6])?;
 
     Ok(())
 }
