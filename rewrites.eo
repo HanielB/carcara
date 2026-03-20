@@ -427,7 +427,7 @@
    :args (t xs)
    :conclusion (= (or (not (= t t)) xs) (or xs)))
 
-(declare-rare-rule bool-not-false ((t Bool))
+(declare-rare-rule bool-not-eq-false ((t Bool))
    :args (t)
    :conclusion (= (not (= t t)) false))
 
