@@ -5,6 +5,7 @@
 #[macro_use]
 mod macros;
 mod context;
+pub mod dot;
 mod evaluate;
 mod iter;
 mod node;

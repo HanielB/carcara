@@ -82,6 +82,9 @@ enum Command {
 
     /// Generates the equivalent SMT instance for every `lia_generic` step in a proof.
     GenerateLiaProblems(ParseCommandOptions),
+
+    /// Parses a proof file and outputs a DOT graph for visualization.
+    Dot(ParseCommandOptions),
 }
 
 #[derive(Args)]
@@ -504,6 +507,7 @@ fn main() {
         Command::GenerateLiaProblems(options) => {
             generate_lia_problems_command(options, !cli.no_print_with_sharing)
         }
+        Command::Dot(options) => dot_command(options),
     };
     if let Err(e) = result {
         log::error!("{}", e);
@@ -571,6 +575,13 @@ fn parse_command(
     let (problem, proof, rules) = get_instance(&options.input, options.parsing.buffer_entire_file)?;
     let result = parser::parse_instance(problem, proof, rules, options.parsing.into())?;
     Ok(result)
+}
+
+fn dot_command(options: ParseCommandOptions) -> CliResult<()> {
+    let (problem, proof, rules) = get_instance(&options.input, options.parsing.buffer_entire_file)?;
+    let (_, proof, _, _) = parser::parse_instance(problem, proof, rules, options.parsing.into())?;
+    ast::dot::write_dot(&proof, &mut io::stdout())?;
+    Ok(())
 }
 
 fn check_command(options: CheckCommandOptions) -> CliResult<bool> {
