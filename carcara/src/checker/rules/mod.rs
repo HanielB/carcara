@@ -167,6 +167,7 @@ fn assert_is_bool_constant(got: &Rc<Term>, expected: bool) -> RuleResult {
     Ok(())
 }
 
+pub(super) mod arrays;
 pub(super) mod bitvectors;
 pub(super) mod clausification;
 pub(super) mod congruence;

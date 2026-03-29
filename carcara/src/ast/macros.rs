@@ -187,6 +187,9 @@ macro_rules! match_term {
     (@GET_VARIANT pbbterm)  => { $crate::ast::Operator::BvPBbTerm };
     (@GET_VARIANT int_of)      => { $crate::ast::ParamOperator::BvIntOf };
 
+    (@GET_VARIANT select)    => { $crate::ast::Operator::Select };
+    (@GET_VARIANT store)    => { $crate::ast::Operator::Store };
+
     (@GET_VARIANT bbterm)      => { $crate::ast::Operator::BvBbTerm };
     (@GET_VARIANT bit_of)      => { $crate::ast::ParamOperator::BvBitOf };
     (@GET_VARIANT bvnot)    => { $crate::ast::Operator::BvNot };

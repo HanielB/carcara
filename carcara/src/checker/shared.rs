@@ -286,6 +286,12 @@ pub fn get_rule_shared(rule_name: &str, elaborated: bool) -> Option<crate::check
         "mod_simplify" => extras::mod_simplify,
         "evaluate" => extras::evaluate,
 
+        // array rules
+        "arrays_idx" => arrays::idx,
+        "arrays_row" => arrays::row,
+        "arrays_row_contra" => arrays::row_contra,
+        "arrays_ext" => arrays::ext,
+
         "bitblast_const" => bitvectors::value,
         "bitblast_var" => bitvectors::var,
         "bitblast_and" => bitvectors::and,
