@@ -405,6 +405,45 @@ pub fn miniscope_ite(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult 
     Ok(())
 }
 
+pub fn beta_equiv(RuleArgs { conclusion, pool, polyeq_time, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (
+        ((bindings_1, phi_l), applied_terms),
+        rhs,
+    ) = match_term_err!(
+        (= (@ (lambda ... phi_l) ...) rhs)
+        = &conclusion[0]
+    )?;
+    // if the number of applied_terms is the same as that of bound
+    // variables, then the rhs must be phi_l with the substitution
+    // applied. Otherwise it should be a lambda with the
+    // non-substituted variables being bound over phi_l with the
+    // substitution applied
+    // iterate over the bindings and arguments simultaneously, building the substitution
+    let substitution: IndexMap<_, _> = bindings_1
+        .iter()
+        .zip(applied_terms)
+        .map(|((var_name, sort), value)| {
+            assert_eq(sort, &pool.sort(value))?;
+            let var = pool.add(Term::new_var(var_name, sort.clone()));
+            Ok((var.clone(), value.clone()))
+        })
+        .collect::<Result<_, CheckerError>>()?;
+    let mut substitution = Substitution::new(pool, substitution)?;
+    let phi_r = substitution.apply(pool, phi_l);
+    if applied_terms.len() == bindings_1.len() {
+        // The application of the substitution might rename bound
+        // variables, so we will need to compare for alpha-equivalence here
+        assert_alpha_equiv_expected(rhs, phi_r, polyeq_time)
+    }
+    else {
+        // build lambda around with remaining vars
+        let remaining_vars = BindingList(bindings_1[applied_terms.len()..].to_vec());
+        let rhs_lambda = pool.add(Term::Binder(Binder::Lambda, remaining_vars, phi_r));
+        assert_alpha_equiv_expected(rhs, rhs_lambda, polyeq_time)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
