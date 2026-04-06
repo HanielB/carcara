@@ -104,6 +104,39 @@ macro_rules! match_term {
             None
         }
     };
+    ((lambda ... $args:tt) = $var:expr) => {
+        if let $crate::ast::Term::Binder($crate::ast::Binder::Lambda, bindings, inner) =
+            &$var as &$crate::ast::Term
+        {
+            match_term!($args = inner).and_then(|inner| Some((bindings, inner)))
+        } else {
+            None
+        }
+    };
+    ((@ $func:tt ...) = $var:expr) => {{
+        if let $crate::ast::Term::App(func, args) =
+            &$var as &$crate::ast::Term
+        {
+            match_term!($func = func).and_then(|func| {
+                Some((func, args.as_slice()))
+            })
+        } else {
+            None
+        }
+    }};
+    ((@ $func:tt $($args:tt)+) = $var:expr) => {{
+        if let $crate::ast::Term::App(func, args) =
+            &$var as &$crate::ast::Term
+        {
+            match_term!($func = func).and_then(|func| {
+                match_term!(@ARGS ($($args)+) = args.as_slice()).map(|args| {
+                    (func, args)
+                })
+            })
+        } else {
+            None
+        }
+    }};
     ($bind:ident = $var:expr) => { Some($var) };
     (((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+) = $var:expr) => {{
         if let $crate::ast::Term::ParamOp {
