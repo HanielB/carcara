@@ -330,6 +330,13 @@ macro_rules! build_term {
         let body = build_term!($pool, $arg);
         $pool.add(Term::Binder(Binder::Choice, bindings, body))
     }};
+    ($pool:expr, (lambda ($(($name:literal $sort:ident))+) $body:tt)) => {{
+        let bindings = $crate::ast::BindingList(vec![
+            $(($name.into(), $pool.add($crate::ast::Term::Sort($crate::ast::Sort::$sort)))),+
+        ]);
+        let body = build_term!($pool, $body);
+        $pool.add($crate::ast::Term::Binder($crate::ast::Binder::Lambda, bindings, body))
+    }};
     ($pool:expr, $int:literal) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($int.into()))) };
     ($pool:expr, (const $name:ident)) => { $pool.add($crate::ast::Term::Const($crate::ast::Constant::Integer($name.clone()))) };
     ($pool:expr, {$terminal:expr}) => { $terminal };
