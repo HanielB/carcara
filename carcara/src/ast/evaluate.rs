@@ -291,13 +291,8 @@ fn eval_op(op: Operator, args: &[Rc<Term>]) -> Option<Value> {
             if v < 0 {
                 return Some(Value::Integer(Integer::from(0)));
             }
-            if v == 0 {
-                return Some(Value::Integer(Integer::from(1)));
-            }
             let v = v.to_usize()?;
-            let two = Value::Integer(Integer::from(2));
-            let twos = vec![two; v];
-            arith_op!(*, twos)
+            Value::Integer(Integer::from(1) << v)
         }
         Operator::Log2 => {
             let v = args[0].as_int()?;
