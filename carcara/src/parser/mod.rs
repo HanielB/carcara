@@ -282,6 +282,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::Bool, sorts[0])?;
                 SortError::assert_eq(sorts[1], sorts[2])?;
             }
+            Operator::BvIte => {
+                assert_num_args(&args, 3)?;
+                SortError::assert_eq(&Sort::BitVec(1), sorts[0])?;
+                if !Self::is_bv_sort(sorts[1]) {
+                    return Err(ParserError::ExpectedBvSort(sorts[1].clone()));
+                }
+                SortError::assert_eq(sorts[1], sorts[2])?;
+            }
             Operator::Add | Operator::Sub | Operator::Mult => {
                 // The `-` operator, in particular, can be called with only one argument, in which
                 // case it means negation instead of subtraction

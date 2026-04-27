@@ -467,6 +467,14 @@ fn eval_op(op: Operator, args: &[Rc<Term>]) -> Option<Value> {
             let ((a, _), (b, _)) = (args[0].as_bitvec()?, args[1].as_bitvec()?);
             Value::new_bitvec(Integer::from(if a == b { 1 } else { 0 }), 1)
         }
+        Operator::BvIte => {
+            let (cond, _) = args[0].as_bitvec()?;
+            if !cond.is_zero() {
+                args[1].clone()
+            } else {
+                args[2].clone()
+            }
+        }
         Operator::UBvToInt => Value::Integer(args[0].as_bitvec()?.0.clone()),
         Operator::SBvToInt => Value::Integer(args[0].as_signed_bitvec()?.0),
         Operator::BvSize => Value::Integer(args[0].as_bitvec()?.1.into()),

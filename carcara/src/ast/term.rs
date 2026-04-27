@@ -364,6 +364,8 @@ pub enum Operator {
     BvSGt,
     BvSGe,
 
+    BvIte,
+
     UBvToInt,
     SBvToInt,
 
@@ -489,6 +491,7 @@ impl Operator {
             | Operator::BvSLe
             | Operator::BvSGt
             | Operator::BvSGe
+            | Operator::BvIte
             | Operator::UBvToInt
             | Operator::SBvToInt
             | Operator::BvPBbTerm
@@ -624,6 +627,8 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
+
+    BvIte: "bvite",
 
     UBvToInt: "ubv_to_int",
     SBvToInt: "sbv_to_int",

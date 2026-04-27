@@ -213,7 +213,9 @@ impl PrimitivePool {
                         }))
                     }
                 }
-                Operator::Ite => self.compute_sort(&args[1]).as_sort().unwrap().clone(),
+                Operator::Ite | Operator::BvIte => {
+                    self.compute_sort(&args[1]).as_sort().unwrap().clone()
+                }
                 Operator::Add | Operator::Sub | Operator::Mult | Operator::Abs => {
                     if args
                         .iter()
