@@ -207,6 +207,186 @@ fn la_mult_neg() {
 }
 
 #[test]
+fn la_mult_sign() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Int)
+            (declare-fun y () Int)
+            (declare-fun z () Int)
+            (declare-fun a () Real)
+            (declare-fun b () Real)
+        ",
+        "Single variable, positive" {
+            "(step t1 (cl (=> (> x 0) (> x 0))) :rule la_mult_sign)": true,
+        }
+        "Single variable, negative" {
+            "(step t1 (cl (=> (< x 0) (< x 0))) :rule la_mult_sign)": true,
+        }
+        "Product of two distinct vars, both positive (positive monomial)" {
+            "(step t1 (cl (=> (and (> x 0) (> y 0)) (> (* x y) 0)))
+                :rule la_mult_sign)": true,
+        }
+        "Product of two distinct vars, one negative (negative monomial)" {
+            "(step t1 (cl (=> (and (< x 0) (> y 0)) (< (* x y) 0)))
+                :rule la_mult_sign)": true,
+            "(step t1 (cl (=> (and (> x 0) (< y 0)) (< (* x y) 0)))
+                :rule la_mult_sign)": true,
+        }
+        "Product of two distinct vars, both negative (positive monomial)" {
+            "(step t1 (cl (=> (and (< x 0) (< y 0)) (> (* x y) 0)))
+                :rule la_mult_sign)": true,
+        }
+        "Even exponent uses disequality with zero" {
+            "(step t1 (cl (=> (not (= x 0)) (> (* x x) 0))) :rule la_mult_sign)": true,
+            "(step t1 (cl (=> (and (not (= x 0)) (> y 0)) (> (* x x y) 0)))
+                :rule la_mult_sign)": true,
+            "(step t1 (cl (=> (and (not (= x 0)) (< y 0)) (< (* x x y) 0)))
+                :rule la_mult_sign)": true,
+        }
+        "Three distinct variables with mixed signs" {
+            "(step t1 (cl (=> (and (< x 0) (< y 0) (< z 0)) (< (* x y z) 0)))
+                :rule la_mult_sign)": true,
+            "(step t1 (cl (=> (and (> x 0) (< y 0) (< z 0)) (> (* x y z) 0)))
+                :rule la_mult_sign)": true,
+        }
+        "Real variables work too" {
+            "(step t1 (cl (=> (and (> a 0.0) (< b 0.0)) (< (* a b) 0.0)))
+                :rule la_mult_sign)": true,
+        }
+        "Wrong sign in conclusion" {
+            "(step t1 (cl (=> (and (> x 0) (> y 0)) (< (* x y) 0)))
+                :rule la_mult_sign)": false,
+            "(step t1 (cl (=> (and (< x 0) (> y 0)) (> (* x y) 0)))
+                :rule la_mult_sign)": false,
+        }
+        "Premise variable doesn't match monomial variable" {
+            "(step t1 (cl (=> (and (> y 0) (> x 0)) (> (* x y) 0)))
+                :rule la_mult_sign)": false,
+        }
+        "Number of premises doesn't match unique vars" {
+            "(step t1 (cl (=> (> x 0) (> (* x y) 0))) :rule la_mult_sign)": false,
+            "(step t1 (cl (=> (and (> x 0) (> y 0)) (> x 0))) :rule la_mult_sign)": false,
+        }
+        "Even-exponent variable with sign premise instead of disequality" {
+            "(step t1 (cl (=> (> x 0) (> (* x x) 0))) :rule la_mult_sign)": false,
+        }
+        "Right-hand side of comparison must be zero" {
+            "(step t1 (cl (=> (> x 1) (> x 0))) :rule la_mult_sign)": false,
+            "(step t1 (cl (=> (> x 0) (> x 1))) :rule la_mult_sign)": false,
+        }
+        "Conclusion operator must be < or >" {
+            "(step t1 (cl (=> (> x 0) (>= x 0))) :rule la_mult_sign)": false,
+            "(step t1 (cl (=> (> x 0) (= x 0))) :rule la_mult_sign)": false,
+        }
+    }
+}
+
+#[test]
+fn la_mult_abs_comparison() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Int)
+            (declare-fun y () Int)
+            (declare-fun z () Int)
+            (declare-fun w () Int)
+        ",
+        "Equality conclusion: single premise" {
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (= (abs x) (abs y))) :rule la_mult_abs_comparison :premises (t1))": true,
+        }
+        "Equality conclusion: product of two" {
+            "(step t1 (cl (= (abs x) (abs z))) :rule hole)
+            (step t2 (cl (= (abs y) (abs w))) :rule hole)
+            (step t3 (cl (= (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": true,
+        }
+        "Equality conclusion: product of three" {
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (= (abs y) (abs z))) :rule hole)
+            (step t3 (cl (= (abs z) (abs w))) :rule hole)
+            (step t4 (cl (= (abs (* x y z)) (abs (* y z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2 t3))": true,
+        }
+        "Greater-than conclusion: all premises strict" {
+            "(step t1 (cl (> (abs x) (abs z))) :rule hole)
+            (step t2 (cl (> (abs y) (abs w))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": true,
+        }
+        "Greater-than conclusion: equality premise needs zero guard" {
+            "(step t1 (cl (> (abs x) (abs z))) :rule hole)
+            (step t2 (cl (and (= (abs y) (abs w)) (not (= y 0)))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": true,
+        }
+        "Greater-than conclusion: first premise must be strict" {
+            "(step t1 (cl (and (= (abs x) (abs z)) (not (= x 0)))) :rule hole)
+            (step t2 (cl (> (abs y) (abs w))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Greater-than conclusion: equality premise without zero guard fails" {
+            "(step t1 (cl (> (abs x) (abs z))) :rule hole)
+            (step t2 (cl (= (abs y) (abs w))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Greater-than conclusion: zero guard for wrong term fails" {
+            "(step t1 (cl (> (abs x) (abs z))) :rule hole)
+            (step t2 (cl (and (= (abs y) (abs w)) (not (= w 0)))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Equality conclusion: greater-than premise fails" {
+            "(step t1 (cl (> (abs x) (abs y))) :rule hole)
+            (step t2 (cl (= (abs x) (abs y))) :rule la_mult_abs_comparison :premises (t1))": false,
+        }
+        "Premise factors must match conclusion factors" {
+            "(step t1 (cl (= (abs x) (abs z))) :rule hole)
+            (step t2 (cl (= (abs y) (abs w))) :rule hole)
+            (step t3 (cl (= (abs (* y x)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Number of premises must match number of factors" {
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (= (abs (* x x)) (abs (* y y))))
+                :rule la_mult_abs_comparison :premises (t1))": false,
+        }
+        "Wrong operator in conclusion" {
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (>= (abs x) (abs y))) :rule la_mult_abs_comparison :premises (t1))": false,
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (< (abs x) (abs y))) :rule la_mult_abs_comparison :premises (t1))": false,
+        }
+        "Repeated factors using same premise" {
+            "(step t1 (cl (= (abs x) (abs y))) :rule hole)
+            (step t2 (cl (= (abs (* x x)) (abs (* y y))))
+                :rule la_mult_abs_comparison :premises (t1 t1))": true,
+        }
+        "Equality conclusion: AND-form premise rejected" {
+            "(step t1 (cl (and (= (abs x) (abs y)) (not (= x 0)))) :rule hole)
+            (step t2 (cl (= (abs x) (abs y))) :rule la_mult_abs_comparison :premises (t1))": false,
+            "(step t1 (cl (= (abs x) (abs z))) :rule hole)
+            (step t2 (cl (and (= (abs y) (abs w)) (not (= y 0)))) :rule hole)
+            (step t3 (cl (= (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Greater-than conclusion: first premise can't be in AND form" {
+            "(step t1 (cl (and (> (abs x) (abs z)) (not (= x 0)))) :rule hole)
+            (step t2 (cl (> (abs y) (abs w))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+        "Greater-than conclusion: AND-wrapped '>' is rejected" {
+            "(step t1 (cl (> (abs x) (abs z))) :rule hole)
+            (step t2 (cl (and (> (abs y) (abs w)) (not (= y 0)))) :rule hole)
+            (step t3 (cl (> (abs (* x y)) (abs (* z w))))
+                :rule la_mult_abs_comparison :premises (t1 t2))": false,
+        }
+    }
+}
+
+#[test]
 fn mod_simplify() {
     test_cases! {
         definitions = "",

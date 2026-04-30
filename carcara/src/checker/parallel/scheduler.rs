@@ -404,6 +404,8 @@ pub fn get_step_weight(step: &ProofCommand) -> u64 {
                 "bind_let" => 2324,
                 "la_mult_pos" => 1446,
                 "la_mult_neg" => 1447,
+                "la_mult_sign" => 1446,
+                "la_mult_abs_comparison" => 1446,
                 "hole" => 185,  //Debug only
                 "trust" => 185, //Debug only
                 "strict_resolution" => 1276,
