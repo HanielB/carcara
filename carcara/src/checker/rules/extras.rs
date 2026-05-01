@@ -1,7 +1,7 @@
 //! This module contains rules that are not yet in the specification for the Alethe format.
 
 use super::{
-    assert_clause_len, assert_eq, assert_num_premises, get_premise_term, CheckerError,
+    assert_clause_len, assert_eq, assert_all_eq, assert_num_premises, get_premise_term, CheckerError,
     EqualityError, RuleArgs, RuleResult,
 };
 use crate::{
@@ -221,6 +221,195 @@ fn la_mult_generic(conclusion: &[Rc<Term>], is_pos: bool) -> RuleResult {
 
     assert_eq(l, l_1)?;
     assert_eq(r, r_2)
+}
+
+pub fn la_mult_sign(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    use rug::Rational;
+
+    assert_clause_len(conclusion, 1)?;
+    let (antecedent, consequent) = match_term_err!((=> a b) = &conclusion[0])?;
+
+    // The consequent must be `(< m 0)` or `(> m 0)`
+    let (conc_op, conc_args) = consequent.as_op_err()?;
+    if !matches!(conc_op, Operator::LessThan | Operator::GreaterThan) {
+        return Err(CheckerError::TermOfWrongForm(
+            "(< m 0) or (> m 0)",
+            consequent.clone(),
+        ));
+    }
+    assert_operation_len(conc_op, conc_args, 2)?;
+    let (m, zero) = (&conc_args[0], &conc_args[1]);
+    rassert!(
+        zero.as_number_err()? == 0,
+        CheckerError::ExpectedNumber(Rational::new(), zero.clone())
+    );
+
+    // The antecedent is either `(and f1 ... fk)` or a single `f1`
+    let premises: Vec<&Rc<Term>> = match match_term!((and ...) = antecedent) {
+        Some(args) => args.iter().collect(),
+        None => vec![antecedent],
+    };
+
+    // The monomial m is either a single variable or `(* v1 ... vn)`. Variables that
+    // are equal must appear consecutively. We collect the unique variables and their
+    // exponents.
+    let factors: Vec<&Rc<Term>> = match match_term!((* ...) = m) {
+        Some(args) => args.iter().collect(),
+        None => vec![m],
+    };
+    let mut vars: Vec<&Rc<Term>> = Vec::new();
+    let mut exps: Vec<usize> = Vec::new();
+    for f in &factors {
+        if vars.last() == Some(f) {
+            *exps.last_mut().unwrap() += 1;
+        } else {
+            vars.push(*f);
+            exps.push(1);
+        }
+    }
+
+    if vars.len() != premises.len() {
+        return Err(CheckerError::Explanation(format!(
+            "expected {} premises in antecedent (one per unique variable in monomial), got {}",
+            vars.len(),
+            premises.len()
+        )));
+    }
+
+    // Walk the premises in order, checking each one matches the corresponding
+    // variable, and computing the resulting sign of the monomial.
+    let mut sign: i32 = 1;
+    for (i, premise) in premises.iter().copied().enumerate() {
+        let v = vars[i];
+        let exp = exps[i];
+
+        if exp % 2 == 0 {
+            // Variable with even exponent: must be `(not (= v 0))`. Even powers
+            // contribute +1 to the sign as long as v != 0.
+            let (a, b) = match_term_err!((not (= a b)) = premise)?;
+            assert_eq(v, a)?;
+            rassert!(
+                b.as_number_err()? == 0,
+                CheckerError::ExpectedNumber(Rational::new(), b.clone())
+            );
+        } else {
+            // Variable with odd exponent: must be `(< v 0)` or `(> v 0)`.
+            let (op, args) = premise.as_op_err()?;
+            if !matches!(op, Operator::LessThan | Operator::GreaterThan) {
+                return Err(CheckerError::TermOfWrongForm(
+                    "(< v 0) or (> v 0)",
+                    premise.clone(),
+                ));
+            }
+            assert_operation_len(op, args, 2)?;
+            assert_eq(v, &args[0])?;
+            rassert!(
+                args[1].as_number_err()? == 0,
+                CheckerError::ExpectedNumber(Rational::new(), args[1].clone())
+            );
+            if op == Operator::LessThan {
+                sign = -sign;
+            }
+        }
+    }
+
+    let expected_op = if sign == 1 {
+        Operator::GreaterThan
+    } else {
+        Operator::LessThan
+    };
+    if conc_op != expected_op {
+        return Err(CheckerError::Explanation(format!(
+            "monomial sign is {}, but conclusion uses '{}'",
+            if sign == 1 { "positive" } else { "negative" },
+            conc_op,
+        )));
+    }
+    Ok(())
+}
+
+pub fn la_mult_abs_comparison(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+
+    // The conclusion must be `(= (abs LHS) (abs RHS))` or `(> (abs LHS) (abs RHS))`.
+    let (conc_op, conc_args) = conclusion[0].as_op_err()?;
+    if !matches!(conc_op, Operator::Equals | Operator::GreaterThan) {
+        return Err(CheckerError::TermOfWrongForm(
+            "(= (abs t) (abs s)) or (> (abs t) (abs s))",
+            conclusion[0].clone(),
+        ));
+    }
+    // Since both operators are n-ary, make sure we have the binary applications
+    assert_operation_len(conc_op, conc_args, 2)?;
+    let lhs_abs = match_term_err!((abs t) = &conc_args[0])?;
+    let rhs_abs = match_term_err!((abs t) = &conc_args[1])?;
+
+    // Each side may be a single term or a product `(* t1 ... tn)`.
+    let lhs_factors: Vec<&Rc<Term>> = match match_term!((* ...) = lhs_abs) {
+        Some(args) => args.iter().collect(),
+        None => vec![lhs_abs],
+    };
+    let rhs_factors: Vec<&Rc<Term>> = match match_term!((* ...) = rhs_abs) {
+        Some(args) => args.iter().collect(),
+        None => vec![rhs_abs],
+    };
+    if lhs_factors.len() != rhs_factors.len() {
+        return Err(CheckerError::Explanation(format!(
+            "products on both sides of the conclusion must have the same length \
+             ({} vs {})",
+            lhs_factors.len(),
+            rhs_factors.len(),
+        )));
+    }
+
+    assert_num_premises(premises, lhs_factors.len())?;
+
+    for (i, premise) in premises.iter().enumerate() {
+        let term = get_premise_term(premise)?;
+        let t_i = lhs_factors[i];
+        let s_i = rhs_factors[i];
+
+        // If the conclusion an equality, all premises are equalities. Otherwise a premise is either
+        // `(> (abs t_i) (abs s_i))` or `(and (= (abs t_i) (abs s_i)) (not (= t_i 0)))`. The first
+        // premise has to be a comparison when the conclusion is not an equality.
+        match conc_op {
+            Operator::Equals => {
+                let (t, s) = match_term_err!((= (abs t) (abs s)) = term)?;
+                assert_eq(t_i, t)?;
+                assert_eq(s_i, s)?;
+            }
+            Operator::GreaterThan => {
+                // The first premise must be a plain `(> ...)`. For non-first premises,
+                // the only `=` form allowed is the AND-wrapped one with a zero guard.
+                match term.as_ref() {
+                    Term::Op(Operator::And, _args) => {
+                        if i == 0 {
+                            return Err(CheckerError::Explanation(format!(
+                                "first premise {} must use '>' when conclusion uses '>'", term)
+                            ));
+                        }
+                        let ((t1, s), (t2, z)) = match_term_err!((and (= (abs t1) (abs s)) (not (= t2 z))) = term)?;
+                        rassert!(
+                            z.as_number_err()? == 0,
+                            CheckerError::ExpectedNumber(rug::Rational::new(), z.clone())
+                        );
+                        assert_all_eq(&[t_i, t1, t2])?;
+                        assert_eq(s_i, s)?;
+                    }
+                    Term::Op(Operator::GreaterThan, _args) => {
+                        let (t, s) = match_term_err!((> (abs t) (abs s)) = term)?;
+                        assert_eq(t_i, t)?;
+                        assert_eq(s_i, s)?;
+                    }
+                    _ => return Err(CheckerError::Explanation(format!(
+                        "for '>' conclusion, non-comparison premise {} must be guarded equalities", term)
+                    )),
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
 }
 
 pub fn mod_simplify(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
