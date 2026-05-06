@@ -1,11 +1,19 @@
 //! This module contains rules that are not yet in the specification for the Alethe format.
 
 use super::{
-    assert_clause_len, assert_eq, assert_num_premises, get_premise_term, CheckerError,
+    assert_clause_len, assert_eq, assert_num_premises, get_premise_term, subproof, CheckerError,
     EqualityError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
 use indexmap::IndexSet;
+
+pub fn sko_ex_rename(args: RuleArgs) -> RuleResult {
+    subproof::generic_skolemization_rule(Binder::Exists, true, args)
+}
+
+pub fn sko_forall_rename(args: RuleArgs) -> RuleResult {
+    subproof::generic_skolemization_rule(Binder::Forall, true, args)
+}
 
 pub fn reordering(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;

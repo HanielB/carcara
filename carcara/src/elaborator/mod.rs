@@ -4,6 +4,7 @@ mod polyeq;
 mod reflexivity;
 mod reordering;
 mod resolution;
+mod sko_rename;
 mod transitivity;
 mod uncrowding;
 
@@ -38,6 +39,7 @@ pub enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SkoRename,
 }
 
 /// The options that control how `lia_generic` steps are elaborated using an external solver.
@@ -75,7 +77,7 @@ impl<'e> Elaborator<'e> {
 
     pub fn elaborate_with_default_pipeline(&mut self, root: &Rc<ProofNode>) -> Rc<ProofNode> {
         use ElaborationStep::*;
-        let pipeline = vec![Polyeq, LiaGeneric, Local, Uncrowd, Reordering];
+        let pipeline = vec![SkoRename, Polyeq, LiaGeneric, Local, Uncrowd, Reordering];
         self.elaborate(root, pipeline)
     }
 
@@ -132,6 +134,7 @@ impl<'e> Elaborator<'e> {
                         })
                     }
                 }
+                ElaborationStep::SkoRename => sko_rename::elaborate_sko_rename(self.pool, &current),
             };
             durations.push(time.elapsed());
         }

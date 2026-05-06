@@ -203,6 +203,7 @@ enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SkoRename,
 }
 
 #[derive(Args, Clone)]
@@ -245,7 +246,7 @@ struct ElaborationOptions {
         arg_enum,
         long,
         multiple = true,
-        default_values = &["polyeq", "lia-generic", "local", "uncrowd", "reordering", "hole"]
+        default_values = &["sko-rename", "polyeq", "lia-generic", "local", "uncrowd", "reordering", "hole"]
     )]
     pipeline: Vec<ElaborationStep>,
 }
@@ -262,6 +263,7 @@ impl From<ElaborationOptions> for (elaborator::Config, Vec<elaborator::Elaborati
                 ElaborationStep::Uncrowd => elaborator::ElaborationStep::Uncrowd,
                 ElaborationStep::Reordering => elaborator::ElaborationStep::Reordering,
                 ElaborationStep::Hole => elaborator::ElaborationStep::Hole,
+                ElaborationStep::SkoRename => elaborator::ElaborationStep::SkoRename,
             })
             .collect();
         let lia_options = val.lia_solver.map(|solver| elaborator::LiaGenericOptions {

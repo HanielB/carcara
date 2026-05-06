@@ -472,6 +472,8 @@ impl<'c> ProofChecker<'c> {
             "onepoint" => subproof::onepoint,
             "sko_ex" => subproof::sko_ex,
             "sko_forall" => subproof::sko_forall,
+            "sko_ex_rename" => extras::sko_ex_rename,
+            "sko_forall_rename" => extras::sko_forall_rename,
             "reordering" => extras::reordering,
             "symm" => extras::symm,
             "not_symm" => extras::not_symm,

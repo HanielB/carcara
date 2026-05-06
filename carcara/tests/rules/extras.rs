@@ -202,3 +202,62 @@ fn mod_simplify() {
         }
     }
 }
+
+#[test]
+fn sko_ex_rename() {
+    test_cases! {
+        definitions = "
+            (declare-fun p (Int) Bool)
+            (declare-fun q (Int) Bool)
+            (declare-fun y () Int)
+        ",
+        "Renamed binder" {
+            "(anchor :step t1 :args ((:= (y Int) (choice ((x Int)) (p x)))))
+            (step t1.t1 (cl (= (p y) (p (choice ((x Int)) (p x))))) :rule hole)
+            (step t1 (cl (= (exists ((x Int)) (p x)) (p (choice ((x Int)) (p x)))))
+                :rule sko_ex_rename)": true,
+        }
+        "Mismatched body still rejected" {
+            "(anchor :step t1 :args ((:= (z Int) (choice ((x Int)) (p x)))))
+            (step t1.t1 (cl (= (q z) (q (choice ((x Int)) (p x))))) :rule hole)
+            (step t1 (cl (= (exists ((x Int)) (p x)) (q (choice ((x Int)) (p x)))))
+                :rule sko_ex_rename)": false,
+        }
+        // The rename target is the free variable `y`, which already appears in the body. The
+        // implicit substitution `x -> y` would alias the existing `y` (capture), which makes the
+        // resulting equality unsound.
+        "Variable capture rejected" {
+            "(anchor :step t1 :args ((:= (y Int) (choice ((x Int)) (and (p x) (p y))))))
+            (step t1.t1 (cl (= (and (p y) (p y))
+                               (and (p (choice ((x Int)) (and (p x) (p y)))) (p y)))) :rule hole)
+            (step t1 (cl (= (exists ((x Int)) (and (p x) (p y)))
+                            (and (p (choice ((x Int)) (and (p x) (p y)))) (p y))))
+                :rule sko_ex_rename)": false,
+        }
+    }
+}
+
+#[test]
+fn sko_forall_rename() {
+    test_cases! {
+        definitions = "
+            (declare-fun p (Int) Bool)
+            (declare-fun q (Int) Bool)
+            (declare-fun y () Int)
+        ",
+        "Renamed binder" {
+            "(anchor :step t1 :args ((:= (z Int) (choice ((x Int)) (not (p x))))))
+            (step t1.t1 (cl (= (p z) (p (choice ((x Int)) (not (p x)))))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (p x)) (p (choice ((x Int)) (not (p x))))))
+                :rule sko_forall_rename)": true,
+        }
+        "Variable capture rejected" {
+            "(anchor :step t1 :args ((:= (y Int) (choice ((x Int)) (not (and (p x) (p y)))))))
+            (step t1.t1 (cl (= (and (p y) (p y))
+                               (and (p (choice ((x Int)) (not (and (p x) (p y))))) (p y)))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (and (p x) (p y)))
+                            (and (p (choice ((x Int)) (not (and (p x) (p y))))) (p y))))
+                :rule sko_forall_rename)": false,
+        }
+    }
+}

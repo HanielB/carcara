@@ -396,6 +396,8 @@ pub fn get_step_weight(step: &ProofCommand) -> u64 {
                 "onepoint" => 7787,
                 "sko_ex" => 9321,
                 "sko_forall" => 12242,
+                "sko_ex_rename" => 9321,
+                "sko_forall_rename" => 12242,
                 "reordering" => 1452,
                 "symm" => 682,
                 "not_symm" => 0, //-1

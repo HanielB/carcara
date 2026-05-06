@@ -358,8 +358,9 @@ pub fn onepoint(
     Ok(())
 }
 
-fn generic_skolemization_rule(
+pub(super) fn generic_skolemization_rule(
     rule_type: Binder,
+    is_rename: bool,
     RuleArgs {
         conclusion,
         pool,
@@ -378,12 +379,79 @@ fn generic_skolemization_rule(
     let (quant, bindings, phi) = left.as_quant_err()?;
     assert_is_expected(&quant, rule_type)?;
 
+    // For the `_rename` variant, the bindings of the quantifier in the conclusion may use
+    // different names than the variables in the anchor. We compute the renamed bindings (using
+    // the anchor's assignment variable names, in order) and the renamed `phi` accordingly. For
+    // the plain variant, the renamed bindings/phi are the same as the original.
+    let (effective_bindings, effective_phi) = if is_rename {
+        let assignments: Vec<(String, Rc<Term>)> = context
+            .last()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .args
+            .iter()
+            .filter_map(|a| a.as_assign().map(|(n, v)| (n.clone(), v.clone())))
+            .collect();
+        if assignments.len() != bindings.len() {
+            return Err(SubproofError::BindDifferentNumberOfBindings(
+                bindings.len(),
+                assignments.len(),
+            )
+            .into());
+        }
+        let renamed_bindings: Vec<SortedVar> = bindings
+            .iter()
+            .zip(assignments.iter())
+            .map(|(_orig, (name, value))| (name.clone(), pool.sort(value)))
+            .collect();
+
+        // Reject renamings that would cause variable capture: each new binding name must not
+        // already be free in `phi` (unless the new name is the same as one of the original
+        // bindings, in which case it is being correctly captured by the renaming itself).
+        let free_vars = pool.free_vars(phi).clone();
+        let original_set: HashSet<Rc<Term>> = bindings
+            .iter()
+            .map(|b| pool.add(Term::from(b.clone())))
+            .collect();
+        for new in renamed_bindings.iter() {
+            let new_term = pool.add(Term::from(new.clone()));
+            if free_vars.contains(&new_term) && !original_set.contains(&new_term) {
+                return Err(SubproofError::BindBindingIsFreeVarInPhi(new.0.clone()).into());
+            }
+        }
+
+        // Build a substitution mapping each original binding to a fresh `Var` term using the
+        // anchor's variable name (with the binding's sort).
+        let mut subst_map: IndexMap<Rc<Term>, Rc<Term>> = IndexMap::new();
+        for (orig, new) in bindings.iter().zip(renamed_bindings.iter()) {
+            let orig_term = pool.add(Term::from(orig.clone()));
+            let new_term = pool.add(Term::from(new.clone()));
+            subst_map.insert(orig_term, new_term);
+        }
+        let mut s = Substitution::new(pool, subst_map)?;
+        let renamed_phi = s.apply(pool, phi);
+        (BindingList(renamed_bindings), renamed_phi)
+    } else {
+        (bindings.clone(), phi.clone())
+    };
+
     let previous_term = get_premise_term(&previous_command)?;
     let previous_equality = match_term_err!((= p q) = previous_term)?;
-    assert_eq(previous_equality.0, phi)?;
+    if is_rename {
+        if !alpha_equiv(previous_equality.0, &effective_phi, polyeq_time) {
+            return Err(EqualityError::ExpectedEqual(
+                previous_equality.0.clone(),
+                effective_phi.clone(),
+            )
+            .into());
+        }
+    } else {
+        assert_eq(previous_equality.0, phi)?;
+    }
     assert_eq(previous_equality.1, psi)?;
 
-    let mut current_phi = phi.clone();
+    let mut current_phi = effective_phi.clone();
     if context.len() >= 2 {
         current_phi = context.apply_previous(pool, &current_phi);
     }
@@ -399,7 +467,7 @@ fn generic_skolemization_rule(
         })
         .collect();
 
-    for (i, x) in bindings.iter().enumerate() {
+    for (i, x) in effective_bindings.iter().enumerate() {
         let x_term = pool.add(Term::from(x.clone()));
         let t = substitution
             .get(&x_term)
@@ -412,10 +480,10 @@ fn generic_skolemization_rule(
 
             // If this is the last binding, all bindings were skolemized, so we don't need to wrap
             // the term in a quantifier
-            if i < bindings.len() - 1 {
+            if i < effective_bindings.len() - 1 {
                 inner = pool.add(Term::Binder(
                     rule_type,
-                    BindingList(bindings.0[i + 1..].to_vec()),
+                    BindingList(effective_bindings.0[i + 1..].to_vec()),
                     inner,
                 ));
             }
@@ -439,9 +507,9 @@ fn generic_skolemization_rule(
 }
 
 pub fn sko_ex(args: RuleArgs) -> RuleResult {
-    generic_skolemization_rule(Binder::Exists, args)
+    generic_skolemization_rule(Binder::Exists, false, args)
 }
 
 pub fn sko_forall(args: RuleArgs) -> RuleResult {
-    generic_skolemization_rule(Binder::Forall, args)
+    generic_skolemization_rule(Binder::Forall, false, args)
 }
