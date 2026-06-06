@@ -188,19 +188,23 @@ struct AlethePrinter<'a> {
 
 impl PrintProof for AlethePrinter<'_> {
     fn write_proof(&mut self, proof: &Proof) -> io::Result<()> {
-        for (name, value) in &proof.constant_definitions {
-            write!(self.inner, "(define-fun {} () ", quote_symbol(name))?;
-            self.pool.sort(value).print_with_sharing(self)?;
-            write!(self.inner, " ")?;
-            value.print_with_sharing(self)?;
-            writeln!(self.inner, ")")?;
+        // When sharing is disabled, we also expand the constant definitions instead of printing
+        // them as `define-fun`s
+        if self.term_indices.is_some() {
+            for (name, value) in &proof.constant_definitions {
+                write!(self.inner, "(define-fun {} () ", quote_symbol(name))?;
+                self.pool.sort(value).print_with_sharing(self)?;
+                write!(self.inner, " ")?;
+                value.print_with_sharing(self)?;
+                writeln!(self.inner, ")")?;
+            }
+            self.defined_constants = proof
+                .constant_definitions
+                .iter()
+                .cloned()
+                .map(|(name, term)| (term, name))
+                .collect();
         }
-        self.defined_constants = proof
-            .constant_definitions
-            .iter()
-            .cloned()
-            .map(|(name, term)| (term, name))
-            .collect();
         let mut iter = proof.iter();
         while let Some(command) = iter.next() {
             match command {
