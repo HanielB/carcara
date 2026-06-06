@@ -87,6 +87,15 @@ pub enum Reserved {
     /// The `anchor` reserved word.
     Anchor,
 
+    /// The `assume-push` reserved word, used in CPC proofs.
+    AssumePush,
+
+    /// The `step-pop` reserved word, used in CPC proofs.
+    StepPop,
+
+    /// The `define` reserved word, used in CPC proofs.
+    Define,
+
     /// The `declare-fun` reserved word.
     DeclareFun,
 
@@ -135,6 +144,9 @@ impl_str_conversion_traits!(Reserved {
     Assume: "assume",
     Step: "step",
     Anchor: "anchor",
+    AssumePush: "assume-push",
+    StepPop: "step-pop",
+    Define: "define",
     DeclareFun: "declare-fun",
     DeclareConst: "declare-const",
     DeclareSort: "declare-sort",

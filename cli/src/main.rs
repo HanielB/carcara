@@ -165,6 +165,21 @@ enum CheckGranularity {
     Elaborated,
 }
 
+#[derive(ArgEnum, Clone, Copy, PartialEq, Eq)]
+enum ProofFormat {
+    Alethe,
+    Cpc,
+}
+
+#[derive(Args, Clone, Copy)]
+struct ProofFormatOption {
+    /// The format of the proof file. The "cpc" format is the format produced by cvc5 by default
+    /// when passing `--dump-proofs`. Note that CPC proofs must be produced with the cvc5 option
+    /// `--proof-print-conclusion`.
+    #[clap(arg_enum, long, default_value = "alethe")]
+    proof_format: ProofFormat,
+}
+
 #[derive(Args, Clone)]
 struct CheckingOptions {
     /// Allow steps with rules that are not known by the checker, and consider them as holes.
@@ -303,6 +318,13 @@ struct ParseCommandOptions {
 
     #[clap(flatten)]
     parsing: ParsingOptions,
+
+    #[clap(flatten)]
+    format: ProofFormatOption,
+
+    /// When parsing a CPC proof, translate it to Alethe before printing.
+    #[clap(long)]
+    translate: bool,
 }
 
 #[derive(Args)]
@@ -315,6 +337,9 @@ struct CheckCommandOptions {
 
     #[clap(flatten)]
     checking: CheckingOptions,
+
+    #[clap(flatten)]
+    format: ProofFormatOption,
 
     /// Defines the number of cores for proof checking.
     #[clap(short = 'u', long, required = false, default_value = "1", validator = |s: &str| -> Result<(), String> {
@@ -569,7 +594,20 @@ fn parse_command(
     options: ParseCommandOptions,
 ) -> CliResult<(ast::Problem, ast::Proof, Rules, ast::PrimitivePool)> {
     let (problem, proof, rules) = get_instance(&options.input, options.parsing.buffer_entire_file)?;
-    let result = parser::parse_instance(problem, proof, rules, options.parsing.into())?;
+    let result = match options.format.proof_format {
+        ProofFormat::Alethe => {
+            parser::parse_instance(problem, proof, rules, options.parsing.into())?
+        }
+        ProofFormat::Cpc if options.translate => {
+            let (problem, proof, pool) =
+                carcara::translate_cpc(problem, proof, rules, options.parsing.into())?;
+            let empty_rules = Rules { rules: Default::default() };
+            (problem, proof, empty_rules, pool)
+        }
+        ProofFormat::Cpc => {
+            parser::parse_cpc_instance(problem, proof, rules, options.parsing.into())?
+        }
+    };
     Ok(result)
 }
 
@@ -577,6 +615,11 @@ fn check_command(options: CheckCommandOptions) -> CliResult<bool> {
     let (problem, proof, rules) = get_instance(&options.input, options.parsing.buffer_entire_file)?;
     let parser_config = options.parsing.into();
     let checker_config = options.checking.into();
+
+    if options.format.proof_format == ProofFormat::Cpc {
+        return carcara::check_cpc(problem, proof, rules, parser_config, checker_config)
+            .map_err(Into::into);
+    }
 
     let collect_stats = options.stats.stats;
     if options.num_threads == 1 {

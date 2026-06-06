@@ -679,7 +679,7 @@ pub fn comp_simplify(args: RuleArgs) -> RuleResult {
     })
 }
 
-fn apply_ac_simp(
+pub(crate) fn apply_ac_simp(
     pool: &mut dyn TermPool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
     term: &Rc<Term>,

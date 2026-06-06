@@ -43,6 +43,7 @@ pub mod parser;
 mod rare;
 mod resolution;
 pub mod slice;
+pub mod translation;
 mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
@@ -82,6 +83,9 @@ pub enum Error {
     // checker errors, so we model it as a different variant
     #[error("checker error: proof does not conclude empty clause")]
     DoesNotReachEmptyClause,
+
+    #[error("translation error: {0}")]
+    Translation(#[from] translation::cpc::TranslationError),
 }
 
 pub fn check<T: io::BufRead>(
@@ -137,6 +141,39 @@ pub fn check<T: io::BufRead>(
     } else {
         checker.check(&problem, &proof)
     }
+}
+
+/// Checks a CPC proof (the format produced by cvc5 by default with `--dump-proofs`), by first
+/// translating it into an Alethe proof and then checking it with the Alethe checker.
+///
+/// Note that the proof must have been produced with the cvc5 option `--proof-print-conclusion`.
+pub fn check_cpc<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    rules: Option<T>,
+    parser_config: parser::Config,
+    checker_config: checker::Config,
+) -> Result<bool, Error> {
+    let (problem, proof, rules, mut pool) =
+        parser::parse_cpc_instance(problem, proof, rules, parser_config)?;
+
+    let proof = translation::cpc::cpc_to_alethe(&proof, &mut pool, &rules)?;
+
+    let mut checker = checker::ProofChecker::new(&mut pool, &rules, checker_config);
+    checker.check(&problem, &proof)
+}
+
+/// Parses and translates a CPC proof into an Alethe proof, without checking it.
+pub fn translate_cpc<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    rules: Option<T>,
+    parser_config: parser::Config,
+) -> Result<(ast::Problem, ast::Proof, ast::PrimitivePool), Error> {
+    let (problem, proof, rules, mut pool) =
+        parser::parse_cpc_instance(problem, proof, rules, parser_config)?;
+    let proof = translation::cpc::cpc_to_alethe(&proof, &mut pool, &rules)?;
+    Ok((problem, proof, pool))
 }
 
 #[allow(clippy::too_many_arguments)]

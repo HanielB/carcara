@@ -152,6 +152,26 @@ pub enum ParserError {
     /// The parser encountered an unknown rare rule attribute.
     #[error("the rule '{0}' has to start with the arguments first")]
     ExpectArgsFirst(String),
+
+    /// A step in a CPC proof is missing its conclusion. Carcara cannot compute conclusions of CPC
+    /// steps, so the proof must be produced with the cvc5 option `--proof-print-conclusion`.
+    #[error(
+        "step '{0}' has no conclusion. CPC proofs must be produced with the cvc5 option \
+        `--proof-print-conclusion`"
+    )]
+    CpcMissingConclusion(String),
+
+    /// The parser encountered a cvc5 internal symbol (prefixed with `@`) that it does not support.
+    #[error("unsupported cvc5 internal symbol: '{0}'")]
+    UnsupportedCpcSymbol(String),
+
+    /// The first argument of a binder in a CPC proof was not a list of variables.
+    #[error("expected a list of variables in binder, got '{0}'")]
+    ExpectedVarList(Rc<Term>),
+
+    /// A `step-pop` command appeared without a matching `assume-push`.
+    #[error("`step-pop` command '{0}' has no matching `assume-push`")]
+    UnmatchedStepPop(String),
 }
 
 /// Returns an error if the length of `sequence` is not in the `expected` range.

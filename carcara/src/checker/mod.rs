@@ -1,6 +1,6 @@
 pub mod error;
 mod parallel;
-mod rules;
+pub(crate) mod rules;
 mod shared;
 
 use crate::{
