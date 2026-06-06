@@ -1,5 +1,5 @@
 use super::{Constant, Operator, ParamOperator, Rc, Term, TermPool};
-use rug::{Integer, Rational};
+use rug::{ops::Pow, Integer, Rational};
 use std::collections::{HashMap, HashSet};
 
 /// A representation of the value of an SMT-LIB/Alethe term. This is constructed by evaluating a
@@ -286,6 +286,24 @@ fn eval_op(op: Operator, args: &[Rc<Term>]) -> Option<Value> {
             Value::Real(r) => Value::Real(r.clone().abs()),
             _ => return None,
         },
+        Operator::Pow => {
+            // We only evaluate powers with non-negative integer exponents
+            let exponent = match &args[1] {
+                Value::Integer(i) => i.clone(),
+                Value::Real(r) if r.is_integer() => r.numer().clone(),
+                _ => return None,
+            };
+            let exponent = if exponent >= 0 { exponent.to_usize()? } else { return None };
+            match &args[0] {
+                Value::Integer(base) => {
+                    Value::Integer(base.clone().pow(u32::try_from(exponent).ok()?))
+                }
+                Value::Real(base) => {
+                    Value::Real(base.clone().pow(u32::try_from(exponent).ok()?))
+                }
+                _ => return None,
+            }
+        }
         Operator::Pow2 => {
             let v = args[0].as_int()?;
             if v < 0 {
@@ -551,6 +569,12 @@ fn eval_param_op(op: ParamOperator, op_args: &[Rc<Term>], args: &[Rc<Term>]) -> 
                 result += value;
             }
             Value::new_bitvec(result, w * i)
+        }
+        ParamOperator::Iand => {
+            let w = op_args[0].as_int()?.to_usize().unwrap();
+            let a = args[0].as_int()?;
+            let b = args[1].as_int()?;
+            Value::Integer((a & b).keep_bits(w as u32))
         }
         ParamOperator::IntToBv => {
             let w = op_args[0].as_int()?.to_usize().unwrap();

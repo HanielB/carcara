@@ -42,6 +42,8 @@ pub fn parse_cpc_instance<T: BufRead>(
     config.apply_function_defs = true;
     let mut pool = PrimitivePool::new();
     let mut parser = Parser::new(&mut pool, config, problem)?;
+    // Some cvc5 internal constants (e.g. `piand`) may also appear in the problem
+    parser.insert_cpc_internal_constants();
     let problem = parser.parse_problem()?;
     parser.reset(proof)?;
     let proof = parser.parse_cpc_proof()?;
@@ -72,10 +74,26 @@ impl<R: BufRead> Parser<'_, R> {
         let real = self.pool.add(Term::Sort(Sort::Real));
         let int_to_int = self
             .pool
-            .add(Term::Sort(Sort::Function(vec![int.clone(), int])));
+            .add(Term::Sort(Sort::Function(vec![int.clone(), int.clone()])));
         let real_to_real = self
             .pool
             .add(Term::Sort(Sort::Function(vec![real.clone(), real.clone()])));
+
+        let bool_sort = self.pool.add(Term::Sort(Sort::Bool));
+        // (-> Int Int Int Int): the width and the two operands
+        let piand_sort = self.pool.add(Term::Sort(Sort::Function(vec![
+            int.clone(),
+            int.clone(),
+            int.clone(),
+            int.clone(),
+        ])));
+        // (-> Int Bool Real Bool): the root index, the polynomial equality and the value
+        let root_predicate_sort = self.pool.add(Term::Sort(Sort::Function(vec![
+            int,
+            bool_sort.clone(),
+            real.clone(),
+            bool_sort,
+        ])));
 
         let constants = [
             ("@int_div_by_zero", int_to_int.clone()),
@@ -83,6 +101,8 @@ impl<R: BufRead> Parser<'_, R> {
             ("@div_by_zero", real_to_real),
             ("@arith_vts_delta", real.clone()),
             ("@arith_vts_delta_free", real),
+            ("piand", piand_sort),
+            ("@indexed_root_predicate", root_predicate_sort),
         ];
         for (name, sort) in constants {
             self.insert_sorted_var((name.to_owned(), sort));

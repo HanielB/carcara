@@ -216,7 +216,7 @@ impl PrimitivePool {
                 Operator::Ite | Operator::BvIte => {
                     self.compute_sort(&args[1]).as_sort().unwrap().clone()
                 }
-                Operator::Add | Operator::Sub | Operator::Mult | Operator::Abs => {
+                Operator::Add | Operator::Sub | Operator::Mult | Operator::Abs | Operator::Pow => {
                     if args
                         .iter()
                         .any(|a| self.compute_sort(a).as_sort().unwrap() == &Sort::Real)
@@ -397,6 +397,7 @@ impl PrimitivePool {
                     }
                     ParamOperator::BvBitOf => Sort::Bool,
                     ParamOperator::BvIntOf => Sort::Int,
+                    ParamOperator::Iand => Sort::Int,
                     ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
                     ParamOperator::ArrayConst => op_args[0].as_sort().unwrap().clone(),
                 };

@@ -242,6 +242,27 @@ impl<'a, R: BufRead> Parser<'a, R> {
         &mut self.problem.as_mut().unwrap().premises
     }
 
+    /// Splits the arguments of a flat application of a parametric operator (e.g. `(iand 4 x y)`)
+    /// into the operator arguments and the true arguments.
+    fn split_flat_param_op_args(
+        op: ParamOperator,
+        args: Vec<Rc<Term>>,
+    ) -> Option<(Vec<Rc<Term>>, Vec<Rc<Term>>)> {
+        match op {
+            // `iand` takes the width as its only operator argument, and two true arguments
+            ParamOperator::Iand => {
+                let (first, rest) = args.split_first()?;
+                Some((vec![first.clone()], rest.to_vec()))
+            }
+            // For the other operators, the last argument is the true argument, and the previous
+            // ones are the operator arguments
+            _ => {
+                let (last, op_args) = args.split_last()?;
+                Some((op_args.to_vec(), vec![last.clone()]))
+            }
+        }
+    }
+
     /// Constructs and sort checks a variable term.
     fn make_var(&mut self, iden: String) -> Result<Rc<Term>, ParserError> {
         let cached = HashCache::new(iden);
@@ -321,6 +342,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
                 // All the arguments must be either Int or Real. Also, if we are not allowing
                 // Int/Real subtyping, all arguments must have the same sort
+                if self.config.allow_int_real_subtyping {
+                    for s in sorts {
+                        SortError::assert_one_of(&[Sort::Int, Sort::Real], s)?;
+                    }
+                } else {
+                    SortError::assert_one_of(&[Sort::Int, Sort::Real], sorts[0])?;
+                    SortError::assert_all_eq(&sorts)?;
+                }
+            }
+            Operator::Pow => {
+                assert_num_args(&args, 2)?;
                 if self.config.allow_int_real_subtyping {
                     for s in sorts {
                         SortError::assert_one_of(&[Sort::Int, Sort::Real], s)?;
@@ -1387,13 +1419,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         .map_err(|err| Error::Parser(err, pos))
                 } else if let Ok(op) = ParamOperator::from_str(&s) {
                     if op != ParamOperator::BvConst {
-                        // Parametric operators can be applied in a flat
-                        // way. The last argument will be the true
-                        // argument, and the previous ones the operator
-                        // arguments
+                        // Parametric operators can be applied in a flat way
                         let args = self.parse_sequence(Self::parse_term, true)?;
-                        if let Some((last, op_args)) = args.split_last() {
-                            self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
+                        if let Some((op_args, args)) = Self::split_flat_param_op_args(op, args) {
+                            self.make_indexed_op(op, op_args, args)
                                 .map_err(|err| Error::Parser(err, pos))
                         } else {
                             return Err(Error::Parser(
@@ -1734,6 +1763,18 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
+            ParamOperator::Iand => {
+                assert_num_args(&op_args, 1)?;
+                assert_num_args(&args, 2)?;
+                if let Term::Const(c) = op_args[0].as_ref() {
+                    SortError::assert_eq(&Sort::Int, &c.sort())?;
+                } else {
+                    return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
+                }
+                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                SortError::assert_all_eq(&sorts)?;
+                assert_indexed_op_args_value(&op_args, 1..)?;
+            }
             ParamOperator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
@@ -1847,15 +1888,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     .map_err(|err| Error::Parser(err, head_pos))
             }
             Token::Symbol(s) if ParamOperator::from_str(s).is_ok() => {
-                // Parametric operators can be applied in a flat
-                // way. The last argument will be the true
-                // argument, and the previous ones the operator
-                // argumentsq
+                // Parametric operators can be applied in a flat way
                 let op = ParamOperator::from_str(s).unwrap();
                 self.next_token()?;
                 let args = self.parse_sequence(Self::parse_term, true)?;
-                if let Some((last, op_args)) = args.split_last() {
-                    self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
+                if let Some((op_args, args)) = Self::split_flat_param_op_args(op, args) {
+                    self.make_indexed_op(op, op_args, args)
                         .map_err(|err| Error::Parser(err, head_pos))
                 } else {
                     return Err(Error::Parser(

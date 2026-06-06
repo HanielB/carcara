@@ -374,6 +374,9 @@ pub enum Operator {
     BvConst,
     BvSize,
 
+    /// The `^` (power) operator.
+    Pow,
+
     // power of 2 to x, and whether x is a power of 2
     Pow2,
     IsPow2,
@@ -498,6 +501,7 @@ impl Operator {
             | Operator::BvBbTerm
             | Operator::BvConst
             | Operator::BvSize
+            | Operator::Pow
             | Operator::Pow2
             | Operator::IsPow2
             | Operator::Log2
@@ -523,6 +527,10 @@ pub enum ParamOperator {
     BvConst,
 
     IntToBv,
+
+    /// The `iand` operator, returning the bitwise `and` of the two arguments when interpreted as
+    /// bitvectors of the given width.
+    Iand,
 
     RePower,
     ReLoop,
@@ -638,6 +646,7 @@ impl_str_conversion_traits!(Operator {
     BvConst: "@bv",
     BvSize: "@bvsize",
 
+    Pow: "^",
     Pow2: "int.pow2",
     IsPow2: "int.ispow2",
     Log2: "int.log2",
@@ -660,6 +669,8 @@ impl_str_conversion_traits!(ParamOperator {
     BvConst: "bv",
 
     IntToBv: "int_to_bv",
+
+    Iand: "iand",
 
     RePower: "re.^",
     ReLoop: "re.loop",
