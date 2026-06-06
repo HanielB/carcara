@@ -61,8 +61,11 @@ pub fn cpc_to_alethe(
 ) -> CarcaraResult<Proof> {
     let mut translator = CpcTranslator::new(pool, rules);
     let commands = translator.translate_proof(&proof.commands)?;
+    // The constant definitions of the original proof are dropped, since they may reference
+    // cvc5-internal symbols that are eliminated by the translation (they are only used for
+    // printing, so this only means that printed proofs will not use them for sharing)
     Ok(Proof {
-        constant_definitions: proof.constant_definitions.clone(),
+        constant_definitions: Vec::new(),
         commands,
     })
 }
@@ -247,6 +250,17 @@ impl<'a> CpcTranslator<'a> {
                         self.cache.insert(term.clone(), result.clone());
                         return result;
                     }
+                    // The quantifier skolem is converted to the corresponding choice term
+                    if name == "@quantifiers_skolemize" {
+                        let quant = self.convert(&args[0]);
+                        let index = args[1].as_integer().and_then(|i| i.to_usize());
+                        if let Some(result) =
+                            index.and_then(|i| self.quantifiers_skolemize_choice(&quant, i))
+                        {
+                            self.cache.insert(term.clone(), result.clone());
+                            return result;
+                        }
+                    }
                     // The array diff skolem is converted to the corresponding choice term:
                     // `(choice ((x I)) (or (= a b) (not (= (select a x) (select b x)))))`
                     if name == "@array_deq_diff" {
@@ -285,6 +299,56 @@ impl<'a> CpcTranslator<'a> {
         };
         self.cache.insert(term.clone(), result.clone());
         result
+    }
+
+    /// Builds the choice term corresponding to the quantifier skolem
+    /// `(@quantifiers_skolemize Q i)`, where `Q` is `(forall ((x_1 T_1) ... (x_n T_n)) F)`:
+    ///
+    /// `(choice ((x_i T_i)) (not (forall ((x_i+1 T_i+1) ... (x_n T_n)) F)))`
+    ///
+    /// where the variables `x_1 ... x_i-1` are replaced by their own choice terms, and the inner
+    /// quantifier is omitted if `i = n`. Note that the body of the choice is negated because
+    /// cvc5 always skolemizes universal quantifiers, which in Alethe is done via the
+    /// `sko_forall` rule.
+    fn quantifiers_skolemize_choice(
+        &mut self,
+        quant: &Rc<Term>,
+        index: usize,
+    ) -> Option<Rc<Term>> {
+        let Term::Binder(Binder::Forall, bindings, body) = quant.as_ref() else {
+            return None;
+        };
+        let var = bindings.0.get(index)?.clone();
+
+        let inner = if index == bindings.len() - 1 {
+            body.clone()
+        } else {
+            self.pool.add(Term::Binder(
+                Binder::Forall,
+                BindingList(bindings.0[index + 1..].to_vec()),
+                body.clone(),
+            ))
+        };
+        let mut choice_body = self.negate(&inner);
+
+        // Replace the variables skolemized before this one by their own choice terms
+        if index > 0 {
+            let mut map = indexmap::IndexMap::new();
+            for i in 0..index {
+                let previous = self.quantifiers_skolemize_choice(quant, i)?;
+                let var_term = self.pool.add(bindings.0[i].clone().into());
+                map.insert(var_term, previous);
+            }
+            choice_body = Substitution::new(self.pool, map)
+                .ok()?
+                .apply(self.pool, &choice_body);
+        }
+
+        Some(self.pool.add(Term::Binder(
+            Binder::Choice,
+            BindingList(vec![var]),
+            choice_body,
+        )))
     }
 
     /// Builds the choice term corresponding to the array diff skolem `(@array_deq_diff a b)`:

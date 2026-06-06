@@ -470,6 +470,7 @@ impl CpcTranslator<'_> {
                 )
             }
             "quant_var_reordering" => self.translate_quant_var_reordering(&id, res)?,
+            "skolemize" => self.translate_skolemize(step, res, &premises)?,
             "ite_eq" => {
                 // res = (ite C (= (ite C t1 t2) t1) (= (ite C t1 t2) t2)), justified via the
                 // RARE rewrite `ite-eq` equating it to `true`
@@ -1380,6 +1381,21 @@ impl CpcTranslator<'_> {
                 )
             }
             Term::Op(Operator::Log2, _) => (vec![("refl", Vec::new())], "log2_intro"),
+            Term::Op(Operator::Abs, args) => {
+                // abs is equated to its definition via a RARE rewrite, with no axiom
+                // instantiation
+                let arg = args[0].clone();
+                let is_int = self.pool.sort(&arg).as_sort() == Some(&Sort::Int);
+                let rule_name =
+                    self.new_string(if is_int { "abs-elim-int" } else { "abs-elim-real" });
+                return Ok(self.singleton(
+                    id,
+                    res,
+                    "rare_rewrite",
+                    Vec::new(),
+                    vec![rule_name, arg],
+                ));
+            }
             _ => {
                 log::warn!(
                     "unsupported operator in `arith_reduction` step, using `hole`: {}",
@@ -1426,6 +1442,95 @@ impl CpcTranslator<'_> {
             res,
             "and_intro",
             vec![eq_position, intro_position],
+            Vec::new(),
+        ))
+    }
+
+    /// Translates the `skolemize` rule, which from a premise `(not (forall X F))` concludes
+    /// `(not F*sigma)`, where `sigma` replaces each bound variable by its skolem (which the term
+    /// conversion turns into a choice term). The translation builds a `sko_forall` subproof
+    /// concluding `(= (forall X F) F*sigma)`, wraps it in a `cong` step for the negations, and
+    /// resolves with the premise via `equiv_pos2`.
+    fn translate_skolemize(
+        &mut self,
+        step: &ProofStep,
+        res: Rc<Term>,
+        premises: &[ResPremise],
+    ) -> Result<Info> {
+        let id = step.id.clone();
+        let invalid = |reason: &str| TranslationError::InvalidStep {
+            id: id.clone(),
+            rule: "skolemize".to_owned(),
+            reason: reason.to_owned(),
+        };
+        let premise = premises.first().ok_or_else(|| invalid("expected a premise"))?;
+        let premise_term = self.premise_term(premise, &id)?;
+        let Some(quant) = premise_term.remove_negation().cloned() else {
+            return Err(invalid("premise must be a negated quantifier"));
+        };
+        let Term::Binder(Binder::Forall, bindings, body) = quant.as_ref() else {
+            return Err(invalid("premise must be a negated `forall`"));
+        };
+        let (bindings, body) = (bindings.clone(), body.clone());
+        let Some(skolemized) = res.remove_negation().cloned() else {
+            return Err(invalid("conclusion must be a negation"));
+        };
+
+        // The anchor assigns each bound variable to its choice term
+        let mut anchor_args = Vec::new();
+        for (i, var) in bindings.0.iter().enumerate() {
+            let Some(choice) = self.quantifiers_skolemize_choice(&quant, i) else {
+                return Err(invalid("could not build the choice term for a variable"));
+            };
+            anchor_args.push(AnchorArg::Assign(var.clone(), choice));
+        }
+
+        // The `sko_forall` subproof concluding `(= (forall X F) F*sigma)`
+        self.out.push(Vec::new());
+        let refl_term = self.build_op(Operator::Equals, vec![body, skolemized.clone()]);
+        let aux = self.aux_id(&id);
+        self.push_step(aux, vec![refl_term], "refl", Vec::new(), Vec::new());
+        let sko_term = self.build_op(Operator::Equals, vec![quant.clone(), skolemized]);
+        let aux = self.aux_id(&id);
+        self.push_step(aux, vec![sko_term], "sko_forall", Vec::new(), Vec::new());
+
+        let commands = self.out.pop().unwrap();
+        let context_id = self.next_context_id;
+        self.next_context_id += 1;
+        let sko_position = self.push_command(ProofCommand::Subproof(Subproof {
+            commands,
+            args: anchor_args,
+            context_id,
+        }));
+
+        // `(= (not (forall X F)) (not F*sigma))` by congruence
+        let cong_term =
+            self.build_op(Operator::Equals, vec![premise_term.clone(), res.clone()]);
+        let aux = self.aux_id(&id);
+        let cong = self.push_step(
+            aux,
+            vec![cong_term.clone()],
+            "cong",
+            vec![sko_position],
+            Vec::new(),
+        );
+
+        // Eliminate the equality to obtain the conclusion from the premise
+        let not_cong_term = self.negate(&cong_term);
+        let not_premise_term = self.negate(&premise_term);
+        let aux = self.aux_id(&id);
+        let vp1 = self.push_step(
+            aux,
+            vec![not_cong_term, not_premise_term, res.clone()],
+            "equiv_pos2",
+            Vec::new(),
+            Vec::new(),
+        );
+        Ok(self.singleton(
+            id,
+            res,
+            "resolution",
+            vec![vp1, cong, premise.position],
             Vec::new(),
         ))
     }
