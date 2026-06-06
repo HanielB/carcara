@@ -52,8 +52,10 @@ scripts/validate-cpc.sh ~/cvc5/test/regress/cli/regress0
 
 - The initial target is the AUFNIRA fragment: bitvectors, strings, datatypes, etc. are not yet
   supported.
-- Operators that have no Carcara representation (e.g. `^`, `iand`) cause parse errors.
 - Problems using symbol overloading or higher-order features are not supported (cvc5's own
   Alethe output does not support higher-order logic either).
-- The `skolemize` rule and alpha equivalence with clashing variable names are translated as
-  holes.
+- `arith_reduction` steps over partial division and modulo operators (which equate them to a
+  case-split between their total versions and the division-by-zero skolems) are translated as
+  holes, since the equality cannot be justified in SMT-LIB semantics.
+- Congruence steps whose terms change structure when applications of defined functions are
+  beta-reduced during parsing are translated as holes.

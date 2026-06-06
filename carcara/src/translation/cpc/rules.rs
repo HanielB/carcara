@@ -548,17 +548,60 @@ impl CpcTranslator<'_> {
                     self.singleton(id, res, "refl", Vec::new(), Vec::new())
                 } else {
                     // If a variable name in the right-hand side clashes with one in the
-                    // left-hand side, an intermediate renaming is needed; this is not yet
-                    // supported
+                    // left-hand side, we first rename the left-hand side variables to fresh
+                    // ones, with two `bind` subproofs connected by a transitivity step
                     let clash = y_bindings.iter().any(|(y_name, _)| {
                         x_bindings.iter().any(|(x_name, _)| x_name == y_name)
                     });
                     if clash {
-                        log::warn!(
-                            "alpha equivalence with clashing variable names is not yet \
-                            supported, using `hole`"
-                        );
-                        self.hole(step, res)
+                        let (Term::Binder(binder, x_bindings, body), _) =
+                            (lhs.as_ref(), rhs.as_ref())
+                        else {
+                            unreachable!()
+                        };
+
+                        // Build the left-hand side with fresh variables
+                        let fresh_bindings: Vec<SortedVar> = x_bindings
+                            .iter()
+                            .map(|(_, sort)| (self.fresh_var_name(), sort.clone()))
+                            .collect();
+                        let mut map = indexmap::IndexMap::new();
+                        for (x_var, fresh_var) in
+                            x_bindings.iter().zip(fresh_bindings.iter())
+                        {
+                            let x_term = self.pool.add(x_var.clone().into());
+                            let fresh_term = self.pool.add(fresh_var.clone().into());
+                            map.insert(x_term, fresh_term);
+                        }
+                        let renamed_body = Substitution::new(self.pool, map)
+                            .map_err(|_| TranslationError::InvalidStep {
+                                id: id.clone(),
+                                rule: "alpha_equiv".to_owned(),
+                                reason: "could not rename variables".to_owned(),
+                            })?
+                            .apply(self.pool, body);
+                        let lhs_renamed = self.pool.add(Term::Binder(
+                            *binder,
+                            BindingList(fresh_bindings),
+                            renamed_body,
+                        ));
+
+                        let eq1 = self
+                            .build_op(Operator::Equals, vec![lhs.clone(), lhs_renamed.clone()]);
+                        let aux = self.aux_id(&id);
+                        let first = self.push_bind_subproof(aux, eq1, "refl", Vec::new())?;
+
+                        let eq2 = self.build_op(Operator::Equals, vec![lhs_renamed, rhs.clone()]);
+                        let aux = self.aux_id(&id);
+                        let second = self.push_bind_subproof(aux, eq2, "refl", Vec::new())?;
+
+                        self.singleton(
+                            id,
+                            res,
+                            "trans",
+                            vec![first.position, second.position],
+                            Vec::new(),
+                        )
                     } else {
                         return self.push_bind_subproof(id, res, "refl", Vec::new());
                     }
@@ -1417,12 +1460,18 @@ impl CpcTranslator<'_> {
             return Ok(self.hole(step, res));
         }
         if let Some(op_intro) = &op_intro {
-            if intro_rule == "div_intro"
-                && match_term!(
-                    (and (<= (* b1 (div a1 b2)) a2) (< a3 (* b3 (+ (div a4 b4) c)))) = op_intro
-                )
-                .is_none()
-            {
+            let constant_divisor_form = match_term!(
+                (and (<= (* b1 (div a1 b2)) a2) (< a3 (* b3 (+ (div a4 b4) c)))) = op_intro
+            )
+            .is_some();
+            let guarded_form = match_term!(
+                (and
+                    (=> (> b1 z1) (and (<= (* b2 (div a1 b3)) a2) (< a3 (* b4 (+ (div a4 b5) c1)))))
+                    (=> (< b6 z2) (and (<= (* b7 (div a5 b8)) a6) (< a7 (* b9 (+ (div a8 b10) c2))))))
+                    = op_intro
+            )
+            .is_some();
+            if intro_rule == "div_intro" && !constant_divisor_form && !guarded_form {
                 log::warn!("unsupported `arith_reduction` axiom, using `hole`");
                 return Ok(self.hole(step, res));
             }

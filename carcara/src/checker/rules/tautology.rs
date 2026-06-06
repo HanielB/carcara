@@ -321,24 +321,52 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
 pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let (((b3, (a3, b4)), a4), (a5, (b5, ((a6, b6), c)))) = match_term_err!(
+    // The form for constant divisors, where the sign of the divisor determines the constant `c`
+    if let Some((((b3, (a3, b4)), a4), (a5, (b5, ((a6, b6), c))))) = match_term!(
           (and
             (<= (* b (div a b)) a)
-            (< a (* b (+ (div a b) c)))) = &conclusion[0])?;
-    assert_all_eq(&[a3, a4, a5, a6])?;
-    assert_all_eq(&[b3, b4, b5, b6])?;
+            (< a (* b (+ (div a b) c)))) = &conclusion[0])
+    {
+        assert_all_eq(&[a3, a4, a5, a6])?;
+        assert_all_eq(&[b3, b4, b5, b6])?;
 
-    let c = c.as_number_err()?;
+        let c = c.as_number_err()?;
+        let expected = if b3.as_number_err()? > 0 {
+            Rational::from(1)
+        } else {
+            Rational::from(-1)
+        };
+        if c != expected {
+            return Err(CheckerError::ExpectedNumber(expected, conclusion[0].clone()));
+        }
+        return Ok(());
+    }
 
-    if b3.as_number_err()? > 0 {
-        if c != Rational::from(1) {
-            unreachable!();
+    // The form for non-constant divisors, where the axiom is guarded by the sign of the divisor
+    let (
+        ((b1, z1), (((b2, (a1, b3)), a2), (a3, (b4, ((a4, b5), c1))))),
+        ((b6, z2), (((b7, (a5, b8)), a6), (a7, (b9, ((a8, b10), c2))))),
+    ) = match_term_err!(
+          (and
+            (=> (> b z) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) c)))))
+            (=> (< b z) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) c))))))
+            = &conclusion[0])?;
+    assert_all_eq(&[a1, a2, a3, a4, a5, a6, a7, a8])?;
+    assert_all_eq(&[b1, b2, b3, b4, b5, b6, b7, b8, b9, b10])?;
+
+    for z in [z1, z2] {
+        if z.as_number_err()? != 0 {
+            return Err(CheckerError::ExpectedNumber(
+                Rational::from(0),
+                z.clone(),
+            ));
         }
     }
-    else {
-        if c != Rational::from(-1) {
-            unreachable!();
-        }
+    if c1.as_number_err()? != 1 {
+        return Err(CheckerError::ExpectedNumber(Rational::from(1), c1.clone()));
+    }
+    if c2.as_number_err()? != -1 {
+        return Err(CheckerError::ExpectedNumber(Rational::from(-1), c2.clone()));
     }
     Ok(())
 }

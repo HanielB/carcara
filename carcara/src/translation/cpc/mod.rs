@@ -232,6 +232,12 @@ impl<'a> CpcTranslator<'a> {
         format!("{}.t{}", base, self.next_aux_id)
     }
 
+    /// Generates a fresh variable name, used when renaming variables.
+    fn fresh_var_name(&mut self) -> String {
+        self.next_aux_id += 1;
+        format!("@cpc_x{}", self.next_aux_id)
+    }
+
     //==========================================================================================//
     // Term conversion and construction
     //==========================================================================================//
@@ -1088,6 +1094,39 @@ mod tests {
         let (is_valid, is_holey) = check_cpc_instance(problem, proof);
         assert!(is_valid);
         assert!(!is_holey);
+    }
+
+    #[test]
+    fn test_cpc_assumptions_must_match_problem() {
+        // The `assume` commands of the translated proof are checked against the assertions in
+        // the original problem, so a proof making an assumption that is not among them must be
+        // rejected
+        let problem = "
+            (set-logic QF_UF)
+            (declare-const p Bool)
+            (declare-const q Bool)
+            (assert p)
+            (check-sat)
+        ";
+        let proof = "(
+            (assume @p1 q)
+            (assume @p2 (not q))
+            (step @p3 false :rule contra :premises (@p1 @p2))
+        )";
+        let (problem, proof, rules, mut pool) = crate::parser::parse_cpc_instance(
+            problem.as_bytes(),
+            proof.as_bytes(),
+            None,
+            crate::parser::Config::new(),
+        )
+        .expect("parsing failed");
+        let proof = super::cpc_to_alethe(&proof, &mut pool, &rules).expect("translation failed");
+        let mut checker = crate::checker::ProofChecker::new(
+            &mut pool,
+            &rules,
+            crate::checker::Config::new(),
+        );
+        assert!(checker.check(&problem, &proof).is_err());
     }
 
     #[test]
