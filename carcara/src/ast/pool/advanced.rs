@@ -65,6 +65,16 @@ impl TermPool for ContextPool {
             .unwrap()
             .free_vars_with_priorities(term, [&self.global_pool])
     }
+
+    fn stored_terms(&self) -> Vec<Rc<Term>> {
+        let inner = self.inner.read().unwrap();
+        self.global_pool
+            .storage
+            .terms()
+            .chain(inner.storage.terms())
+            .cloned()
+            .collect()
+    }
 }
 
 // =========================================================================
@@ -132,5 +142,17 @@ impl TermPool for LocalPool {
                 &self.ctx_pool.inner.read().unwrap(),
             ],
         )
+    }
+
+    fn stored_terms(&self) -> Vec<Rc<Term>> {
+        let ctx_inner = self.ctx_pool.inner.read().unwrap();
+        self.ctx_pool
+            .global_pool
+            .storage
+            .terms()
+            .chain(ctx_inner.storage.terms())
+            .chain(self.inner.storage.terms())
+            .cloned()
+            .collect()
     }
 }

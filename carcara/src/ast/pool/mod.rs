@@ -44,6 +44,8 @@ pub trait TermPool {
     /// This method uses a cache, so there is no additional cost to computing the free variables of
     /// a term multiple times.
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
+    /// Returns all terms currently stored in the pool.
+    fn stored_terms(&self) -> Vec<Rc<Term>>;
 }
 
 /// A structure to store and manage all allocated terms.
@@ -462,5 +464,9 @@ impl TermPool for PrimitivePool {
 
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>> {
         self.free_vars_with_priorities(term, [])
+    }
+
+    fn stored_terms(&self) -> Vec<Rc<Term>> {
+        self.storage.terms().cloned().collect()
     }
 }

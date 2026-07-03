@@ -87,6 +87,7 @@ pub struct ProofChecker<'c> {
     reached_empty_clause: bool,
     is_holey: bool,
     rare_rules: &'c Rules,
+    eunif_cc: Option<crate::cc::CongruenceClosure>,
 }
 
 impl<'c> ProofChecker<'c> {
@@ -98,6 +99,7 @@ impl<'c> ProofChecker<'c> {
             reached_empty_clause: false,
             is_holey: false,
             rare_rules,
+            eunif_cc: None,
         }
     }
 
@@ -251,6 +253,7 @@ impl<'c> ProofChecker<'c> {
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
             rare_rules: self.rare_rules,
+            eunif_cc: &mut self.eunif_cc,
         };
 
         // Use shared core logic

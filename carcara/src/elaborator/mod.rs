@@ -1,5 +1,6 @@
 mod clausification;
 mod congruence;
+mod eunif;
 mod hole;
 mod lia_generic;
 mod polyeq;
@@ -39,6 +40,7 @@ pub struct Config {
 pub enum ElaborationStep {
     Polyeq,
     LiaGeneric,
+    Eunif,
     Local,
     Uncrowd,
     Reordering,
@@ -71,16 +73,25 @@ pub struct Elaborator<'e> {
     pool: &'e mut PrimitivePool,
     problem: &'e Problem,
     config: Config,
+    /// The congruence closure used to elaborate `g_eunif` steps. It is only initialized when the
+    /// first such step is elaborated, and is reused (resetting the asserted equalities, but
+    /// keeping the indexed terms) by all of them.
+    eunif_cc: Option<crate::cc::CongruenceClosure>,
 }
 
 impl<'e> Elaborator<'e> {
     pub fn new(pool: &'e mut PrimitivePool, problem: &'e Problem, config: Config) -> Self {
-        Self { pool, problem, config }
+        Self {
+            pool,
+            problem,
+            config,
+            eunif_cc: None,
+        }
     }
 
     pub fn elaborate_with_default_pipeline(&mut self, proof: ProofNodeForest) -> ProofNodeForest {
         use ElaborationStep::*;
-        let pipeline = vec![Polyeq, LiaGeneric, Local, Uncrowd, Reordering];
+        let pipeline = vec![Polyeq, LiaGeneric, Eunif, Local, Uncrowd, Reordering];
         self.elaborate(proof, pipeline)
     }
 
@@ -112,6 +123,7 @@ impl<'e> Elaborator<'e> {
                     })
                 }
                 ElaborationStep::LiaGeneric => current,
+                ElaborationStep::Eunif => self.elaborate_eunif(current),
                 ElaborationStep::Local => self.elaborate_local(current),
                 ElaborationStep::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
                     ProofNode::Step(s)
@@ -197,6 +209,18 @@ impl<'e> Elaborator<'e> {
                 ProofNode::Assume { .. } => (),
             }
             node.clone()
+        })
+    }
+
+    /// Elaborates `g_eunif` steps into `trans`/`cong`/`symm`/`refl` steps. This is a separate
+    /// pipeline step (rather than part of the `Local` step) because it carries the congruence
+    /// closure state, which is shared across steps.
+    fn elaborate_eunif(&mut self, proof: ProofNodeForest) -> ProofNodeForest {
+        proof.mutate(|_, node, _| match node.as_ref() {
+            ProofNode::Step(s) if s.rule == "g_eunif" => {
+                eunif::g_eunif(self.pool, &mut self.eunif_cc, s).unwrap()
+            }
+            _ => node.clone(),
         })
     }
 

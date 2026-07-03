@@ -1,7 +1,37 @@
 use super::{
     assert_clause_len, assert_num_premises, get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
-use crate::{ast::*, checker::error::CongruenceError};
+use crate::{ast::*, cc::CongruenceClosure, checker::error::CongruenceError};
+
+pub fn ground_eunif(
+    RuleArgs {
+        conclusion,
+        premises,
+        pool,
+        eunif_cc,
+        ..
+    }: RuleArgs,
+) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t, u) = match_term_err!((= t u) = &conclusion[0])?;
+
+    // The congruence closure's term index is initialized from the term pool when the first
+    // `g_eunif` step is checked, and shared by all such steps; only the premise equalities are
+    // fresh in each invocation
+    let cc = eunif_cc.get_or_insert_with(|| CongruenceClosure::new(pool.stored_terms()));
+    cc.reset();
+
+    for (i, premise) in premises.iter().enumerate() {
+        let (a, b) = match_term_err!((= a b) = get_premise_term(premise)?)?;
+        cc.add_equality(a, b, i);
+    }
+
+    rassert!(
+        cc.are_congruent(t, u),
+        CheckerError::TermsNotCongruent(t.clone(), u.clone())
+    );
+    Ok(())
+}
 
 pub fn eq_congruent(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2..)?;

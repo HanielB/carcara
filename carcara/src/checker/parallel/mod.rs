@@ -30,6 +30,7 @@ pub struct ParallelProofChecker<'c> {
     is_holey: bool,
     stack_size: usize,
     rare_rules: Rules,
+    eunif_cc: Option<crate::cc::CongruenceClosure>,
 }
 
 impl<'c> ParallelProofChecker<'c> {
@@ -50,6 +51,7 @@ impl<'c> ParallelProofChecker<'c> {
             is_holey: false,
             stack_size,
             rare_rules,
+            eunif_cc: None,
         }
     }
 
@@ -64,6 +66,8 @@ impl<'c> ParallelProofChecker<'c> {
             is_holey: false,
             stack_size: self.stack_size,
             rare_rules: self.rare_rules.clone(),
+            // Each worker thread lazily builds its own congruence closure
+            eunif_cc: None,
         }
     }
 
@@ -396,6 +400,7 @@ impl<'c> ParallelProofChecker<'c> {
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
             rare_rules: &self.rare_rules,
+            eunif_cc: &mut self.eunif_cc,
         };
 
         // Use shared core logic
