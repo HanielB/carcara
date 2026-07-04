@@ -9,7 +9,8 @@
 //! The state is split in two layers so that a single instance can be reused for many `g_eunif`
 //! steps of the same proof: a persistent term index, which starts empty, is filled on demand, and
 //! only grows, and the equality-derived state, which is cleared by [`reset`] between invocations.
-//! The equality-derived state is kept in hash maps where an absent key means "default value", so
+//! The equality-derived state is kept in hash maps where an absent key means "default value" (or,
+//! for the representative vectors, in flat vectors whose touched entries are tracked), so
 //! resetting costs time proportional to the terms touched by the previous invocation's
 //! equalities, and not to the total number of indexed terms. Note that the index must not be
 //! seeded with terms that are irrelevant to the rule applications (e.g. all terms in the term
@@ -20,7 +21,8 @@
 //! [`reset`]: CongruenceClosure::reset
 
 use crate::ast::*;
-use std::collections::{HashMap, HashSet};
+use hashbrown::{hash_table::HashTable, DefaultHashBuilder, HashMap, HashSet};
+use std::hash::{BuildHasher, Hash};
 
 type NodeId = usize;
 
@@ -66,10 +68,12 @@ enum Head {
     ParamOp(ParamOperator, Vec<Rc<Term>>),
 }
 
-/// A signature: the head symbol of an application together with one node per argument. In the
-/// persistent `static_sigs` table the arguments are the argument nodes themselves; in lookups and
-/// in the `delta_sigs` table they are the arguments' current class representatives.
-type Signature = (Head, Vec<NodeId>);
+/// An entry of a signature table: an application node together with the hash of its signature
+/// (its head symbol and one node per argument) at the time of insertion. Following veriT, no
+/// signature object is ever materialized: hashes are computed in place from the argument nodes
+/// (`static_sigs`) or their current class representatives (lookups and `delta_sigs`), probes
+/// compare the cached hash first, and full comparisons read the argument slices directly.
+type SigEntry = (u64, NodeId);
 
 /// The justification recorded on a proof forest edge.
 #[derive(Debug, Clone, Copy)]
@@ -108,21 +112,35 @@ pub struct CongruenceClosure {
     /// is injective, and it doubles as the initial signature table of every invocation: an entry
     /// matched by a lookup key made of current class representatives is never stale, because its
     /// arguments being representatives implies its signature is current.
-    static_sigs: HashMap<Signature, NodeId>,
+    static_sigs: HashTable<SigEntry>,
+    /// The hasher for signature hashes.
+    sig_hasher: DefaultHashBuilder,
 
-    // Equality-derived state: cleared by `reset`. An absent key always means "default".
-    /// The class representative of a node (default: the node itself). Updated eagerly for every
-    /// member of the absorbed class on merge, so lookups need no traversal.
-    repr: HashMap<NodeId, NodeId>,
+    // Equality-derived state: cleared by `reset`. An absent key (or, for the flat vectors below,
+    // an identity entry) always means "default".
+    /// The class representative of each node (default: the node itself). Updated eagerly for
+    /// every member of the absorbed class on merge, so lookups need no traversal. This is a flat
+    /// vector rather than a map because it is read multiple times per signature operation; the
+    /// nodes whose entries (here and in `sig_repr`) deviate from the identity are recorded in
+    /// `touched`, which `reset` uses to restore them.
+    repr: Vec<NodeId>,
+    /// The nodes whose `repr` or `sig_repr` entries may deviate from the identity.
+    touched: Vec<NodeId>,
     /// The members of a touched class, keyed by representative (default: just the node itself).
     class_members: HashMap<NodeId, Vec<NodeId>>,
     /// The parent application nodes of all members of a touched class, keyed by representative
     /// (default: the node's `static_parents`).
     class_parents: HashMap<NodeId, Vec<NodeId>>,
+    /// The signature representative of each class, indexed by class representative (default: the
+    /// class representative itself). Signatures are keyed by the signature representatives of
+    /// the arguments' classes, not by the class representatives: decoupling the two (as veriT
+    /// does) lets a merge keep the signature representative of whichever class has the larger
+    /// parent list, so that only the smaller parent list must be re-signatured.
+    sig_repr: Vec<NodeId>,
     /// Signatures recomputed after merges. Lookups check this table first and `static_sigs`
     /// second, and insertions only happen when neither table has the key, so there is at most one
     /// live entry per signature.
-    delta_sigs: HashMap<Signature, NodeId>,
+    delta_sigs: HashTable<SigEntry>,
     /// The proof forest: each merge adds one edge between the two nodes of the merged equality.
     forest: HashMap<NodeId, Edge>,
     /// Cache of already-computed explanations.
@@ -147,7 +165,11 @@ impl CongruenceClosure {
     /// Clears all equality-derived state, keeping the term index. Takes time proportional to the
     /// number of terms touched by the equalities added since the last reset.
     pub fn reset(&mut self) {
-        self.repr.clear();
+        for &node in &self.touched {
+            self.repr[node] = node;
+            self.sig_repr[node] = node;
+        }
+        self.touched.clear();
         self.class_members.clear();
         self.class_parents.clear();
         self.delta_sigs.clear();
@@ -178,7 +200,12 @@ impl CongruenceClosure {
     }
 
     fn find(&self, node: NodeId) -> NodeId {
-        self.repr.get(&node).copied().unwrap_or(node)
+        self.repr[node]
+    }
+
+    /// The signature representative of a node's class (see the `sig_repr` field).
+    fn sig_find(&self, node: NodeId) -> NodeId {
+        self.sig_repr[self.repr[node]]
     }
 
     /// Interns a term and all its subterms, returning its node. If the term is a new application
@@ -208,8 +235,10 @@ impl CongruenceClosure {
         self.ids.insert(term.clone(), id);
         self.static_parents.push(Vec::new());
         self.app_view.push(view.clone());
+        self.repr.push(id);
+        self.sig_repr.push(id);
 
-        if let Some((head, children)) = view {
+        if let Some((_, children)) = view {
             for &child in &children {
                 self.static_parents[child].push(id);
                 // If the child's class was already touched by a merge, its parent list was
@@ -219,18 +248,18 @@ impl CongruenceClosure {
                     parents.push(id);
                 }
             }
-            self.static_sigs.insert((head, children), id);
-            if !self.repr.is_empty() {
+            let static_hash = self.static_sig_hash(id);
+            self.static_sigs
+                .insert_unique(static_hash, (static_hash, id), |&(h, _)| h);
+            if !self.touched.is_empty() {
                 // If merges already happened, the new node's signature under current
                 // representatives may coincide with that of an existing node
-                let sig = self.signature(id);
-                match self.lookup_sig(&sig) {
+                let hash = self.sig_hash(id);
+                match self.lookup_sig(id, hash) {
                     Some(other) if other != id => self.merge(id, other, Reason::Congruence),
                     Some(_) => (),
                     None => {
-                        if self.static_sigs.get(&sig) != Some(&id) {
-                            self.delta_sigs.insert(sig, id);
-                        }
+                        self.delta_sigs.insert_unique(hash, (hash, id), |&(h, _)| h);
                     }
                 }
             }
@@ -238,18 +267,64 @@ impl CongruenceClosure {
         id
     }
 
-    /// The signature of an application node under the current class representatives.
-    fn signature(&self, node: NodeId) -> Signature {
+    /// The hash of the signature of an application node under the current signature
+    /// representatives.
+    fn sig_hash(&self, node: NodeId) -> u64 {
         let (head, children) = self.app_view[node].as_ref().unwrap();
-        let children = children.iter().map(|&c| self.find(c)).collect();
-        (head.clone(), children)
+        let mut hasher = self.sig_hasher.build_hasher();
+        head.hash(&mut hasher);
+        for &child in children {
+            self.sig_find(child).hash(&mut hasher);
+        }
+        std::hash::Hasher::finish(&hasher)
     }
 
-    fn lookup_sig(&self, sig: &Signature) -> Option<NodeId> {
+    /// As above, but under the identity mapping of classes (for `static_sigs` entries).
+    fn static_sig_hash(&self, node: NodeId) -> u64 {
+        let (head, children) = self.app_view[node].as_ref().unwrap();
+        let mut hasher = self.sig_hasher.build_hasher();
+        head.hash(&mut hasher);
+        for &child in children {
+            child.hash(&mut hasher);
+        }
+        std::hash::Hasher::finish(&hasher)
+    }
+
+    /// Whether the signatures of two application nodes are equal under the current signature
+    /// representatives, with the candidate's arguments mapped by `candidate_repr`.
+    fn sig_eq(
+        &self,
+        candidate: NodeId,
+        node: NodeId,
+        candidate_repr: impl Fn(NodeId) -> NodeId,
+    ) -> bool {
+        let (c_head, c_children) = self.app_view[candidate].as_ref().unwrap();
+        let (n_head, n_children) = self.app_view[node].as_ref().unwrap();
+        c_head == n_head
+            && c_children.len() == n_children.len()
+            && c_children
+                .iter()
+                .zip(n_children)
+                .all(|(&c, &n)| candidate_repr(c) == self.sig_find(n))
+    }
+
+    /// Looks up an application node with the same signature as `node` (whose signature hash under
+    /// the current signature representatives is `hash`) in the signature tables.
+    fn lookup_sig(&self, node: NodeId, hash: u64) -> Option<NodeId> {
+        // In `delta_sigs`, a live entry's arguments have unchanged signature representatives
+        // since insertion (stale entries are removed on merge), so they are compared through
+        // `sig_find`. In `static_sigs`, entries are keyed by their arguments as-is, and an entry
+        // matches precisely when those arguments are the current signature representatives, in
+        // which case it is guaranteed not to be stale
         self.delta_sigs
-            .get(sig)
-            .or_else(|| self.static_sigs.get(sig))
-            .copied()
+            .find(hash, |&(h, q)| {
+                h == hash && self.sig_eq(q, node, |c| self.sig_find(c))
+            })
+            .or_else(|| {
+                self.static_sigs
+                    .find(hash, |&(h, q)| h == hash && self.sig_eq(q, node, |c| c))
+            })
+            .map(|&(_, q)| q)
     }
 
     /// Merges the classes of `a` and `b`, justified by `reason` (which proves `a = b`, in that
@@ -276,48 +351,82 @@ impl CongruenceClosure {
             self.forest
                 .insert(b, Edge { parent: a, reason, child_eq_parent });
 
-            // Remove the current signatures of the absorbed class's parents, which are about to
-            // change. Only `delta_sigs` entries can match: a `static_sigs` entry matching a
-            // signature under current representatives is never stale, so it can stay
-            let b_parents = self
+            // Only the parents of the class whose signature representative changes must be
+            // re-signatured, and the signature representative of the merged class is arbitrary,
+            // so we keep that of the class with the larger parent list and re-signature only the
+            // smaller one (veriT's `CC_union`). This is independent from the union by size above,
+            // which bounds the `repr` update loop instead.
+            let parents_len = |cc: &Self, r: NodeId| {
+                cc.class_parents
+                    .get(&r)
+                    .map_or(cc.static_parents[r].len(), Vec::len)
+            };
+            let (resig, kept) = if parents_len(self, ra) < parents_len(self, rb) {
+                (ra, rb)
+            } else {
+                (rb, ra)
+            };
+            let resig_parents = self
                 .class_parents
-                .remove(&rb)
-                .unwrap_or_else(|| self.static_parents[rb].clone());
-            for &parent in &b_parents {
-                let sig = self.signature(parent);
-                if self.delta_sigs.get(&sig) == Some(&parent) {
-                    self.delta_sigs.remove(&sig);
+                .remove(&resig)
+                .unwrap_or_else(|| self.static_parents[resig].clone());
+
+            // Remove the current signatures of the re-signatured class's parents, which are about
+            // to change. Only `delta_sigs` entries can match: a `static_sigs` entry matching a
+            // signature under current signature representatives is never stale, so it can stay
+            for &parent in &resig_parents {
+                let hash = self.sig_hash(parent);
+                if let Ok(entry) = self
+                    .delta_sigs
+                    .find_entry(hash, |&(h, q)| h == hash && q == parent)
+                {
+                    entry.remove();
                 }
             }
 
-            // Update the representative of every member of the absorbed class
+            // Update the representative of every member of the absorbed class, and make the
+            // signature representative of the merged class that of the kept side
+            let kept_sig_repr = self.sig_find(kept);
             let mut b_members = self.class_members.remove(&rb).unwrap_or_else(|| vec![rb]);
             for &member in &b_members {
-                self.repr.insert(member, ra);
+                self.repr[member] = ra;
+                self.touched.push(member);
             }
             self.class_members
                 .entry(ra)
                 .or_insert_with(|| vec![ra])
                 .append(&mut b_members);
+            self.sig_repr[ra] = kept_sig_repr;
+            self.touched.push(ra);
 
             // Re-enter the parents' new signatures. A collision with a node of a different class
             // is a newly detected congruence
-            for &parent in &b_parents {
-                let sig = self.signature(parent);
-                match self.lookup_sig(&sig) {
+            for &parent in &resig_parents {
+                let hash = self.sig_hash(parent);
+                match self.lookup_sig(parent, hash) {
                     Some(other) if self.find(other) != self.find(parent) => {
                         pending.push((parent, other, Reason::Congruence));
                     }
                     Some(_) => (),
                     None => {
-                        self.delta_sigs.insert(sig, parent);
+                        self.delta_sigs
+                            .insert_unique(hash, (hash, parent), |&(h, _)| h);
                     }
                 }
             }
-            self.class_parents
-                .entry(ra)
-                .or_insert_with(|| self.static_parents[ra].clone())
-                .extend(b_parents);
+            // The merged class's parent list, keyed by the merged root, is the kept class's list
+            // extended with the re-signatured one
+            let mut parents = if kept == ra {
+                self.class_parents
+                    .remove(&ra)
+                    .unwrap_or_else(|| self.static_parents[ra].clone())
+            } else {
+                self.class_parents
+                    .remove(&rb)
+                    .unwrap_or_else(|| self.static_parents[rb].clone())
+            };
+            parents.extend(resig_parents);
+            self.class_parents.insert(ra, parents);
         }
     }
 
