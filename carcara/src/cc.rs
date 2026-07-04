@@ -7,11 +7,15 @@
 //! (in the spirit of Nieuwenhuis & Oliveras, "Proof-Producing Congruence Closure", RTA 2005).
 //!
 //! The state is split in two layers so that a single instance can be reused for many `g_eunif`
-//! steps of the same proof: a persistent term index, which is built once (from all terms in the
-//! term pool) and only grows, and the equality-derived state, which is cleared by [`reset`] between
-//! invocations. The equality-derived state is kept in hash maps where an absent key means "default
-//! value", so resetting costs time proportional to the terms touched by the previous invocation's
-//! equalities, and not to the total number of indexed terms.
+//! steps of the same proof: a persistent term index, which starts empty, is filled on demand, and
+//! only grows, and the equality-derived state, which is cleared by [`reset`] between invocations.
+//! The equality-derived state is kept in hash maps where an absent key means "default value", so
+//! resetting costs time proportional to the terms touched by the previous invocation's
+//! equalities, and not to the total number of indexed terms. Note that the index must not be
+//! seeded with terms that are irrelevant to the rule applications (e.g. all terms in the term
+//! pool): besides the initialization cost, that also makes every merge more expensive, since a
+//! merge re-signatures the parent lists of the merged classes, which then contain all parents in
+//! the index instead of only the relevant ones.
 //!
 //! [`reset`]: CongruenceClosure::reset
 
@@ -126,8 +130,10 @@ pub struct CongruenceClosure {
 }
 
 impl CongruenceClosure {
-    /// Constructs a new congruence closure whose term index is seeded with the given terms,
-    /// typically all terms in the term pool (see `TermPool::stored_terms`).
+    /// Constructs a new congruence closure whose term index is seeded with the given terms.
+    /// Typically no seed terms are given, and the index is filled on demand as equalities are
+    /// added and queried (see the module documentation on why seeding with irrelevant terms
+    /// hurts performance).
     pub fn new<T: IntoIterator<Item = Rc<Term>>>(initial_terms: T) -> Self {
         let mut cc = Self::default();
         for term in initial_terms {

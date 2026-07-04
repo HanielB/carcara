@@ -3,22 +3,16 @@ use super::{
 };
 use crate::{ast::*, cc::CongruenceClosure, checker::error::CongruenceError};
 
-pub fn ground_eunif(
-    RuleArgs {
-        conclusion,
-        premises,
-        pool,
-        eunif_cc,
-        ..
-    }: RuleArgs,
-) -> RuleResult {
+pub fn ground_eunif(RuleArgs { conclusion, premises, eunif_cc, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t, u) = match_term_err!((= t u) = &conclusion[0])?;
 
-    // The congruence closure's term index is initialized from the term pool when the first
-    // `g_eunif` step is checked, and shared by all such steps; only the premise equalities are
-    // fresh in each invocation
-    let cc = eunif_cc.get_or_insert_with(|| CongruenceClosure::new(pool.stored_terms()));
+    // The congruence closure's term index starts empty and is filled on demand, shared by all
+    // `g_eunif` steps of the proof; only the premise equalities are fresh in each invocation.
+    // Seeding the index with the term pool instead is prohibitively expensive: it makes both the
+    // initialization and every merge (whose cost depends on the parent lists of the merged
+    // classes) proportional to the size of the pool
+    let cc = eunif_cc.get_or_insert_with(|| CongruenceClosure::new(Vec::new()));
     cc.reset();
 
     // Each premise is either an equality or a conjunction of equalities

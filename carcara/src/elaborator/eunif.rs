@@ -17,9 +17,10 @@ pub fn g_eunif(
     assert_eq!(step.clause.len(), 1);
     let (t, u) = match_term_err!((= t u) = &step.clause[0])?;
 
-    // As in the checker, the congruence closure's term index is initialized once and shared by
-    // all `g_eunif` steps; only the premise equalities are fresh in each invocation
-    let cc = cc.get_or_insert_with(|| CongruenceClosure::new(pool.stored_terms()));
+    // As in the checker, the congruence closure's term index starts empty, is filled on demand,
+    // and is shared by all `g_eunif` steps; only the premise equalities are fresh in each
+    // invocation
+    let cc = cc.get_or_insert_with(|| CongruenceClosure::new(Vec::new()));
     cc.reset();
 
     // Since premises may be conjunctions of equalities, the equalities given to the congruence
