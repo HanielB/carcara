@@ -21,9 +21,21 @@ pub fn ground_eunif(
     let cc = eunif_cc.get_or_insert_with(|| CongruenceClosure::new(pool.stored_terms()));
     cc.reset();
 
-    for (i, premise) in premises.iter().enumerate() {
-        let (a, b) = match_term_err!((= a b) = get_premise_term(premise)?)?;
-        cc.add_equality(a, b, i);
+    // Each premise is either an equality or a conjunction of equalities
+    let mut index = 0;
+    for premise in premises {
+        let term = get_premise_term(premise)?;
+        if let Some((a, b)) = match_term!((= a b) = term) {
+            cc.add_equality(a, b, index);
+            index += 1;
+        } else {
+            let conjuncts = match_term_err!((and ...) = term)?;
+            for conjunct in conjuncts {
+                let (a, b) = match_term_err!((= a b) = conjunct)?;
+                cc.add_equality(a, b, index);
+                index += 1;
+            }
+        }
     }
 
     rassert!(

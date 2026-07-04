@@ -91,6 +91,27 @@ fn g_eunif() {
 
             "(step t1 (cl (= a b)) :rule g_eunif)": false,
         }
+        "Conjunction premises" {
+            "(assume h1 (and (= a b) (= c d)))
+            (step t2 (cl (= (h a c) (h b d))) :rule g_eunif :premises (h1))": true,
+
+            "(assume h1 (and (= a b) (= b c)))
+            (step t2 (cl (= (f a) (f c))) :rule g_eunif :premises (h1))": true,
+
+            "(assume h1 (and (= a b) (= c d))) (assume h2 (= (f b) c))
+            (step t3 (cl (= (f a) d)) :rule g_eunif :premises (h1 h2))": true,
+
+            // Conjuncts are not implicitly usable if the premise is not given
+            "(assume h1 (and (= a b) (= b c))) (assume h2 (= c d))
+            (step t3 (cl (= a d)) :rule g_eunif :premises (h2))": false,
+        }
+        "Conjunction premise with non-equality conjunct" {
+            "(assume h1 (and (= a b) (p a)))
+            (step t2 (cl (= a b)) :rule g_eunif :premises (h1))": false,
+
+            "(assume h1 (and (= a b) (and (= b c) (= c d))))
+            (step t2 (cl (= a b)) :rule g_eunif :premises (h1))": false,
+        }
         "Premise is not an equality" {
             "(assume h1 (not (= a b)))
             (step t2 (cl (= a b)) :rule g_eunif :premises (h1))": false,

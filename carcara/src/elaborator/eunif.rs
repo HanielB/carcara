@@ -6,8 +6,9 @@ use crate::{
 };
 use std::collections::HashMap;
 
-/// Elaborates a `g_eunif` step into a proof using only the `trans`, `cong`, `symm` and `refl`
-/// rules, whose leaves are the original premise equalities.
+/// Elaborates a `g_eunif` step into a proof using only the `trans`, `cong`, `symm`, `refl` and
+/// `and` rules, whose leaves are the original premises (each an equality or a conjunction of
+/// equalities).
 pub fn g_eunif(
     pool: &mut PrimitivePool,
     cc: &mut Option<CongruenceClosure>,
@@ -20,10 +21,25 @@ pub fn g_eunif(
     // all `g_eunif` steps; only the premise equalities are fresh in each invocation
     let cc = cc.get_or_insert_with(|| CongruenceClosure::new(pool.stored_terms()));
     cc.reset();
+
+    // Since premises may be conjunctions of equalities, the equalities given to the congruence
+    // closure are identified by a flat index, which maps to a premise and, for conjunctions, the
+    // index of the conjunct in it
+    let mut premise_table: Vec<(usize, Option<usize>)> = Vec::new();
     for (i, premise) in step.premises.iter().enumerate() {
         assert_eq!(premise.clause().len(), 1);
-        let (a, b) = match_term_err!((= a b) = &premise.clause()[0])?;
-        cc.add_equality(a, b, i);
+        let term = &premise.clause()[0];
+        if let Some((a, b)) = match_term!((= a b) = term) {
+            cc.add_equality(a, b, premise_table.len());
+            premise_table.push((i, None));
+        } else {
+            let conjuncts = match_term_err!((and ...) = term)?;
+            for (j, conjunct) in conjuncts.iter().enumerate() {
+                let (a, b) = match_term_err!((= a b) = conjunct)?;
+                cc.add_equality(a, b, premise_table.len());
+                premise_table.push((i, Some(j)));
+            }
+        }
     }
     let proof = cc
         .explain(t, u)
@@ -32,6 +48,7 @@ pub fn g_eunif(
     let mut converter = Converter {
         pool,
         premises: &step.premises,
+        premise_table,
         depth: step.depth,
         ids: IdHelper::new(&step.id),
         cache: HashMap::new(),
@@ -42,6 +59,9 @@ pub fn g_eunif(
 struct Converter<'a> {
     pool: &'a mut PrimitivePool,
     premises: &'a [Rc<ProofNode>],
+    /// Maps each flat equality index to its premise and, if the premise is a conjunction, the
+    /// index of the conjunct in it
+    premise_table: Vec<(usize, Option<usize>)>,
     depth: usize,
     ids: IdHelper,
     /// Explanations are DAGs, so we cache converted sub-proofs (keyed by their conclusion, which
@@ -55,7 +75,7 @@ impl<'a> Converter<'a> {
         let (rule, premises) = match &proof.rule {
             // If the conclusion is proved directly by a premise, we wrap it in a single-premise
             // `trans` step, so that the elaborated step still exists and keeps the original id
-            EqProofRule::Premise(i) => ("trans", vec![self.premises[*i].clone()]),
+            EqProofRule::Premise(i) => ("trans", vec![self.premise_node(*i)]),
             EqProofRule::Symm(inner) => ("symm", vec![self.convert(inner)]),
             EqProofRule::Refl => ("refl", Vec::new()),
             EqProofRule::Trans(links) => ("trans", links.iter().map(|l| self.convert(l)).collect()),
@@ -80,7 +100,7 @@ impl<'a> Converter<'a> {
         // when all their premises live at outer depths), so that no step ends up outside a
         // subproof while referencing steps inside it
         let node = match &proof.rule {
-            EqProofRule::Premise(i) => self.premises[*i].clone(),
+            EqProofRule::Premise(i) => self.premise_node(*i),
             EqProofRule::Symm(inner) => {
                 let inner = self.convert(inner);
                 self.new_step(&lhs, &rhs, "symm", vec![inner])
@@ -103,6 +123,27 @@ impl<'a> Converter<'a> {
         };
         self.cache.insert((lhs, rhs), node.clone());
         node
+    }
+
+    /// Returns the proof node for the equality with the given flat index: the premise itself, or,
+    /// if it is a conjunct of a conjunction premise, an `and` step deriving it.
+    fn premise_node(&mut self, flat: usize) -> Rc<ProofNode> {
+        let (pi, conjunct) = self.premise_table[flat];
+        let premise = self.premises[pi].clone();
+        let Some(j) = conjunct else {
+            return premise;
+        };
+        let conjunct_term = match_term!((and ...) = &premise.clause()[0]).unwrap()[j].clone();
+        let index = self.pool.add(Term::new_int(j));
+        Rc::new(ProofNode::Step(StepNode {
+            id: self.ids.next_id(),
+            depth: self.depth,
+            clause: vec![conjunct_term],
+            rule: "and".to_owned(),
+            premises: vec![premise],
+            args: vec![index],
+            ..StepNode::default()
+        }))
     }
 
     fn new_step(

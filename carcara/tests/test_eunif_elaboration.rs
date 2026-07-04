@@ -178,6 +178,17 @@ fn deep_congruence() {
 }
 
 #[test]
+fn conjunction_premises() {
+    run_test(
+        "(assert (and (= a b) (= c d))) (assert (= (f b) c))",
+        "(assume h1 (and (= a b) (= c d))) (assume h2 (= (f b) c))
+        (step t3 (cl (= (f a) d)) :rule g_eunif :premises (h1 h2))
+        (step t4 (cl (= (h a c) (h b d))) :rule g_eunif :premises (h1))
+        (step end (cl) :rule hole :premises (t3 t4))",
+    );
+}
+
+#[test]
 fn multiple_steps() {
     run_test(
         "(assert (= a b)) (assert (= c d)) (assert (= (f c) a))",
