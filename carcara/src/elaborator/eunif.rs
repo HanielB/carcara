@@ -1,4 +1,4 @@
-use super::{add_refl_step, add_symm_step, add_trans_step, IdHelper};
+use super::{add_refl_step, IdHelper};
 use crate::{
     ast::*,
     cc::{CongruenceClosure, EqProof, EqProofRule},
@@ -76,11 +76,14 @@ impl<'a> Converter<'a> {
         if let Some(node) = self.cache.get(&(lhs.clone(), rhs.clone())) {
             return node.clone();
         }
+        // All new steps are created at the depth of the `g_eunif` step being elaborated (even
+        // when all their premises live at outer depths), so that no step ends up outside a
+        // subproof while referencing steps inside it
         let node = match &proof.rule {
             EqProofRule::Premise(i) => self.premises[*i].clone(),
             EqProofRule::Symm(inner) => {
                 let inner = self.convert(inner);
-                add_symm_step(self.pool, &inner, self.ids.next_id())
+                self.new_step(&lhs, &rhs, "symm", vec![inner])
             }
             EqProofRule::Refl => add_refl_step(
                 self.pool,
@@ -91,23 +94,33 @@ impl<'a> Converter<'a> {
             ),
             EqProofRule::Trans(links) => {
                 let links: Vec<_> = links.iter().map(|l| self.convert(l)).collect();
-                add_trans_step(self.pool, links, self.ids.next_id())
+                self.new_step(&lhs, &rhs, "trans", links)
             }
             EqProofRule::Cong(args) => {
                 let premises = self.convert_cong_premises(args);
-                let clause = vec![build_term!(self.pool, (= {lhs.clone()} {rhs.clone()}))];
-                Rc::new(ProofNode::Step(StepNode {
-                    id: self.ids.next_id(),
-                    depth: self.depth,
-                    clause,
-                    rule: "cong".to_owned(),
-                    premises,
-                    ..StepNode::default()
-                }))
+                self.new_step(&lhs, &rhs, "cong", premises)
             }
         };
         self.cache.insert((lhs, rhs), node.clone());
         node
+    }
+
+    fn new_step(
+        &mut self,
+        lhs: &Rc<Term>,
+        rhs: &Rc<Term>,
+        rule: &str,
+        premises: Vec<Rc<ProofNode>>,
+    ) -> Rc<ProofNode> {
+        let clause = vec![build_term!(self.pool, (= {lhs.clone()} {rhs.clone()}))];
+        Rc::new(ProofNode::Step(StepNode {
+            id: self.ids.next_id(),
+            depth: self.depth,
+            clause,
+            rule: rule.to_owned(),
+            premises,
+            ..StepNode::default()
+        }))
     }
 
     /// Converts the argument sub-proofs of a congruence. Syntactically equal argument pairs
