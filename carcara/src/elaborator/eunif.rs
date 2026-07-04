@@ -20,7 +20,7 @@ pub fn g_eunif(
     // As in the checker, the congruence closure's term index starts empty, is filled on demand,
     // and is shared by all `g_eunif` steps; only the premise equalities are fresh in each
     // invocation
-    let cc = cc.get_or_insert_with(|| CongruenceClosure::new(Vec::new()));
+    let cc = cc.get_or_insert_with(CongruenceClosure::new);
     cc.reset();
 
     // Since premises may be conjunctions of equalities, the equalities given to the congruence

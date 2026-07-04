@@ -57,11 +57,6 @@ impl Storage {
         self.0.get(term).map(|t| &t.0)
     }
 
-    /// Returns an iterator over all terms stored in this storage.
-    pub fn terms(&self) -> impl Iterator<Item = &Rc<Term>> {
-        self.0.iter().map(|ByValue(t)| t)
-    }
-
     // This method is only necessary for the hash consing tests
     #[cfg(test)]
     pub fn into_vec(self) -> Vec<Rc<Term>> {

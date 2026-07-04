@@ -99,7 +99,7 @@ struct Edge {
 
 #[derive(Debug, Default)]
 pub struct CongruenceClosure {
-    // Persistent term index: built once, grows monotonically as new terms are interned.
+    // Persistent term index: filled on demand, grows monotonically as new terms are interned.
     /// The term of each node.
     nodes: Vec<Rc<Term>>,
     /// The node of each term.
@@ -148,18 +148,11 @@ pub struct CongruenceClosure {
 }
 
 impl CongruenceClosure {
-    /// Constructs a new congruence closure whose term index is seeded with the given terms.
-    /// Typically no seed terms are given, and the index is filled on demand as equalities are
-    /// added and queried (see the module documentation on why seeding with irrelevant terms
-    /// hurts performance).
-    pub fn new<T: IntoIterator<Item = Rc<Term>>>(initial_terms: T) -> Self {
-        let mut cc = Self::default();
-        for term in initial_terms {
-            if !matches!(term.as_ref(), Term::Sort(_)) {
-                cc.intern(&term);
-            }
-        }
-        cc
+    /// Constructs a new congruence closure. The term index starts empty and is filled on demand
+    /// as equalities are added and queried (see the module documentation on why seeding it with
+    /// irrelevant terms would hurt performance).
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Clears all equality-derived state, keeping the term index. Takes time proportional to the
@@ -248,7 +241,7 @@ impl CongruenceClosure {
                     parents.push(id);
                 }
             }
-            let static_hash = self.static_sig_hash(id);
+            let static_hash = self.sig_hash_with(id, |c| c);
             self.static_sigs
                 .insert_unique(static_hash, (static_hash, id), |&(h, _)| h);
             if !self.touched.is_empty() {
@@ -267,27 +260,22 @@ impl CongruenceClosure {
         id
     }
 
-    /// The hash of the signature of an application node under the current signature
-    /// representatives.
-    fn sig_hash(&self, node: NodeId) -> u64 {
+    /// The hash of the signature of an application node, with the arguments mapped by `arg_repr`
+    /// (the current signature representatives, or the identity for `static_sigs` entries).
+    fn sig_hash_with(&self, node: NodeId, arg_repr: impl Fn(NodeId) -> NodeId) -> u64 {
         let (head, children) = self.app_view[node].as_ref().unwrap();
         let mut hasher = self.sig_hasher.build_hasher();
         head.hash(&mut hasher);
         for &child in children {
-            self.sig_find(child).hash(&mut hasher);
+            arg_repr(child).hash(&mut hasher);
         }
         std::hash::Hasher::finish(&hasher)
     }
 
-    /// As above, but under the identity mapping of classes (for `static_sigs` entries).
-    fn static_sig_hash(&self, node: NodeId) -> u64 {
-        let (head, children) = self.app_view[node].as_ref().unwrap();
-        let mut hasher = self.sig_hasher.build_hasher();
-        head.hash(&mut hasher);
-        for &child in children {
-            child.hash(&mut hasher);
-        }
-        std::hash::Hasher::finish(&hasher)
+    /// The hash of the signature of an application node under the current signature
+    /// representatives.
+    fn sig_hash(&self, node: NodeId) -> u64 {
+        self.sig_hash_with(node, |c| self.sig_find(c))
     }
 
     /// Whether the signatures of two application nodes are equal under the current signature
@@ -416,15 +404,10 @@ impl CongruenceClosure {
             }
             // The merged class's parent list, keyed by the merged root, is the kept class's list
             // extended with the re-signatured one
-            let mut parents = if kept == ra {
-                self.class_parents
-                    .remove(&ra)
-                    .unwrap_or_else(|| self.static_parents[ra].clone())
-            } else {
-                self.class_parents
-                    .remove(&rb)
-                    .unwrap_or_else(|| self.static_parents[rb].clone())
-            };
+            let mut parents = self
+                .class_parents
+                .remove(&kept)
+                .unwrap_or_else(|| self.static_parents[kept].clone());
             parents.extend(resig_parents);
             self.class_parents.insert(ra, parents);
         }
@@ -594,7 +577,7 @@ mod tests {
     /// congruence closure, and returns whether the goal terms become congruent.
     fn check(premises: &[(&str, &str)], goal: (&str, &str)) -> bool {
         let mut pool = PrimitivePool::new();
-        run(&mut pool, &mut CongruenceClosure::new([]), premises, goal)
+        run(&mut pool, &mut CongruenceClosure::new(), premises, goal)
     }
 
     fn run(
@@ -721,7 +704,7 @@ mod tests {
     #[test]
     fn late_term_addition() {
         let mut pool = PrimitivePool::new();
-        let mut cc = CongruenceClosure::new([]);
+        let mut cc = CongruenceClosure::new();
         // `(g a)` and `(g b)` are only interned by the goal query, after the merges already
         // happened, so they must join the existing classes upon interning
         assert!(run(&mut pool, &mut cc, &[("a", "b")], ("(g a)", "(g b)")));
@@ -730,7 +713,7 @@ mod tests {
     #[test]
     fn reset_and_reuse() {
         let mut pool = PrimitivePool::new();
-        let mut cc = CongruenceClosure::new([]);
+        let mut cc = CongruenceClosure::new();
         assert!(run(&mut pool, &mut cc, &[("a", "b")], ("(f a)", "(f b)")));
 
         // After a reset, the previous equalities are gone but the terms are still interned
@@ -744,28 +727,6 @@ mod tests {
             &mut cc,
             &[("a", "d"), ("d", "b")],
             ("(f a)", "(f b)")
-        ));
-    }
-
-    #[test]
-    fn seeded_with_pool_terms() {
-        let mut pool = PrimitivePool::new();
-        // Pre-parse some terms so they are in the pool, then seed the congruence closure with
-        // every pool term, like the `g_eunif` rule does
-        let _ = parse_terms(&mut pool, DEFINITIONS, ["(f (g a))", "(g b)", "(h a b)"]);
-        let mut cc = CongruenceClosure::new(pool.stored_terms());
-        assert!(run(
-            &mut pool,
-            &mut cc,
-            &[("a", "b")],
-            ("(f (g a))", "(f (g b))")
-        ));
-        cc.reset();
-        assert!(run(
-            &mut pool,
-            &mut cc,
-            &[("(g a)", "b")],
-            ("(h a (g a))", "(h a b)")
         ));
     }
 }

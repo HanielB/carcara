@@ -12,7 +12,7 @@ pub fn ground_eunif(RuleArgs { conclusion, premises, eunif_cc, .. }: RuleArgs) -
     // Seeding the index with the term pool instead is prohibitively expensive: it makes both the
     // initialization and every merge (whose cost depends on the parent lists of the merged
     // classes) proportional to the size of the pool
-    let cc = eunif_cc.get_or_insert_with(|| CongruenceClosure::new(Vec::new()));
+    let cc = eunif_cc.get_or_insert_with(CongruenceClosure::new);
     cc.reset();
 
     // Each premise is either an equality or a conjunction of equalities
