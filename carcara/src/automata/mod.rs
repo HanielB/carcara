@@ -302,17 +302,6 @@ impl Automaton {
         result
     }
 
-    // Set of all triggers in the automaton
-    // Used to get the effective alphabet of the automaton
-    fn symbol_triggers(&self) -> HashSet<Trigger> {
-        self.all_states
-            .iter()
-            .flat_map(|s| s.transitions.iter())
-            .filter(|t| t.trigger != Trigger::Epsilon)
-            .map(|t| t.trigger.clone())
-            .collect()
-    }
-
     pub fn determinize(nfa: &Automaton) -> Automaton {
         let mut new_states: Vec<State> = Vec::new();
         let mut state_map: HashMap<BTreeSet<StateId>, StateId> = HashMap::new();

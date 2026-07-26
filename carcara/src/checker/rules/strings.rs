@@ -1751,13 +1751,13 @@ pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
-    let ((s, R, t), u) = match_term_err!((= (replacere s R t) u) = &conclusion[0])?;
+    let ((s, r, t), u) = match_term_err!((= (replacere s r t) u) = &conclusion[0])?;
 
     let s = s.as_string_err()?;
     let t = t.as_string_err()?;
     let u = u.as_string_err()?;
 
-    let aut = Automaton::create_from_regex_operators(pool, R)?;
+    let aut = Automaton::create_from_regex_operators(pool, r)?;
     let dfa = if aut.is_nfa() {
         Automaton::determinize(&aut)
     } else {
@@ -1793,7 +1793,7 @@ pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
     if expected != u {
         return Err(CheckerError::RegexReplaceFailed {
             s,
-            regex: R.clone(),
+            regex: r.clone(),
             replacement: t,
             expected: u,
             got: expected,
@@ -1882,16 +1882,16 @@ pub fn str_in_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> 
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
-    let ((s, R), c) = match_term_err!((= (strinre s R) c) = &conclusion[0])?;
+    let ((s, r), c) = match_term_err!((= (strinre s r) c) = &conclusion[0])?;
 
     let s = s.as_string_err()?;
     let c = c.as_bool_err()?;
 
-    let aut = Automaton::create_from_regex_operators(pool, R)?;
+    let aut = Automaton::create_from_regex_operators(pool, r)?;
     let accepts = aut.accepts(&s);
 
     if accepts != c {
-        return Err(CheckerError::RegexMatchFailed { s, regex: R.clone(), expected: c });
+        return Err(CheckerError::RegexMatchFailed { s, regex: r.clone(), expected: c });
     }
 
     Ok(())

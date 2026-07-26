@@ -545,6 +545,8 @@ impl<'c> ProofChecker<'c> {
             "str_replace_re_eval" => strings::str_replace_re_eval,
             "str_replace_re_all_eval" => strings::str_replace_re_all_eval,
             "re_loop_elim" => strings::re_loop_elim,
+            "str_indexof_re_eval" => strings::str_indexof_re_eval,
+            "re_eq_elim" => strings::re_eq_elim,
 
             // RCP rules
             "re_convert" => strings::re_convert,
