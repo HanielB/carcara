@@ -440,17 +440,17 @@ impl Automaton {
         pool: &mut dyn TermPool,
         t: &Rc<Term>,
     ) -> Result<Automaton, CheckerError> {
+        // The transition sets are rebuilt from scratch: removing and re-inserting
+        // transitions one at a time can collapse a shifted transition with a
+        // not-yet-shifted one, losing it
         fn shift_states(states: Vec<State>, shift: usize) -> Vec<State> {
-            let mut new_states = states.clone();
+            let mut new_states = states;
             for state in &mut new_states {
-                for transition in state.transitions.clone() {
-                    let new_transition = transition.clone();
-                    state.transitions.remove(&transition);
-                    state.transitions.insert(Transition {
-                        to: new_transition.to + shift,
-                        trigger: new_transition.trigger,
-                    });
-                }
+                state.transitions = state
+                    .transitions
+                    .iter()
+                    .map(|t| Transition { to: t.to + shift, trigger: t.trigger.clone() })
+                    .collect();
             }
             new_states
         }
@@ -507,49 +507,42 @@ impl Automaton {
                     let mut automatons: Vec<Automaton> = Vec::new();
                     for regex in r {
                         let a = rec_create_from_regex_operators(pool, regex)?;
-                        if operations::has_reachable_accepting_state(a.clone()) {
-                            automatons.push(a);
-                        }
-                    }
-
-                    if automatons.len() == 1 {
-                        return Ok(automatons.first().unwrap().clone());
-                    }
-
-                    let mut states: Vec<State> = automatons.first().unwrap().all_states.clone();
-                    let new_initial_state = automatons.first().unwrap().initial_state;
-                    let offset = states.len();
-
-                    for state in &mut states {
-                        if state.accept {
-                            state.transitions.insert(Transition {
-                                to: automatons[1].initial_state + offset,
-                                trigger: Trigger::Epsilon,
+                        if !operations::has_reachable_accepting_state(a.clone()) {
+                            // A component with an empty language makes the whole
+                            // concatenation empty
+                            return Ok(Automaton {
+                                name: "re_concat".to_owned(),
+                                all_states: vec![State {
+                                    id: "init".to_owned(),
+                                    accept: false,
+                                    transitions: HashSet::new(),
+                                }],
+                                initial_state: 0,
                             });
                         }
-                        state.accept = false;
+                        automatons.push(a);
                     }
 
-                    let mut concat_states = automatons[1].all_states.clone();
+                    let mut automatons = automatons.into_iter();
+                    let mut result = automatons.next().ok_or(CheckerError::Unspecified)?;
 
-                    for state in &mut concat_states {
-                        for transition in state.transitions.clone() {
-                            let new_transition = transition.clone();
-                            state.transitions.remove(&transition);
-                            state.transitions.insert(Transition {
-                                to: new_transition.to + offset,
-                                trigger: new_transition.trigger,
-                            });
+                    for next in automatons {
+                        let offset = result.all_states.len();
+                        let next_states = shift_states(next.all_states, offset);
+                        for state in &mut result.all_states {
+                            if state.accept {
+                                state.accept = false;
+                                state.transitions.insert(Transition {
+                                    to: next.initial_state + offset,
+                                    trigger: Trigger::Epsilon,
+                                });
+                            }
                         }
+                        result.all_states.extend(next_states);
                     }
 
-                    states.extend(concat_states);
-
-                    Ok(Automaton {
-                        name: "re_concat".to_owned(),
-                        all_states: states,
-                        initial_state: new_initial_state,
-                    })
+                    result.name = "re_concat".to_owned();
+                    Ok(result)
                 }
                 Term::Op(Operator::StrToRe, s) => {
                     let s = s.first().unwrap();
@@ -718,7 +711,9 @@ impl Automaton {
                     for automaton in automata {
                         states.extend(shift_states(automaton.all_states.clone(), states.len() + 1));
                         transitions.insert(Transition {
-                            to: index,
+                            // the initial state need not be the automaton's first
+                            // state (e.g. Kleene closures append theirs last)
+                            to: index + automaton.initial_state,
                             trigger: Trigger::Epsilon,
                         });
                         index += automaton.all_states.len();
@@ -1124,4 +1119,62 @@ mod tests {
         assert!(!aut.accepts("abcd"));
         assert!(!aut.accepts(""));
     }
+
+    fn accepts_regex(regex: &str, s: &str) -> bool {
+        use crate::{ast::pool::PrimitivePool, parser::tests::parse_term};
+        let mut pool = PrimitivePool::new();
+        let term = parse_term(&mut pool, regex);
+        let aut = Automaton::create_from_regex_operators(&mut pool, &term).unwrap();
+        aut.accepts(s)
+    }
+
+    #[test]
+    fn test_create_from_regex_operators_concat() {
+        // concatenations with more than two components
+        assert!(accepts_regex(
+            r#"(re.++ (str.to_re "a") (str.to_re "b") (str.to_re "c"))"#,
+            "abc"
+        ));
+        // a union or star in a non-first position of a concatenation
+        assert!(accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.union (str.to_re "b") (str.to_re "c")))"#,
+            "ab"
+        ));
+        assert!(accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.union (str.to_re "b") (str.to_re "c")))"#,
+            "ac"
+        ));
+        assert!(!accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.union (str.to_re "b") (str.to_re "c")))"#,
+            "ad"
+        ));
+        assert!(accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.* (str.to_re "x")) (str.to_re "b"))"#,
+            "ab"
+        ));
+        assert!(accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.* (str.to_re "x")) (str.to_re "b"))"#,
+            "axxb"
+        ));
+        assert!(!accepts_regex(
+            r#"(re.++ (str.to_re "a") (re.* (str.to_re "x")) (str.to_re "b"))"#,
+            "axx"
+        ));
+        // a component with an empty language empties the whole concatenation
+        assert!(!accepts_regex(
+            r#"(re.++ (str.to_re "a") re.none (str.to_re "b"))"#,
+            "ab"
+        ));
+    }
+
+    #[test]
+    fn test_create_from_regex_operators_union_of_composites() {
+        // union components whose initial state is not their first state
+        let regex = r#"(re.union (re.* (str.to_re "x")) (str.to_re "y"))"#;
+        assert!(accepts_regex(regex, ""));
+        assert!(accepts_regex(regex, "xx"));
+        assert!(accepts_regex(regex, "y"));
+        assert!(!accepts_regex(regex, "xy"));
+    }
+
 }
