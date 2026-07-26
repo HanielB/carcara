@@ -1,4 +1,4 @@
 /target
 /benchmarks
 .vscode/
-.devcontainer/
+.devcontainer/__pycache__/
