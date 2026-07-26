@@ -143,6 +143,9 @@ pub enum CheckerError {
     #[error("expected term '{0}' to be a numerical constant")]
     ExpectedAnyNumber(Rc<Term>),
 
+    #[error("expected term '{0}' to be a string constant")]
+    ExpectedAnyString(Rc<Term>),
+
     #[error("expected term '{0}' to be an integer constant")]
     ExpectedAnyInteger(Rc<Term>),
 
@@ -222,6 +225,22 @@ pub enum CheckerError {
 
     #[error("expected '{0}' to be a subautomaton of '{1}'")]
     ExpectedSubautomaton(Automaton, Automaton),
+
+    #[error("regular expression match failed: expected '{s}' in '{regex}' to be {expected}")]
+    RegexMatchFailed {
+        s: String,
+        regex: Rc<Term>,
+        expected: bool,
+    },
+
+    #[error("regular expression replace failed: replacing in '{s}' with regex '{regex}' and replacement '{replacement}' expected to result in '{expected}', got '{got}'")]
+    RegexReplaceFailed {
+        s: String,
+        regex: Rc<Term>,
+        replacement: String,
+        expected: String,
+        got: String,
+    },
 }
 
 /// Errors in which we expected two things to be equal but they weren't.

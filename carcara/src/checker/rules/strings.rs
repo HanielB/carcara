@@ -1737,3 +1737,162 @@ pub fn concat_aut_bwd_propagation(RuleArgs { premises, conclusion, .. }: RuleArg
 
     Ok(())
 }
+
+// New string rules
+// TODO: indexof_re operator does not exist
+pub fn str_indexof_re_eval(RuleArgs { premises, conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    Ok(())
+}
+
+pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    let ((s, R, t), u) = match_term_err!((= (replacere s R t) u) = &conclusion[0])?;
+
+    let s = s.as_string_err()?;
+    let t = t.as_string_err()?;
+    let u = u.as_string_err()?;
+
+    let aut = Automaton::create_from_regex_operators(pool, R)?;
+    let dfa = if aut.is_nfa() {
+        Automaton::determinize(&aut)
+    } else {
+        aut
+    };
+
+    let expected = if dfa.accepts("") {
+        format!("{}{}", t, s)
+    } else {
+        let chars: Vec<char> = s.chars().collect();
+        let n = chars.len();
+        let mut match_found = None;
+
+        'outer: for i in 0..n {
+            for j in (i + 1)..=n {
+                let substring: String = chars[i..j].iter().collect();
+                if dfa.accepts(&substring) {
+                    match_found = Some((i, j));
+                    break 'outer;
+                }
+            }
+        }
+
+        if let Some((i, j)) = match_found {
+            let prefix: String = chars[0..i].iter().collect();
+            let suffix: String = chars[j..n].iter().collect();
+            format!("{}{}{}", prefix, t, suffix)
+        } else {
+            s.clone()
+        }
+    };
+
+    if expected != u {
+        return Err(CheckerError::RegexReplaceFailed {
+            s,
+            regex: R.clone(),
+            replacement: t,
+            expected: u,
+            got: expected,
+        });
+    }
+
+    Ok(())
+}
+
+pub fn str_replace_re_all_eval(
+    RuleArgs { premises, conclusion, pool, .. }: RuleArgs,
+) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    let ((s, r, t), u) = match_term_err!((= (replacereall s r t) u) = &conclusion[0])?;
+
+    let s = s.as_string_err()?;
+    let t = t.as_string_err()?;
+    let u = u.as_string_err()?;
+
+    let aut = Automaton::create_from_regex_operators(pool, r)?;
+    let dfa = if aut.is_nfa() {
+        Automaton::determinize(&aut)
+    } else {
+        aut
+    };
+
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut result = String::new();
+    let mut index = 0;
+
+    while index < n {
+        let mut match_found = None;
+        'outer: for i in index..n {
+            for j in (i + 1)..=n {
+                let substring: String = chars[i..j].iter().collect();
+                if dfa.accepts(&substring) {
+                    match_found = Some((i, j));
+                    break 'outer;
+                }
+            }
+        }
+
+        if let Some((i, j)) = match_found {
+            let prefix: String = chars[index..i].iter().collect();
+            result.push_str(&prefix);
+            result.push_str(&t);
+            index = j;
+        } else {
+            let suffix: String = chars[index..n].iter().collect();
+            result.push_str(&suffix);
+            break;
+        }
+    }
+
+    if result != u {
+        return Err(CheckerError::RegexReplaceFailed {
+            s,
+            regex: r.clone(),
+            replacement: t,
+            expected: u,
+            got: result,
+        });
+    }
+
+    Ok(())
+}
+
+pub fn re_loop_elim(RuleArgs { premises, conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    Ok(())
+}
+
+pub fn re_eq_elim(RuleArgs { premises, conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    Ok(())
+}
+
+pub fn str_in_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 0)?;
+    assert_clause_len(conclusion, 1)?;
+
+    let ((s, R), c) = match_term_err!((= (strinre s R) c) = &conclusion[0])?;
+
+    let s = s.as_string_err()?;
+    let c = c.as_bool_err()?;
+
+    let aut = Automaton::create_from_regex_operators(pool, R)?;
+    let accepts = aut.accepts(&s);
+
+    if accepts != c {
+        return Err(CheckerError::RegexMatchFailed { s, regex: R.clone(), expected: c });
+    }
+
+    Ok(())
+}
