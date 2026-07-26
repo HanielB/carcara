@@ -755,19 +755,30 @@ fn is_assoc(op: Operator) -> bool {
             | Operator::BvXor
             | Operator::BvConcat
             | Operator::ReConcat
+            | Operator::ReUnion
+            | Operator::ReIntersection
+            | Operator::StrConcat
     )
 }
 
 // Associative operators whose arguments may be reordered
 fn is_commutative(op: Operator) -> bool {
-    !matches!(op, Operator::BvConcat | Operator::ReConcat)
+    !matches!(
+        op,
+        Operator::BvConcat | Operator::ReConcat | Operator::StrConcat
+    )
 }
 
 // Operators for which repeated adjacent arguments can be collapsed
 fn is_idempotent(op: Operator) -> bool {
     matches!(
         op,
-        Operator::And | Operator::Or | Operator::BvOr | Operator::BvAnd
+        Operator::And
+            | Operator::Or
+            | Operator::BvOr
+            | Operator::BvAnd
+            | Operator::ReUnion
+            | Operator::ReIntersection
     )
 }
 
@@ -826,6 +837,9 @@ fn identity_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Opt
             let empty_string = pool.add(Term::new_string(""));
             Some(Term::Op(Operator::StrToRe, vec![empty_string]))
         }
+        Operator::ReUnion => Some(Term::Op(Operator::ReNone, Vec::new())),
+        Operator::ReIntersection => Some(Term::Op(Operator::ReAll, Vec::new())),
+        Operator::StrConcat => Some(Term::new_string("")),
         _ => None,
     }
 }
@@ -893,10 +907,12 @@ fn apply_aci_simp(
             if is_idempotent(op) {
                 args.dedup();
             }
-            if args.len() == 1 {
-                args[0].clone()
-            } else {
-                pool.add(Term::Op(op, args))
+            match (args.len(), identity) {
+                // if every argument was an identity element, the result is the
+                // identity itself
+                (0, Some(id)) => pool.add(id.clone()),
+                (1, _) => args[0].clone(),
+                _ => pool.add(Term::Op(op, args)),
             }
         }
         _ => term.clone(),
@@ -955,5 +971,48 @@ mod tests {
             r#"(= (re.++ (str.to_re "a") (str.to_re "a")) (str.to_re "a"))"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn aci_simp_re_union() {
+        // flattening of nested unions, with reordering
+        assert!(check_aci_simp(
+            r#"(= (re.union (str.to_re "a") (re.union (str.to_re "b") (str.to_re "c")))
+                (re.union (str.to_re "c") (str.to_re "a") (str.to_re "b")))"#
+        )
+        .is_ok());
+        // removal of the identity element re.none
+        assert!(check_aci_simp(
+            r#"(= (re.union (str.to_re "a") re.none (str.to_re "b"))
+                (re.union (str.to_re "a") (str.to_re "b")))"#
+        )
+        .is_ok());
+        // idempotence
+        assert!(check_aci_simp(
+            r#"(= (re.union (str.to_re "a") (str.to_re "a")) (str.to_re "a"))"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn aci_simp_all_identities() {
+        // a term whose arguments are all identity elements collapses to the
+        // identity itself
+        assert!(check_aci_simp(
+            r#"(= (re.++ (str.to_re "") (str.to_re "")) (str.to_re ""))"#
+        )
+        .is_ok());
+        assert!(check_aci_simp(r#"(= (re.union re.none re.none) re.none)"#).is_ok());
+    }
+
+    #[test]
+    fn aci_simp_str_concat() {
+        // flattening, with removal of the identity element ""
+        assert!(check_aci_simp(
+            r#"(= (str.++ "a" (str.++ "b" "") "c") (str.++ "a" "b" "c"))"#
+        )
+        .is_ok());
+        // str.++ is not commutative
+        assert!(check_aci_simp(r#"(= (str.++ "a" "b") (str.++ "b" "a"))"#).is_err());
     }
 }
