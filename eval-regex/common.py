@@ -66,4 +66,6 @@ def run_task(cmd, log_dir, time_limit=60, space_limit=8000):
     proc = subprocess.run(full_cmd, capture_output=True)
     with open(os.path.join(log_dir, "output.log"), "wb") as f:
         f.write(proc.stdout)
+    with open(os.path.join(log_dir, "output.err"), "wb") as f:
+        f.write(proc.stderr)
     save_run_out(log_dir, proc.stderr.decode(errors="replace"))
