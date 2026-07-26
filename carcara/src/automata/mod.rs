@@ -503,6 +503,24 @@ impl Automaton {
                     ));
                     Ok(rec_create_from_regex_operators(pool, &equiv)?)
                 }
+                Term::Op(Operator::ReOption, r) => {
+                    // (re.opt r) = (re.union r (str.to_re ""))
+                    let r = r.first().unwrap();
+                    let empty_string = pool.add(Term::new_string(""));
+                    let empty_re = pool.add(Term::Op(Operator::StrToRe, vec![empty_string]));
+                    let equiv =
+                        pool.add(Term::Op(Operator::ReUnion, vec![r.clone(), empty_re]));
+                    Ok(rec_create_from_regex_operators(pool, &equiv)?)
+                }
+                Term::Op(Operator::ReDiff, args) if args.len() >= 2 => {
+                    // (re.diff a b c ...) = (re.inter a (re.comp b) (re.comp c) ...)
+                    let mut inter_args = vec![args[0].clone()];
+                    for b in &args[1..] {
+                        inter_args.push(pool.add(Term::Op(Operator::ReComplement, vec![b.clone()])));
+                    }
+                    let equiv = pool.add(Term::Op(Operator::ReIntersection, inter_args));
+                    Ok(rec_create_from_regex_operators(pool, &equiv)?)
+                }
                 Term::Op(Operator::ReConcat, r) => {
                     let mut automatons: Vec<Automaton> = Vec::new();
                     for regex in r {
@@ -1177,4 +1195,16 @@ mod tests {
         assert!(!accepts_regex(regex, "xy"));
     }
 
+    #[test]
+    fn test_create_from_regex_operators_opt_and_diff() {
+        let opt = r#"(re.++ (str.to_re "a") (re.opt (str.to_re "x")) (str.to_re "b"))"#;
+        assert!(accepts_regex(opt, "ab"));
+        assert!(accepts_regex(opt, "axb"));
+        assert!(!accepts_regex(opt, "axxb"));
+
+        let diff = r#"(re.diff (re.* (str.to_re "a")) (str.to_re "aa"))"#;
+        assert!(accepts_regex(diff, "a"));
+        assert!(!accepts_regex(diff, "aa"));
+        assert!(accepts_regex(diff, "aaa"));
+    }
 }
