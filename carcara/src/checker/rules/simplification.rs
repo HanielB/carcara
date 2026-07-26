@@ -754,6 +754,20 @@ fn is_assoc(op: Operator) -> bool {
             | Operator::BvAnd
             | Operator::BvXor
             | Operator::BvConcat
+            | Operator::ReConcat
+    )
+}
+
+// Associative operators whose arguments may be reordered
+fn is_commutative(op: Operator) -> bool {
+    !matches!(op, Operator::BvConcat | Operator::ReConcat)
+}
+
+// Operators for which repeated adjacent arguments can be collapsed
+fn is_idempotent(op: Operator) -> bool {
+    matches!(
+        op,
+        Operator::And | Operator::Or | Operator::BvOr | Operator::BvAnd
     )
 }
 
@@ -808,6 +822,10 @@ fn identity_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Opt
             }
             _ => unreachable!(),
         },
+        Operator::ReConcat => {
+            let empty_string = pool.add(Term::new_string(""));
+            Some(Term::Op(Operator::StrToRe, vec![empty_string]))
+        }
         _ => None,
     }
 }
@@ -832,7 +850,7 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     };
     match (t11.as_ref(), t22.as_ref()) {
         (Term::Op(op1, args1), Term::Op(op2, args2))
-            if is_assoc(*op1) && *op1 != Operator::BvConcat && op1 == op2 =>
+            if is_assoc(*op1) && is_commutative(*op1) && op1 == op2 =>
         {
             let args1_multiset: MultiSet<_> = args1.iter().collect();
             let args2_multiset: MultiSet<_> = args2.iter().collect();
@@ -859,9 +877,9 @@ fn apply_aci_simp(
         return t.clone();
     }
     let result = match term.as_ref() {
-        // flatten and remove duplicate on the result
+        // flatten, and remove adjacent duplicates when the operator is idempotent
         Term::Op(opp, args) if *opp == op => {
-            let args: Vec<_> = args
+            let mut args: Vec<_> = args
                 .iter()
                 .flat_map(|term| {
                     let term = apply_aci_simp(pool, cache, term, op, identity);
@@ -870,9 +888,11 @@ fn apply_aci_simp(
                         _ => vec![term.clone()],
                     }
                 })
-                .dedup()
                 .filter(|t| identity.is_none() || *t.as_ref() != identity.clone().unwrap())
                 .collect();
+            if is_idempotent(op) {
+                args.dedup();
+            }
             if args.len() == 1 {
                 args[0].clone()
             } else {
@@ -883,4 +903,57 @@ fn apply_aci_simp(
     };
     cache.insert(term.clone(), result.clone());
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ast::pool::PrimitivePool, ast::ContextStack, parser::tests::parse_term};
+    use std::time::Duration;
+
+    fn check_aci_simp(equality: &str) -> RuleResult {
+        let mut pool = PrimitivePool::new();
+        let conclusion = vec![parse_term(&mut pool, equality)];
+        let mut context = ContextStack::new();
+        let mut polyeq_time = Duration::ZERO;
+        let mut eunif_cc = None;
+        aci_simp(RuleArgs {
+            conclusion: &conclusion,
+            premises: &[],
+            args: &[],
+            pool: &mut pool,
+            context: &mut context,
+            previous_command: None,
+            discharge: &[],
+            polyeq_time: &mut polyeq_time,
+            eunif_cc: &mut eunif_cc,
+        })
+    }
+
+    #[test]
+    fn aci_simp_re_concat() {
+        // flattening of nested concatenations
+        assert!(check_aci_simp(
+            r#"(= (re.++ (str.to_re "a") (re.++ (str.to_re "b") (str.to_re "c")))
+                (re.++ (str.to_re "a") (str.to_re "b") (str.to_re "c")))"#
+        )
+        .is_ok());
+        // removal of the identity element (str.to_re "")
+        assert!(check_aci_simp(
+            r#"(= (re.++ (str.to_re "a") (str.to_re "") (str.to_re "b"))
+                (re.++ (str.to_re "a") (str.to_re "b")))"#
+        )
+        .is_ok());
+        // re.++ is not commutative
+        assert!(check_aci_simp(
+            r#"(= (re.++ (str.to_re "a") (str.to_re "b"))
+                (re.++ (str.to_re "b") (str.to_re "a")))"#
+        )
+        .is_err());
+        // re.++ is not idempotent
+        assert!(check_aci_simp(
+            r#"(= (re.++ (str.to_re "a") (str.to_re "a")) (str.to_re "a"))"#
+        )
+        .is_err());
+    }
 }
