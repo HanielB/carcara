@@ -422,6 +422,36 @@ impl Automaton {
         }
     }
 
+    /// Returns an equivalent automaton without epsilon transitions: each state
+    /// takes over the range transitions and acceptance of its epsilon closure.
+    pub fn epsilon_eliminate(&self) -> Automaton {
+        let closures = self.state_closures();
+        let all_states = self
+            .all_states
+            .iter()
+            .enumerate()
+            .map(|(i, state)| {
+                let mut accept = false;
+                let mut transitions = HashSet::new();
+                for &c in &closures[i] {
+                    accept |= self.all_states[c].accept;
+                    for t in &self.all_states[c].transitions {
+                        if let Trigger::Range(_) = t.trigger {
+                            transitions.insert(t.clone());
+                        }
+                    }
+                }
+                State { id: state.id.clone(), accept, transitions }
+            })
+            .collect();
+
+        Automaton {
+            name: self.name.clone(),
+            all_states,
+            initial_state: self.initial_state,
+        }
+    }
+
     pub fn complement(&self) -> Automaton {
         let mut new_states = self.all_states.clone();
 
@@ -705,15 +735,18 @@ impl Automaton {
                     initial_state: 0,
                 }),
                 Term::Op(Operator::ReIntersection, inter) => {
+                    // the product construction works directly on NFAs once
+                    // their epsilon transitions are eliminated, so the
+                    // components need not be determinized
                     let mut components = Vec::new();
                     for re in inter {
                         let nfa = rec_create_from_regex_operators(pool, re)?;
-                        components.push(Automaton::determinize(&nfa));
+                        components.push(nfa.epsilon_eliminate());
                     }
-                    let mut res =
-                        operations::intersection(components[0].clone(), components[1].clone())?;
-                    for comp in components.iter().skip(2) {
-                        res = operations::intersection(res, comp.clone())?;
+                    let mut components = components.into_iter();
+                    let mut res = components.next().ok_or(CheckerError::Unspecified)?;
+                    for comp in components {
+                        res = operations::intersection(res, comp)?;
                     }
                     Ok(res)
                 }
@@ -1282,6 +1315,27 @@ mod tests {
         assert!(accepts_regex(regex, "xx"));
         assert!(accepts_regex(regex, "y"));
         assert!(!accepts_regex(regex, "xy"));
+    }
+
+    #[test]
+    fn test_create_from_regex_operators_inter_and_comp() {
+        // intersection of NFAs with epsilon transitions (stars), without
+        // determinizing the components
+        let inter = r#"(re.inter (re.* (str.to_re "ab")) (re.++ (str.to_re "a") (re.* (str.to_re "ba")) (str.to_re "b")))"#;
+        assert!(accepts_regex(inter, "ab"));
+        assert!(accepts_regex(inter, "abab"));
+        assert!(!accepts_regex(inter, "aba"));
+        assert!(!accepts_regex(inter, ""));
+
+        let empty = r#"(re.inter (str.to_re "a") (str.to_re "b"))"#;
+        assert!(!accepts_regex(empty, "a"));
+        assert!(!accepts_regex(empty, "b"));
+
+        let comp = r#"(re.comp (re.* (str.to_re "a")))"#;
+        assert!(accepts_regex(comp, "b"));
+        assert!(accepts_regex(comp, "ab"));
+        assert!(!accepts_regex(comp, ""));
+        assert!(!accepts_regex(comp, "aaa"));
     }
 
     #[test]
