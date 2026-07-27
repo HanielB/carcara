@@ -905,7 +905,8 @@ fn apply_aci_simp(
                 .filter(|t| identity.is_none() || *t.as_ref() != identity.clone().unwrap())
                 .collect();
             if is_idempotent(op) {
-                args.dedup();
+                let mut seen = IndexSet::new();
+                args.retain(|t| seen.insert(t.clone()));
             }
             match (args.len(), identity) {
                 // if every argument was an identity element, the result is the
@@ -987,9 +988,14 @@ mod tests {
                 (re.union (str.to_re "a") (str.to_re "b")))"#
         )
         .is_ok());
-        // idempotence
+        // idempotence, including non-adjacent duplicates
         assert!(check_aci_simp(
             r#"(= (re.union (str.to_re "a") (str.to_re "a")) (str.to_re "a"))"#
+        )
+        .is_ok());
+        assert!(check_aci_simp(
+            r#"(= (re.union (str.to_re "a") (str.to_re "b") (str.to_re "a"))
+                (re.union (str.to_re "a") (str.to_re "b")))"#
         )
         .is_ok());
     }
