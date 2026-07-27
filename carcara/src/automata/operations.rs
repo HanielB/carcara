@@ -7,7 +7,7 @@ use crate::{
 
 use super::{dsu::DSU, utils::intersect_ranges, Automaton, StateId};
 
-pub fn has_reachable_accepting_state(a: Automaton) -> bool {
+pub fn has_reachable_accepting_state(a: &Automaton) -> bool {
     let accepting_states: Vec<_> = a
         .all_states
         .iter()
@@ -19,18 +19,20 @@ pub fn has_reachable_accepting_state(a: Automaton) -> bool {
         return false;
     }
 
-    // Checking reachability with a BFS
+    // Checking reachability with a BFS. States are marked visited when
+    // enqueued, so each is enqueued at most once regardless of how many
+    // transitions lead to it
     let mut visited: Vec<bool> = vec![false; a.all_states.len()];
     let mut queue: VecDeque<StateId> = VecDeque::new();
 
+    visited[a.initial_state] = true;
     queue.push_back(a.initial_state);
 
-    while !queue.is_empty() {
-        let state = queue.pop_front().unwrap();
-        visited[state] = true;
+    while let Some(state) = queue.pop_front() {
         for transition in &a.all_states[state].transitions {
             let next = transition.to;
             if !visited[next] {
+                visited[next] = true;
                 queue.push_back(next);
             }
         }
@@ -287,7 +289,7 @@ mod tests {
         ));
 
         let intersection = intersection(a1, a2).unwrap();
-        assert!(has_reachable_accepting_state(intersection));
+        assert!(has_reachable_accepting_state(&intersection));
     }
 
     #[test]
@@ -308,7 +310,7 @@ mod tests {
         ));
 
         let intersection = intersection(a1, a2).unwrap();
-        assert!(!has_reachable_accepting_state(intersection));
+        assert!(!has_reachable_accepting_state(&intersection));
     }
 
     #[test]
@@ -329,7 +331,7 @@ mod tests {
         ));
 
         let intersection = intersection(a1, a2).unwrap();
-        assert!(has_reachable_accepting_state(intersection));
+        assert!(has_reachable_accepting_state(&intersection));
     }
 
     #[test]

@@ -525,7 +525,7 @@ impl Automaton {
                     let mut automatons: Vec<Automaton> = Vec::new();
                     for regex in r {
                         let a = rec_create_from_regex_operators(pool, regex)?;
-                        if !operations::has_reachable_accepting_state(a.clone()) {
+                        if !operations::has_reachable_accepting_state(&a) {
                             // A component with an empty language makes the whole
                             // concatenation empty
                             return Ok(Automaton {

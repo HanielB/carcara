@@ -1596,7 +1596,7 @@ pub fn re_empty_intersection(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResul
     let a2 = Automaton::determinize(&a2.as_automata_err()?);
     let intersection = operations::intersection(a1.clone(), a2.clone())?;
 
-    if has_reachable_accepting_state(intersection.clone()) {
+    if has_reachable_accepting_state(&intersection) {
         return Err(CheckerError::ExpectedAutomataEmptyIntersection(
             intersection,
             a1,
@@ -1712,7 +1712,7 @@ pub fn concat_bwd_propagation(RuleArgs { premises, conclusion, pool, .. }: RuleA
         let computed = Automaton::determinize(&Automaton::create_from_regex_operators(pool, &re)?);
 
         let intersection = operations::intersection(a.clone(), computed.clone())?;
-        if !operations::has_reachable_accepting_state(intersection) {
+        if !operations::has_reachable_accepting_state(&intersection) {
             return Err(CheckerError::ExpectedIntersection(
                 a.clone(),
                 computed.clone(),
