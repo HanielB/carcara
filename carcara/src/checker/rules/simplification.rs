@@ -934,6 +934,7 @@ mod tests {
         let mut context = ContextStack::new();
         let mut polyeq_time = Duration::ZERO;
         let mut eunif_cc = None;
+        let mut automata_cache = IndexMap::new();
         aci_simp(RuleArgs {
             conclusion: &conclusion,
             premises: &[],
@@ -944,6 +945,7 @@ mod tests {
             discharge: &[],
             polyeq_time: &mut polyeq_time,
             eunif_cc: &mut eunif_cc,
+            automata_cache: &mut automata_cache,
         })
     }
 

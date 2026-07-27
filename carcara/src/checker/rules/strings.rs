@@ -10,7 +10,24 @@ use crate::{
     },
     checker::{error::CheckerError, rules::assert_polyeq},
 };
+use indexmap::IndexMap;
+use std::sync::Arc;
 use std::{cmp, time::Duration};
+
+/// Builds the automaton for a regex term, reusing the per-proof cache: proofs
+/// commonly apply many regex-eval steps to the same (hash-consed) regex.
+fn cached_automaton(
+    pool: &mut dyn TermPool,
+    cache: &mut IndexMap<Rc<Term>, Arc<Automaton>>,
+    regex: &Rc<Term>,
+) -> Result<Arc<Automaton>, CheckerError> {
+    if let Some(a) = cache.get(regex) {
+        return Ok(a.clone());
+    }
+    let a = Arc::new(Automaton::create_from_regex_operators(pool, regex)?);
+    cache.insert(regex.clone(), a.clone());
+    Ok(a)
+}
 
 /// A function that takes an `Rc<Term>` and returns a vector corresponding to
 /// the flat form of that term.
@@ -1747,7 +1764,9 @@ pub fn str_indexof_re_eval(RuleArgs { premises, conclusion, .. }: RuleArgs) -> R
     Ok(())
 }
 
-pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> RuleResult {
+pub fn str_replace_re_eval(
+    RuleArgs { premises, conclusion, pool, automata_cache, .. }: RuleArgs,
+) -> RuleResult {
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
@@ -1757,12 +1776,7 @@ pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
     let t = t.as_string_err()?;
     let u = u.as_string_err()?;
 
-    let aut = Automaton::create_from_regex_operators(pool, r)?;
-    let dfa = if aut.is_nfa() {
-        Automaton::determinize(&aut)
-    } else {
-        aut
-    };
+    let dfa = cached_automaton(pool, automata_cache, r)?;
 
     let expected = if dfa.accepts("") {
         format!("{}{}", t, s)
@@ -1804,7 +1818,7 @@ pub fn str_replace_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
 }
 
 pub fn str_replace_re_all_eval(
-    RuleArgs { premises, conclusion, pool, .. }: RuleArgs,
+    RuleArgs { premises, conclusion, pool, automata_cache, .. }: RuleArgs,
 ) -> RuleResult {
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
@@ -1815,12 +1829,7 @@ pub fn str_replace_re_all_eval(
     let t = t.as_string_err()?;
     let u = u.as_string_err()?;
 
-    let aut = Automaton::create_from_regex_operators(pool, r)?;
-    let dfa = if aut.is_nfa() {
-        Automaton::determinize(&aut)
-    } else {
-        aut
-    };
+    let dfa = cached_automaton(pool, automata_cache, r)?;
 
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
@@ -1878,7 +1887,9 @@ pub fn re_eq_elim(RuleArgs { premises, conclusion, .. }: RuleArgs) -> RuleResult
     Ok(())
 }
 
-pub fn str_in_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> RuleResult {
+pub fn str_in_re_eval(
+    RuleArgs { premises, conclusion, pool, automata_cache, .. }: RuleArgs,
+) -> RuleResult {
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
@@ -1887,7 +1898,7 @@ pub fn str_in_re_eval(RuleArgs { premises, conclusion, pool, .. }: RuleArgs) -> 
     let s = s.as_string_err()?;
     let c = c.as_bool_err()?;
 
-    let aut = Automaton::create_from_regex_operators(pool, r)?;
+    let aut = cached_automaton(pool, automata_cache, r)?;
     let accepts = aut.accepts(&s);
 
     if accepts != c {

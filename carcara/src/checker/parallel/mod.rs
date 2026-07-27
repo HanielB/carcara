@@ -29,6 +29,7 @@ pub struct ParallelProofChecker<'c> {
     is_holey: bool,
     stack_size: usize,
     eunif_cc: Option<crate::cc::CongruenceClosure>,
+    automata_cache: indexmap::IndexMap<Rc<Term>, std::sync::Arc<crate::automata::Automaton>>,
 }
 
 impl<'c> ParallelProofChecker<'c> {
@@ -48,6 +49,7 @@ impl<'c> ParallelProofChecker<'c> {
             is_holey: false,
             stack_size,
             eunif_cc: None,
+            automata_cache: indexmap::IndexMap::new(),
         }
     }
 
@@ -62,6 +64,7 @@ impl<'c> ParallelProofChecker<'c> {
             is_holey: false,
             stack_size: self.stack_size,
             eunif_cc: None,
+            automata_cache: indexmap::IndexMap::new(),
         }
     }
 
@@ -461,6 +464,7 @@ impl<'c> ParallelProofChecker<'c> {
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
             eunif_cc: &mut self.eunif_cc,
+            automata_cache: &mut self.automata_cache,
         };
 
         rule(rule_args)?;

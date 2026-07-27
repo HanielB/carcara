@@ -83,6 +83,7 @@ pub struct ProofChecker<'c> {
     reached_empty_clause: bool,
     is_holey: bool,
     eunif_cc: Option<crate::cc::CongruenceClosure>,
+    automata_cache: indexmap::IndexMap<Rc<Term>, std::sync::Arc<crate::automata::Automaton>>,
 }
 
 impl<'c> ProofChecker<'c> {
@@ -94,6 +95,7 @@ impl<'c> ProofChecker<'c> {
             reached_empty_clause: false,
             is_holey: false,
             eunif_cc: None,
+            automata_cache: indexmap::IndexMap::new(),
         }
     }
 
@@ -341,6 +343,7 @@ impl<'c> ProofChecker<'c> {
             discharge: &processed_discharge,
             polyeq_time: &mut polyeq_time,
             eunif_cc: &mut self.eunif_cc,
+            automata_cache: &mut self.automata_cache,
         };
 
         rule(rule_args)?;

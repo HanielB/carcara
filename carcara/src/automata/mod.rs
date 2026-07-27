@@ -760,68 +760,107 @@ impl Automaton {
         rec_create_from_regex_operators(pool, t)
     }
 
-    /// Computes the epsilon closure of every state, as bitsets of `words`
-    /// 64-bit words each.
-    fn state_closures(&self, words: usize) -> Vec<Vec<u64>> {
-        (0..self.all_states.len())
+    /// Computes the epsilon closure of every state, as sorted state lists.
+    fn state_closures(&self) -> Vec<Vec<StateId>> {
+        let n = self.all_states.len();
+        // stamped with the state whose closure is being computed, so it needs
+        // no clearing between states
+        let mut visited = vec![usize::MAX; n];
+        (0..n)
             .map(|start| {
-                let mut closure = vec![0u64; words];
-                closure[start / 64] |= 1 << (start % 64);
-                let mut stack = vec![start];
-                while let Some(s) = stack.pop() {
+                let mut closure = vec![start];
+                visited[start] = start;
+                let mut i = 0;
+                while i < closure.len() {
+                    let s = closure[i];
+                    i += 1;
                     for t in &self.all_states[s].transitions {
-                        if t.trigger == Trigger::Epsilon
-                            && closure[t.to / 64] & (1 << (t.to % 64)) == 0
-                        {
-                            closure[t.to / 64] |= 1 << (t.to % 64);
-                            stack.push(t.to);
+                        if t.trigger == Trigger::Epsilon && visited[t.to] != start {
+                            visited[t.to] = start;
+                            closure.push(t.to);
                         }
                     }
                 }
+                closure.sort_unstable();
                 closure
             })
             .collect()
     }
 
+    /// Advances the reachable-state set by one input symbol, epsilon-closing
+    /// the result through the precomputed per-state closures.
+    fn step(&self, current: &[StateId], symbol: u16, closures: &[Vec<StateId>]) -> Vec<StateId> {
+        let mut next = Vec::new();
+        for &state in current {
+            for t in &self.all_states[state].transitions {
+                if let Trigger::Range((l, r)) = t.trigger {
+                    if symbol >= l && symbol <= r {
+                        next.extend_from_slice(&closures[t.to]);
+                    }
+                }
+            }
+        }
+        next.sort_unstable();
+        next.dedup();
+        next
+    }
+
     /// Checks membership by simulating the NFA directly: the set of reachable
-    /// states (a bitset) is advanced per input character and epsilon-closed
-    /// using per-state closures computed once. This avoids the potentially
-    /// exponential subset construction of determinization.
+    /// states (kept as a sorted list, so its size tracks the automaton's
+    /// actual nondeterminism rather than its state count) is advanced per
+    /// input character and epsilon-closed using per-state closures computed
+    /// once. This avoids the potentially exponential subset construction of
+    /// determinization.
+    ///
+    /// Transitions are memoized per (state set, symbol class), where the
+    /// classes partition the alphabet by the range endpoints occurring in the
+    /// automaton — a lazy DFA that only materializes reachable subsets, making
+    /// long inputs cost a hash lookup per character.
     pub fn accepts(&self, s: &str) -> bool {
-        let words = self.all_states.len().div_ceil(64);
-        let closures = self.state_closures(words);
+        // bounds the total number of state ids stored in the memo table
+        const MEMO_ELEMS_LIMIT: usize = 1 << 20;
+
+        let closures = self.state_closures();
+
+        // symbols between two consecutive boundaries trigger exactly the same
+        // transitions in every state
+        let mut bounds: Vec<u32> = self
+            .all_states
+            .iter()
+            .flat_map(|state| state.transitions.iter())
+            .filter_map(|t| match t.trigger {
+                Trigger::Range((l, r)) => Some([l as u32, r as u32 + 1]),
+                Trigger::Epsilon => None,
+            })
+            .flatten()
+            .collect();
+        bounds.sort_unstable();
+        bounds.dedup();
+
+        let mut memo: HashMap<(Vec<StateId>, usize), Vec<StateId>> = HashMap::new();
+        let mut memo_elems = 0;
 
         let mut current = closures[self.initial_state].clone();
         for c in s.chars() {
             let symbol = c as u16;
-            let mut next = vec![0u64; words];
-            let mut any = false;
-            for (w, word) in current.iter().enumerate() {
-                let mut bits = *word;
-                while bits != 0 {
-                    let state = w * 64 + bits.trailing_zeros() as usize;
-                    bits &= bits - 1;
-                    for t in &self.all_states[state].transitions {
-                        if let Trigger::Range((l, r)) = t.trigger {
-                            if symbol >= l && symbol <= r {
-                                for (n, c) in next.iter_mut().zip(&closures[t.to]) {
-                                    *n |= c;
-                                }
-                                any = true;
-                            }
-                        }
-                    }
+            let class = bounds.partition_point(|&b| b <= symbol as u32);
+            let next = if let Some(n) = memo.get(&(current.clone(), class)) {
+                n.clone()
+            } else {
+                let computed = self.step(&current, symbol, &closures);
+                if memo_elems < MEMO_ELEMS_LIMIT {
+                    memo_elems += current.len() + computed.len();
+                    memo.insert((current, class), computed.clone());
                 }
-            }
-            if !any {
+                computed
+            };
+            if next.is_empty() {
                 return false;
             }
             current = next;
         }
 
-        self.all_states.iter().enumerate().any(|(i, state)| {
-            state.accept && current[i / 64] & (1 << (i % 64)) != 0
-        })
+        current.iter().any(|&s| self.all_states[s].accept)
     }
 }
 

@@ -31,6 +31,10 @@ pub struct RuleArgs<'a> {
     // `g_eunif` step is checked, and is reused (resetting the asserted equalities, but keeping the
     // indexed terms) by all such steps.
     pub(super) eunif_cc: &'a mut Option<crate::cc::CongruenceClosure>,
+
+    // Automatons built from regex terms by the regex-eval rules, cached across steps: proofs
+    // commonly apply many such steps to the same (hash-consed) regex.
+    pub(super) automata_cache: &'a mut indexmap::IndexMap<Rc<Term>, std::sync::Arc<crate::automata::Automaton>>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
