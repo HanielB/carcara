@@ -63,18 +63,22 @@ def main():
     if common is not None:
         print(f"common instances: {len(common)}")
 
-    header = f"{'config':<14} {'#S':>6} {'valid':>6} {'holey':>6} {'T (s)':>10} {'M (GB)':>8}"
+    header = (
+        f"{'config':<14} {'#S':>6} {'valid':>6} {'holey':>6} "
+        f"{'T (s)':>10} {'W (s)':>10} {'M (GB)':>8}"
+    )
     print(header)
     print("-" * len(header))
     for config, runs in sorted(data.items()):
         counted = common if common is not None else solved[config]
         time = sum(float(runs[rel]["cputime"]) for rel in counted)
+        wall = sum(float(runs[rel]["walltime"]) for rel in counted)
         mem = sum(int(runs[rel]["memory"]) for rel in counted) / 1024**3
         n_valid = sum(1 for rel in solved[config] if runs[rel]["verdict"] == "valid")
         n_holey = sum(1 for rel in solved[config] if runs[rel]["verdict"] == "holey")
         print(
             f"{config:<14} {len(solved[config]):>6} {n_valid:>6} {n_holey:>6} "
-            f"{time:>10.1f} {mem:>8.1f}"
+            f"{time:>10.1f} {wall:>10.1f} {mem:>8.1f}"
         )
 
 
