@@ -71,7 +71,7 @@ pub fn not_symm(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
 
 pub fn eq_symmetric(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
-    let ((t_1, u_1), (u_2, t_2)) = match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
+    let (t_1, u_1, u_2, t_2) = match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
     assert_eq(t_1, t_2)?;
     assert_eq(u_1, u_2)
 }
@@ -97,7 +97,7 @@ pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleR
     // term in `and_contents`
     for i in 0..and_contents.len() {
         let and_arg = &and_contents[i];
-        match &premises[i].clause[..] {
+        match premises[i].clause {
             [term] => {
                 assert_eq(and_arg, term)?;
             }
@@ -182,7 +182,7 @@ fn la_mult_generic(conclusion: &[Rc<Term>], is_pos: bool) -> RuleResult {
     }
 
     assert_clause_len(conclusion, 1)?;
-    let ((m_comparison, original), scaled) =
+    let (m_comparison, original, scaled) =
         match_term_err!((=> (and m_comparison original) scaled) = &conclusion[0])?;
     let (m, zero) = if is_pos {
         match_term_err!((> m zero) = m_comparison)

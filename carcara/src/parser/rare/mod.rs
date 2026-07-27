@@ -2,7 +2,6 @@ use super::{Parser, ParserError, Reserved, SortDef, Token};
 use crate::ast::*;
 use crate::CarcaraResult;
 use crate::{ast::rare_rules::*, Error};
-use std::io::BufRead;
 
 #[derive(Debug, Clone)]
 enum Body {
@@ -17,8 +16,8 @@ struct BodyDefinition<'a> {
     conclusion: Option<Rc<Term>>,
 }
 
-impl<'a, R: BufRead> Parser<'a, R> {
-    fn parse_parameters(&mut self) -> CarcaraResult<(String, TypeParameter)> {
+impl<'p, 's> Parser<'p, 's> {
+    fn parse_rare_parameters(&mut self) -> CarcaraResult<(String, TypeParameter)> {
         self.expect_token(Token::OpenParen)?;
         let name = self.expect_symbol()?;
         let base_term = self.parse_sort(true)?;
@@ -78,10 +77,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 format!("@{}", name)
             };
 
-            self.state.sort_defs.entry(alias).or_insert_with(|| SortDef {
-                body: self.pool.add(Term::Sort(Sort::Type)),
-                params: Vec::default(),
-            });
+            self.state
+                .sort_defs
+                .entry(alias)
+                .or_insert_with(|| SortDef {
+                    body: self.pool.add(Term::Sort(Sort::Type)),
+                    params: Vec::default(),
+                });
         }
 
         Ok((name, TypeParameter { term, attribute }))
@@ -95,11 +97,8 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 Ok(Body::Conclusion(rewrite_term))
             }
             "args" => {
-                fn parse_args<R: BufRead>(parser: &mut Parser<R>) -> CarcaraResult<Vec<String>> {
-                    parser.expect_token(Token::OpenParen)?;
-                    parser.parse_sequence(super::Parser::expect_symbol, false)
-                }
-                let args = parse_args(self)?;
+                self.expect_token(Token::OpenParen)?;
+                let args = self.parse_sequence(Parser::expect_symbol, false)?;
                 Ok(Body::Args(args))
             }
             "premises" => {
@@ -125,7 +124,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.expect_token(Token::ReservedWord(Reserved::DeclareRareRule))?;
         let name = self.expect_symbol()?;
         self.expect_token(Token::OpenParen)?;
-        let parameters = self.parse_sequence(Self::parse_parameters, false)?;
+        let parameters = self.parse_sequence(Self::parse_rare_parameters, false)?;
 
         let body_definitions = BodyDefinition {
             args: &vec![],

@@ -1,8 +1,7 @@
-use super::{add_symm_step, IdHelper};
 use crate::{
     ast::*,
     checker::error::CheckerError,
-    elaborator::add_trans_step,
+    elaborator::{add_symm_step, add_trans_step, error::ElaborationError, IdHelper},
     utils::{DedupIterator, MultiSet},
 };
 use std::collections::HashSet;
@@ -73,7 +72,7 @@ pub fn cong(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
-) -> Result<Rc<ProofNode>, CheckerError> {
+) -> Result<Rc<ProofNode>, ElaborationError> {
     assert_eq!(step.clause.len(), 1);
     assert!(!step.premises.is_empty());
 
@@ -210,7 +209,7 @@ pub fn eq_congruent(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
-) -> Result<Rc<ProofNode>, CheckerError> {
+) -> Result<Rc<ProofNode>, ElaborationError> {
     assert!(step.clause.len() >= 2);
 
     let premises: Vec<_> = step.clause[..step.clause.len() - 1]

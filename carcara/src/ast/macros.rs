@@ -32,7 +32,7 @@
 /// # use carcara::{ast::*, match_term, parser::*};
 /// # pub fn parse_term(input: &str) -> Rc<Term> {
 /// #     let mut pool = PrimitivePool::new();
-/// #     let mut parser = Parser::new(&mut pool, Config::new(), input.as_bytes()).unwrap();
+/// #     let mut parser = Parser::new(&mut pool, Config::new(), input).unwrap();
 /// #     parser.parse_term().unwrap()
 /// # }
 /// # let t = parse_term("(and (=> false false) (> (+ 0 0) 0))");
@@ -52,7 +52,7 @@
 /// # use carcara::{ast::*, match_term, parser::*};
 /// # pub fn parse_term(input: &str) -> Rc<Term> {
 /// #     let mut pool = PrimitivePool::new();
-/// #     let mut parser = Parser::new(&mut pool, Config::new(), input.as_bytes()).unwrap();
+/// #     let mut parser = Parser::new(&mut pool, Config::new(), input).unwrap();
 /// #     parser.parse_term().unwrap()
 /// # }
 /// # let t = parse_term("(forall ((x Int) (y Int)) (> x y))");
@@ -215,14 +215,14 @@ macro_rules! match_term {
     (@GET_VARIANT log2)  => { $crate::ast::Operator::Log2 };
     (@GET_VARIANT pow2)  => { $crate::ast::Operator::Pow2 };
 
+    (@GET_VARIANT select)    => { $crate::ast::Operator::Select };
+    (@GET_VARIANT store)    => { $crate::ast::Operator::Store };
+
     (@GET_VARIANT cl)    => { $crate::ast::Operator::Cl };
     (@GET_VARIANT delete)    => { $crate::ast::Operator::Delete };
 
     (@GET_VARIANT pbbterm)  => { $crate::ast::Operator::BvPBbTerm };
     (@GET_VARIANT int_of)      => { $crate::ast::ParamOperator::BvIntOf };
-
-    (@GET_VARIANT select)    => { $crate::ast::Operator::Select };
-    (@GET_VARIANT store)    => { $crate::ast::Operator::Store };
 
     (@GET_VARIANT bbterm)      => { $crate::ast::Operator::BvBbTerm };
     (@GET_VARIANT bit_of)      => { $crate::ast::ParamOperator::BvBitOf };
@@ -240,6 +240,7 @@ macro_rules! match_term {
     (@GET_VARIANT bvurem)   => { $crate::ast::Operator::BvURem };
     (@GET_VARIANT bvshl)    => { $crate::ast::Operator::BvShl };
     (@GET_VARIANT bvlshr)   => { $crate::ast::Operator::BvLShr };
+    (@GET_VARIANT bvashr)   => { $crate::ast::Operator::BvAShr };
     (@GET_VARIANT concat)   => { $crate::ast::Operator::BvConcat };
 
     (@GET_VARIANT bvuge)    => { $crate::ast::Operator::BvUGe };
@@ -290,19 +291,13 @@ macro_rules! match_term {
 macro_rules! match_term_err {
     ($pat:tt = $var:expr) => {{
         let var = $var;
-        match_term!($pat = var).ok_or_else(|| {
-            // Note: Annoyingly, the `stringify!` macro can't fully keep whitespace when turning a
-            // token tree into a string. It will add spaces when they are required for the tokens
-            // to make sense, but remove any other whitespace. This means that, for instance, the
-            // token tree `(not (and ...))` will be stringified to `(not(and ...))`. One way to
-            // solve this would be to create a procedural macro that uses the tokens `span` to
-            // infer how many characters there were between each token, and assume they were all
-            // spaces
+        carcara_macros::match_term_flat!($pat = var).ok_or_else(|| {
+            // Note: `stringify!` can't fully preserve whitespace when turning a token
+            // tree into a string — e.g. `(not (and ...))` becomes `(not(and ...))`.
             $crate::checker::error::CheckerError::TermOfWrongForm(stringify!($pat), var.clone())
         })
     }};
 }
-
 /// A macro to help build new terms.
 ///
 /// This macro takes two arguments: the `TermPool` with which to build the term, and an s-expression

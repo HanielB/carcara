@@ -150,6 +150,7 @@ impl Rc<Term> {
                 cache.insert(self, self.clone());
                 return cache.get(self).unwrap();
             }
+            Term::Match(_, _) => todo!(), // TODO
         };
         cache.insert(self, pool.add(result));
         cache.get(self).unwrap()
@@ -291,13 +292,8 @@ fn eval_op(op: Operator, args: &[Rc<Term>]) -> Option<Value> {
             if v < 0 {
                 return Some(Value::Integer(Integer::from(0)));
             }
-            if v == 0 {
-                return Some(Value::Integer(Integer::from(1)));
-            }
             let v = v.to_usize()?;
-            let two = Value::Integer(Integer::from(2));
-            let twos = vec![two; v];
-            arith_op!(*, twos)
+            Value::Integer(Integer::from(1) << v)
         }
         Operator::Log2 => {
             let v = args[0].as_int()?;
@@ -576,6 +572,8 @@ fn eval_param_op(op: ParamOperator, op_args: &[Rc<Term>], args: &[Rc<Term>]) -> 
 
         // TODO: Strings, Arrays
         ParamOperator::RePower | ParamOperator::ReLoop | ParamOperator::ArrayConst => return None,
+
+        ParamOperator::Tester => todo!(), // TODO
     })
 }
 

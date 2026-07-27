@@ -1,5 +1,8 @@
-use super::{add_symm_step, IdHelper};
-use crate::{ast::*, checker::error::CheckerError};
+use crate::{
+    ast::*,
+    checker::error::CheckerError,
+    elaborator::{add_symm_step, error::ElaborationError, IdHelper},
+};
 
 /// Similar to `find_chain`, but reorders a premises vector to match the found chain. In `trans`,
 /// this is used to reorder the step premises vector; in `eq_transitive`, it is used to reorder the
@@ -51,7 +54,7 @@ pub fn trans(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
-) -> Result<Rc<ProofNode>, CheckerError> {
+) -> Result<Rc<ProofNode>, ElaborationError> {
     assert_eq!(step.clause.len(), 1);
 
     let conclusion_equality = match_term_err!((= t u) = &step.clause[0])?;
@@ -92,7 +95,7 @@ pub fn eq_transitive(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
-) -> Result<Rc<ProofNode>, CheckerError> {
+) -> Result<Rc<ProofNode>, ElaborationError> {
     let n = step.clause.len();
     assert!(n > 2);
 
