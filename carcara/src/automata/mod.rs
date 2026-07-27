@@ -374,37 +374,19 @@ impl Automaton {
         });
 
         for state in new_states.iter_mut().take(sink_id) {
-            let mut covered = vec![false; u16::MAX as usize + 1];
+            let covered: Vec<(u16, u16)> = state
+                .transitions
+                .iter()
+                .filter_map(|t| match t.trigger {
+                    Trigger::Range(range) => Some(range),
+                    Trigger::Epsilon => None,
+                })
+                .collect();
 
-            for t in state.transitions.clone() {
-                if let Trigger::Range((l, r)) = t.trigger {
-                    for item in covered.iter_mut().take(r as usize + 1).skip(l as usize) {
-                        *item = true;
-                    }
-                }
-            }
-
-            let mut start = None;
-
-            for c in 0..=u16::MAX {
-                if !covered[c as usize] && start.is_none() {
-                    start = Some(c);
-                }
-                if covered[c as usize] && start.is_some() {
-                    let l = start.unwrap();
-                    let r = c - 1;
-                    state.transitions.insert(Transition {
-                        to: sink_id,
-                        trigger: Trigger::Range((l, r)),
-                    });
-                    start = None;
-                }
-            }
-
-            if let Some(l) = start {
+            for (l, r) in missing_ranges(&covered, 0, u16::MAX) {
                 state.transitions.insert(Transition {
                     to: sink_id,
-                    trigger: Trigger::Range((l, u16::MAX)),
+                    trigger: Trigger::Range((l, r)),
                 });
             }
         }
@@ -680,6 +662,7 @@ impl Automaton {
                 Term::Op(Operator::ReComplement, r) => {
                     let r = r.first().unwrap();
                     let a = rec_create_from_regex_operators(pool, r)?;
+                    // complementation genuinely requires a (complete) DFA
                     let dfa = if a.is_nfa() {
                         Automaton::determinize(&a)
                     } else {
