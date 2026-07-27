@@ -760,32 +760,68 @@ impl Automaton {
         rec_create_from_regex_operators(pool, t)
     }
 
-    pub fn accepts(&self, s: &str) -> bool {
-        let dfa = if self.is_nfa() {
-            Automaton::determinize(self)
-        } else {
-            self.clone()
-        };
+    /// Computes the epsilon closure of every state, as bitsets of `words`
+    /// 64-bit words each.
+    fn state_closures(&self, words: usize) -> Vec<Vec<u64>> {
+        (0..self.all_states.len())
+            .map(|start| {
+                let mut closure = vec![0u64; words];
+                closure[start / 64] |= 1 << (start % 64);
+                let mut stack = vec![start];
+                while let Some(s) = stack.pop() {
+                    for t in &self.all_states[s].transitions {
+                        if t.trigger == Trigger::Epsilon
+                            && closure[t.to / 64] & (1 << (t.to % 64)) == 0
+                        {
+                            closure[t.to / 64] |= 1 << (t.to % 64);
+                            stack.push(t.to);
+                        }
+                    }
+                }
+                closure
+            })
+            .collect()
+    }
 
-        let mut current = dfa.initial_state;
+    /// Checks membership by simulating the NFA directly: the set of reachable
+    /// states (a bitset) is advanced per input character and epsilon-closed
+    /// using per-state closures computed once. This avoids the potentially
+    /// exponential subset construction of determinization.
+    pub fn accepts(&self, s: &str) -> bool {
+        let words = self.all_states.len().div_ceil(64);
+        let closures = self.state_closures(words);
+
+        let mut current = closures[self.initial_state].clone();
         for c in s.chars() {
             let symbol = c as u16;
-            let mut next = None;
-            for transition in &dfa.all_states[current].transitions {
-                if let Trigger::Range((l, r)) = transition.trigger {
-                    if symbol >= l && symbol <= r {
-                        next = Some(transition.to);
-                        break;
+            let mut next = vec![0u64; words];
+            let mut any = false;
+            for (w, word) in current.iter().enumerate() {
+                let mut bits = *word;
+                while bits != 0 {
+                    let state = w * 64 + bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    for t in &self.all_states[state].transitions {
+                        if let Trigger::Range((l, r)) = t.trigger {
+                            if symbol >= l && symbol <= r {
+                                for (n, c) in next.iter_mut().zip(&closures[t.to]) {
+                                    *n |= c;
+                                }
+                                any = true;
+                            }
+                        }
                     }
                 }
             }
-            if let Some(n) = next {
-                current = n;
-            } else {
+            if !any {
                 return false;
             }
+            current = next;
         }
-        dfa.all_states[current].accept
+
+        self.all_states.iter().enumerate().any(|(i, state)| {
+            state.accept && current[i / 64] & (1 << (i % 64)) != 0
+        })
     }
 }
 
@@ -1183,6 +1219,20 @@ mod tests {
             r#"(re.++ (str.to_re "a") re.none (str.to_re "b"))"#,
             "ab"
         ));
+    }
+
+    #[test]
+    fn test_accepts_without_determinization() {
+        // pathological cases for subset construction, cheap for direct
+        // simulation: chains of re.allchar and unions of overlapping ranges
+        let allchar_chain = format!("(re.++ {})", "re.allchar ".repeat(20));
+        assert!(accepts_regex(&allchar_chain, &"x".repeat(20)));
+        assert!(!accepts_regex(&allchar_chain, &"x".repeat(19)));
+        assert!(!accepts_regex(&allchar_chain, ""));
+
+        let union_star = r#"(re.* (re.union (re.range "0" "9") (re.range "A" "Z") (re.range "a" "z") (str.to_re "-")))"#;
+        assert!(accepts_regex(union_star, &"a0-Z".repeat(500)));
+        assert!(!accepts_regex(union_star, "a0_Z"));
     }
 
     #[test]
