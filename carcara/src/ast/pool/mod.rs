@@ -150,7 +150,7 @@ impl PrimitivePool {
                 | Operator::BvSRem
                 | Operator::BvSMod
                 | Operator::BvAShr => {
-                    let sort = match self.unwrap_sort(&args[0]);
+                    let sort = self.unwrap_sort(&args[0]);
                     match sort {
                         Sort::BitVec(width) => Sort::BitVec(width),
                         Sort::ParamSort(v, head) => {
@@ -181,7 +181,7 @@ impl PrimitivePool {
                     }
                     let mut total_width: Vec<TotalWidth> = vec![];
                     for arg in args {
-                        let sort = match self.unwrap_sort(arg);
+                        let sort = self.unwrap_sort(arg);
                         match sort {
                             Sort::BitVec(arg_width) => {
                                 total_width.push(TotalWidth::Width(arg_width));

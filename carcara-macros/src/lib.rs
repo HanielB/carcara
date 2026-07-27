@@ -51,13 +51,19 @@ enum Pat {
         op_args: Vec<Pat>,
         args: Vec<Pat>,
     },
-    // Represents (forall ... body), (exists ... body), (choice ... body).
+    // Represents (forall ... body), (exists ... body), (choice ... body),
+    // (lambda ... body).
     // 'bindings_id' is a unique generated ident for this binder's BindingList,
     // so multiple binders in one pattern don't shadow each other.
     Binder {
         binder: String,
         bindings_id: Ident,
         inner: Box<Pat>,
+    },
+    // Represents (@ <func> <args>...), i.e. a `Term::App` function application.
+    App {
+        func: Box<Pat>,
+        args: Vec<Pat>,
     },
 }
 
@@ -79,6 +85,12 @@ impl Pat {
             Pat::Binder { bindings_id, inner, .. } => {
                 let mut vars = vec![bindings_id.clone()];
                 vars.extend(inner.free_vars());
+                vars
+            }
+            // The function's vars come before the arguments' vars.
+            Pat::App { func, args } => {
+                let mut vars = func.free_vars();
+                vars.extend(args.iter().flat_map(|p| p.free_vars()));
                 vars
             }
             _ => vec![],
@@ -165,9 +177,23 @@ fn parse_pat(tt: TokenTree, ctr: &mut usize) -> Pat {
             // Valid shape is exactly 5 tokens: ident + '.' + '.' + '.' + body.
             // We verify that tokens[1..4] are three consecutive '.' Punct tokens,
             // so patterns like (forall blah t) or (forall foo bar t) are rejected.
+            // Detect (@ <func> <args>...) - function application.
+            // The func is a single token tree; the remaining tokens are the
+            // arguments, which may be a '...' variadic.
+            if matches!(&tokens[0], TokenTree::Punct(p) if p.as_char() == '@') {
+                assert!(
+                    tokens.len() >= 3,
+                    "application pattern must be (@ <func> <args>...), got {} tokens",
+                    tokens.len()
+                );
+                let func = parse_pat(tokens[1].clone(), ctr);
+                let args = parse_args(&tokens[2..], ctr);
+                return Pat::App { func: Box::new(func), args };
+            }
+
             if let TokenTree::Ident(id) = &tokens[0] {
                 let name = id.to_string();
-                if matches!(name.as_str(), "forall" | "exists" | "choice") {
+                if matches!(name.as_str(), "forall" | "exists" | "choice" | "lambda") {
                     assert!(
                         tokens.len() == 5,
                         "binder pattern must be ({name} ... <body>), got {} tokens",
@@ -252,7 +278,12 @@ fn op_to_variant(op: &str) -> TokenStream2 {
         ">" => quote! { crate::ast::Operator::GreaterThan },
         "<=" => quote! { crate::ast::Operator::LessEq },
         ">=" => quote! { crate::ast::Operator::GreaterEq },
+        "abs" => quote! { crate::ast::Operator::Abs },
         "to_real" => quote! { crate::ast::Operator::ToReal },
+        "to_int" => quote! { crate::ast::Operator::ToInt },
+        "is_int" => quote! { crate::ast::Operator::IsInt },
+        "pow2" => quote! { crate::ast::Operator::Pow2 },
+        "log2" => quote! { crate::ast::Operator::Log2 },
 
         // Clause / delete
         "cl" => quote! { crate::ast::Operator::Cl },
@@ -269,6 +300,7 @@ fn op_to_variant(op: &str) -> TokenStream2 {
         "bvxnor" => quote! { crate::ast::Operator::BvXNor },
         "bvcomp" => quote! { crate::ast::Operator::BvComp },
         "bvadd" => quote! { crate::ast::Operator::BvAdd },
+        "bvsub" => quote! { crate::ast::Operator::BvSub },
         "bvmul" => quote! { crate::ast::Operator::BvMul },
         "bvudiv" => quote! { crate::ast::Operator::BvUDiv },
         "bvurem" => quote! { crate::ast::Operator::BvURem },
@@ -476,6 +508,7 @@ fn gen_match(pat: &Pat, var: &TokenStream2, inner: TokenStream2, ctr: &mut usize
                 "forall" => quote! { crate::ast::Binder::Forall },
                 "exists" => quote! { crate::ast::Binder::Exists },
                 "choice" => quote! { crate::ast::Binder::Choice },
+                "lambda" => quote! { crate::ast::Binder::Lambda },
                 other => panic!("unknown binder in match_term_flat!: {other}"),
             };
 
@@ -490,6 +523,49 @@ fn gen_match(pat: &Pat, var: &TokenStream2, inner: TokenStream2, ctr: &mut usize
                 if let crate::ast::Term::Binder(#binder_variant, #bindings_id, #inner_var) =
                     (#var).as_ref()
                 {
+                    #body
+                } else {
+                    None
+                }
+            }
+        }
+        Pat::App { func, args } => {
+            *ctr += 1;
+            let func_ident = format_ident!("__mt_func_{}", ctr);
+            *ctr += 1;
+            let args_vec = format_ident!("__mt_args_{}", ctr);
+
+            // Special case: sole variadic arg — capture entire args slice directly.
+            let args_body = if let [Pat::Variadic(var_id)] = args.as_slice() {
+                gen_sole_variadic_body(var_id, &args_vec, inner)
+            } else {
+                let arg_idents: Vec<Ident> = (0..args.len())
+                    .map(|_| {
+                        *ctr += 1;
+                        format_ident!("__mt_arg_{}", ctr)
+                    })
+                    .collect();
+
+                let mut body = inner;
+                for (sub_pat, arg_id) in args.iter().zip(arg_idents.iter()).rev() {
+                    let v = quote! { #arg_id };
+                    body = gen_match(sub_pat, &v, body, ctr);
+                }
+                quote! {
+                    if let [#(#arg_idents),*] = #args_vec.as_slice() {
+                        #body
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            // The function is matched outside the arguments, so that its
+            // captures come first in the flat tuple.
+            let body = gen_match(func, &quote! { #func_ident }, args_body, ctr);
+
+            quote! {
+                if let crate::ast::Term::App(#func_ident, #args_vec) = (#var).as_ref() {
                     #body
                 } else {
                     None

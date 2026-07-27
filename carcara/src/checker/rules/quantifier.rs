@@ -404,10 +404,7 @@ pub fn miniscope_ite(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult 
 
 pub fn beta_equiv(RuleArgs { conclusion, pool, polyeq_time, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
-    let (
-        ((bindings_1, phi_l), applied_terms),
-        rhs,
-    ) = match_term_err!(
+    let (bindings_1, phi_l, applied_terms, rhs) = match_term_err!(
         (= (@ (lambda ... phi_l) ...) rhs)
         = &conclusion[0]
     )?;
@@ -432,8 +429,7 @@ pub fn beta_equiv(RuleArgs { conclusion, pool, polyeq_time, .. }: RuleArgs) -> R
         // The application of the substitution might rename bound
         // variables, so we will need to compare for alpha-equivalence here
         assert_alpha_equiv_expected(rhs, phi_r, polyeq_time)
-    }
-    else {
+    } else {
         // build lambda around with remaining vars
         let remaining_vars = BindingList(bindings_1[applied_terms.len()..].to_vec());
         let rhs_lambda = pool.add(Term::Binder(Binder::Lambda, remaining_vars, phi_r));

@@ -1,8 +1,8 @@
 //! This module contains rules that are not yet in the specification for the Alethe format.
 
 use super::{
-    assert_clause_len, assert_eq, assert_all_eq, assert_num_premises, get_premise_term, CheckerError,
-    EqualityError, RuleArgs, RuleResult,
+    assert_all_eq, assert_clause_len, assert_eq, assert_num_premises, get_premise_term,
+    CheckerError, EqualityError, RuleArgs, RuleResult,
 };
 use crate::{
     ast::*,
@@ -385,10 +385,12 @@ pub fn la_mult_abs_comparison(RuleArgs { conclusion, premises, .. }: RuleArgs) -
                     Term::Op(Operator::And, _args) => {
                         if i == 0 {
                             return Err(CheckerError::Explanation(format!(
-                                "first premise {} must use '>' when conclusion uses '>'", term)
-                            ));
+                                "first premise {} must use '>' when conclusion uses '>'",
+                                term
+                            )));
                         }
-                        let ((t1, s), (t2, z)) = match_term_err!((and (= (abs t1) (abs s)) (not (= t2 z))) = term)?;
+                        let (t1, s, t2, z) =
+                            match_term_err!((and (= (abs t1) (abs s)) (not (= t2 z))) = term)?;
                         rassert!(
                             z.as_number_err()? == 0,
                             CheckerError::ExpectedNumber(rug::Rational::new(), z.clone())
@@ -401,9 +403,13 @@ pub fn la_mult_abs_comparison(RuleArgs { conclusion, premises, .. }: RuleArgs) -
                         assert_eq(t_i, t)?;
                         assert_eq(s_i, s)?;
                     }
-                    _ => return Err(CheckerError::Explanation(format!(
-                        "for '>' conclusion, non-comparison premise {} must be guarded equalities", term)
-                    )),
+                    _ => {
+                        return Err(CheckerError::Explanation(format!(
+                            "for '>' conclusion, non-comparison premise {} must be guarded \
+                             equalities",
+                            term
+                        )))
+                    }
                 }
             }
             _ => unreachable!(),
