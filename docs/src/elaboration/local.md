@@ -6,6 +6,7 @@ small local way. These are grouped in the `local` elaboration pass. The rules af
 - `eq_congruent`
 - `cong`
 - `resolution`
+- `eq_mp`
 
 ## Transitivity rules
 The `eq_transitive` and `trans` rules may sometimes contain the transitivity chain in an incorrect
@@ -82,3 +83,22 @@ elaborated step will be:
 (step t4 (cl r) :rule resolution :premises (t1 t2 t3) :args (p true q false))
 ```
 
+## `eq_mp` rule
+The `eq_mp` rule is not part of the Alethe specification. It is an extra rule, equivalent to
+CPC's `EQ_RESOLVE`, that derives `F2` from `F1` and `(= F1 F2)`:
+```
+(assume h1 p)
+(assume h2 (= p q))
+(step t3 (cl q) :rule eq_mp :premises (h1 h2))
+```
+During elaboration, it is replaced by a `resolution` step taking the original
+premises and a new `equiv_pos2` step:
+```
+(assume h1 p)
+(assume h2 (= p q))
+(step t3.t1 (cl (not (= p q)) (not p) q) :rule equiv_pos2)
+(step t3 (cl q) :rule resolution :premises (t3.t1 h2 h1) :args ((= p q) false p false))
+```
+A guard is added for the case where `F2` is the negation of `F1`, that is, when the premises are
+contradictory. In that case the last two literals of the `equiv_pos2` step would be the same, and
+the resolution would derive the empty clause instead of `(cl F2)`, so the step is left unchanged.
