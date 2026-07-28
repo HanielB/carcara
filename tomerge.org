@@ -1,0 +1,159 @@
+#+TITLE: ext-phpp: outstanding work not on main
+#+DATE: 2026-07-28
+
+Everything this branch adds relative to =main= (measured right after
+merging =main= into =ext-phpp=; total ~7,200 added lines).  For each
+item: where it lives, how big it is, and what it would touch on =main=
+when upstreamed.
+
+* Strings/regex reasoning (the bulk: ~3,300 lines)
+
+** Automaton infrastructure
+- Where :: =carcara/src/automata/= (new module: =mod.rs= 1,336, =operations.rs=
+  569, =utils.rs= 322, =parser.rs= 213, =dsu.rs= 97 lines)
+- What :: NFA/DFA representation with range triggers; construction from
+  regex terms (all SMT-LIB regex operators incl. =re.opt=/=re.diff=);
+  direct NFA simulation for membership (bitset-free sorted state sets,
+  memoized lazy-DFA stepping); determinization (only where required:
+  =re.comp=); product construction on epsilon-eliminated NFAs for
+  =re.inter=; textual automaton parser for =re.from_automaton=;
+  equivalence/subautomaton checks for the RCP rules.
+- Touches on main :: purely additive module + =lib.rs= registration.
+  Also small hooks elsewhere, listed below.
+
+** RegLan constants and =re.from_automaton=
+- Where :: =ast/term.rs= (+66: =Constant::RegLan=, =Operator::ReFromAutomaton=,
+  =as_automata= accessors), =ast/pool/mod.rs= (+4, sort computation),
+  =ast/printer.rs= (+1), =ast/evaluate.rs= (+5, RegLan is unevaluable),
+  =parser/mod.rs= (+26, automaton literal parsing), =parser/error.rs= (+6)
+- Touches on main :: =Constant= and =Operator= are central enums — every
+  exhaustive match on them gains an arm (the merge surfaced exactly two:
+  =evaluate.rs= and =Operator::nary_case=).
+
+** String/regex rules
+- Where :: =checker/rules/strings.rs= (+404), registered in
+  =checker/shared.rs= (+15 entries)
+- What ::
+  - The six cvc5 regex-eval rules: =str_in_re_eval=, =str_replace_re_eval=,
+    =str_replace_re_all_eval=, =str_indexof_re_eval= (stub),
+    =re_loop_elim= (stub), =re_eq_elim= (stub).  The stubs accept any
+    conclusion — must not be reported as fully checked.
+  - The RCP-calculus rules: =re_convert=, =re_empty_intersection=,
+    =re_intersection=, =re_forward_prop=, =concat_bwd_propagation=,
+    =concat_aut_bwd_propagation=.
+- Touches on main :: rule table in =shared.rs=; =CheckerError= gains
+  regex-specific variants (=error.rs=, part of +63).
+
+** Per-proof automaton cache
+- Where :: =checker/rules/mod.rs= (+9: =automata_cache= field in =RuleArgs=),
+  =checker/mod.rs= / =checker/parallel/mod.rs= (state + threading)
+- Touches on main :: =RuleArgs= is constructed in three places
+  (sequential checker, parallel checker, rule unit-test helpers); each
+  needs the field.  Same shape as =rare_rules= / =eunif_cc=.
+
+** =aci_simp= extensions
+- Where :: =checker/rules/simplification.rs= (+158 net vs main's version)
+- What :: main's =aci_simp= extended with =re.++= / =re.union= / =re.inter= /
+  =str.++=; operator assumptions split into associative vs commutative vs
+  idempotent (fixes latent unsoundness where =(+ x x)= deduped to =x=);
+  identity elements for the new operators; global (non-adjacent) dedup
+  for idempotent operators; all-identity applications collapse to the
+  identity.  Unit tests included.
+- Touches on main :: replaces the body of an existing rule — behavior
+  strictly more permissive on regex/strings terms, stricter on
+  non-idempotent dedup.  Low risk, has tests.
+
+** Macro operator tokens
+- Where :: =ast/macros.rs= (+6), =carcara-macros/src/lib.rs= (2 tokens:
+  =replacere=, =replacereall=)
+- Touches on main :: the proc-macro operator table (panics at compile
+  time on unknown tokens, so omissions are caught early).
+
+** Evaluation pipeline (not for upstreaming, but in-repo)
+- Where :: =eval-regex/= (scripts + README, ~560 lines)
+- What :: the IJCAR-paper-style evaluation: proof generation with cvc5
+  (Alethe, dsl-rewrite granularity), organic-set extraction,
+  hole→rule transformation, synthetic-trace translation, runlim-based
+  checking, Table-3-style summary.
+
+* Congruence closure / =g_eunif= (~1,100 lines)
+
+- Where :: =carcara/src/cc.rs= (732, the congruence closure itself),
+  =checker/rules/congruence.rs= (+38, the =g_eunif= rule),
+  =elaborator/eunif.rs= (176, elaboration into =cong=/=trans=/=refl= steps),
+  =tests/rules/eunif.rs= (130), =tests/test_eunif_elaboration.rs= (204)
+- What :: ground E-unification steps checked via congruence closure; the
+  CC state lives in =RuleArgs.eunif_cc= and is reused across steps
+  (resetting equalities, keeping the term index); an elaboration pass
+  (=ElaborationPass::Eunif=) replaces =g_eunif= steps with fine-grained
+  steps and is in the default pipeline.
+- Touches on main :: new top-level module =cc=; =RuleArgs= field; rule
+  table entry; elaborator pass enum + default pipeline + CLI arg-enum
+  (=cli/src/app.rs=).
+
+* Skolemization-renaming rules (~560 lines)
+
+- Where :: =checker/rules/extras.rs= (+10: =sko_ex_rename= /
+  =sko_forall_rename=, thin wrappers), =checker/rules/subproof.rs= (the
+  =is_rename= parameter of =generic_skolemization_rule=),
+  =elaborator/sko_rename.rs= (185), =tests/rules/extras.rs= (+59),
+  =tests/test_sko_rename_elaboration.rs= (105)
+- What :: variants of =sko_ex= / =sko_forall= where the binder is renamed
+  via an anchor substitution to a =choice= term; the =SkoRename=
+  elaboration pass rewrites them into plain =bind=-style subproofs, and
+  runs first in the default pipeline.
+- Touches on main :: rule table; =generic_skolemization_rule= signature
+  (its two existing callers pass =false=); elaborator pass enum +
+  pipeline + CLI.
+
+* Subproof-checking modifications (+122 lines in =subproof.rs=)
+
+- Where :: =checker/rules/subproof.rs=, small bits in =checker/mod.rs=
+- What :: the parts NOT yet upstreamed (main already took the
+  discharge checking, =check_discharge_shared=): optional discharge
+  handling in the =subproof= rule, "false"/empty-clause subproofs, and
+  the guard that a subproof concluding the empty clause does not count
+  as a refutation (=reached_empty_clause= only set when the context
+  stack is empty).  Plus the skolemization-rename parameter above.
+- Touches on main :: =subproof= rule internals and the checker main loop
+  (one condition).  Behavioral: proofs with empty-clause subproofs are
+  judged differently — needs its own review when upstreaming.
+
+* =la_generic= over positive equalities (~40 lines)
+
+- Where :: =checker/rules/linear_arithmetic.rs= (+17),
+  =checker/error.rs= (=CannotAddOperators=), =tests/rules/linear_arithmetic.rs= (+23)
+- What :: main handles =(not (= ...))= literals but not positive
+  equalities (whose negation is a disequality).  The branch represents
+  the negated =~== as =Operator::Distinct=: at most one disequality may
+  enter the linear combination (only added to equalities), and the
+  final tautology check knows =Distinct=.  (Re-ported onto main's
+  refactor during the merge; the original =CmpOperator=-based version
+  was dropped.)
+- Touches on main :: three small match arms in an existing rule + one
+  error variant.  Has tests, incl. the two-disequalities negative case.
+
+* Polyeq n-ary support (~106 lines)
+
+- Where :: =ast/polyeq.rs=
+- What :: polyeq treats n-ary operator applications modulo their
+  associativity shape (chainable / left- / right-assoc expansion), so
+  e.g. =(and a b c)= is polyeq to =(and (and a b) c)=.  Uses main's
+  =Operator::nary_case= (the branch's own copy of that classification
+  was dropped in the merge in favor of main's).
+- Touches on main :: the polyeq comparator only.  Behavioral: polyeq
+  (and thus =refl=, =assume= matching, etc.) becomes more permissive —
+  worth benchmarking when upstreaming since polyeq is hot.
+
+* Merge-time notes (things to re-verify when upstreaming)
+
+- The =sko_rename= elaboration was adapted to main's =ProofNodeForest=
+  API by mapping over roots; =eunif= elaboration uses the new
+  =mutate::<_, ()>= idiom.  Both integration test suites pass.
+- =SubproofNode= gained =extra_steps= on main; the =sko_rename=
+  elaborator fills it with =Vec::new()= — check whether renamed
+  subproofs ever need real extra steps.
+- The stub rules (=str_indexof_re_eval=, =re_loop_elim=, =re_eq_elim=)
+  should be implemented before any upstream PR.
+- =bitblast_bvadd= was renamed =bitblast_add= on main; the branch entry
+  was dropped in the merge.
