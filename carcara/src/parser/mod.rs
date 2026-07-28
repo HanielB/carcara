@@ -2151,10 +2151,10 @@ impl<'p, 's> Parser<'p, 's> {
                     self.make_indexed_op(op, op_args.to_vec(), vec![last.clone()])
                         .map_err(|err| Error::Parser(err, head_pos))
                 } else {
-                    return Err(Error::Parser(
+                    Err(Error::Parser(
                         ParserError::InvalidIndexedOp(op.to_string()),
                         head_pos,
-                    ));
+                    ))
                 }
             }
             Token::Symbol(s) if s == "eo" => {

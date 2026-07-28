@@ -1185,19 +1185,19 @@ impl Constant {
 
 impl Operator {
     pub fn is_assoc(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Operator::And
-            | Operator::Or
-            | Operator::Add
-            | Operator::Mult
-            | Operator::BvAdd
-            | Operator::BvOr
-            | Operator::BvMul
-            | Operator::BvAnd
-            | Operator::BvXor
-            | Operator::BvConcat => true,
-            _ => false,
-        }
+                | Operator::Or
+                | Operator::Add
+                | Operator::Mult
+                | Operator::BvAdd
+                | Operator::BvOr
+                | Operator::BvMul
+                | Operator::BvAnd
+                | Operator::BvXor
+                | Operator::BvConcat
+        )
     }
 }
 

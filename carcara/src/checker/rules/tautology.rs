@@ -3,7 +3,6 @@ use super::{
     assert_polyeq, get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
-use rug::Rational;
 
 pub fn r#true(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -330,14 +329,9 @@ pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 
     let c = c.as_number_err()?;
 
-    if b3.as_number_err()? > 0 {
-        if c != Rational::from(1) {
-            unreachable!();
-        }
-    } else {
-        if c != Rational::from(-1) {
-            unreachable!();
-        }
+    let expected = if b3.as_number_err()? > 0 { 1 } else { -1 };
+    if c != expected {
+        unreachable!();
     }
     Ok(())
 }
