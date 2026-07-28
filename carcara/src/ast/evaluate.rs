@@ -120,6 +120,11 @@ impl Rc<Term> {
         }
 
         let result = match self.as_ref() {
+            // Regular language constants are not evaluatable
+            Term::Const(Constant::RegLan(_, _)) => {
+                cache.insert(self, self.clone());
+                return cache.get(self).unwrap();
+            }
             Term::Const(c) => Value::from_constant(c.clone()).into_term(),
             Term::Op(op, args) => {
                 let args: Vec<_> = args
