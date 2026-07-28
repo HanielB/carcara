@@ -1,41 +1,40 @@
 use carcara::*;
-use std::io::Cursor;
 
 fn run_elaboration_test(problem: &str, proof: &str) {
-    let (problem, proof, mut pool) = parser::parse_instance(
-        Cursor::new(problem),
-        Cursor::new(proof),
-        parser::Config::new(),
-    )
-    .expect("parsing failed");
+    let (problem, proof, rare_rules, mut pool) =
+        parser::parse_instance(problem, proof, None, parser::Config::new())
+            .expect("parsing failed");
 
     let checker_config = checker::Config {
         elaborated: false,
         ignore_unknown_rules: true,
         allowed_rules: Default::default(),
+        ..Default::default()
     };
 
     // First, the original proof checks
-    checker::ProofChecker::new(&mut pool, checker_config.clone())
+    checker::ProofChecker::new(&mut pool, &rare_rules, checker_config.clone())
         .check(&problem, &proof)
         .expect("original proof failed to check");
 
     // Then we elaborate it
     let elab_config = elaborator::Config {
-        lia_options: None,
-        hole_options: None,
+        lia_solver: None,
+        hole_solver: None,
         uncrowd_rotation: false,
+        sat_ref_tools: None,
     };
-    let node = ast::ProofNode::from_commands(proof.commands.clone());
+    let node = ast::ProofNodeForest::from_commands(proof.commands.clone());
     let elaborated_node = elaborator::Elaborator::new(&mut pool, &problem, elab_config)
-        .elaborate(&node, vec![elaborator::ElaborationStep::SkoRename]);
+        .elaborate(node, vec![elaborator::ElaborationPass::SkoRename])
+        .expect("elaboration failed");
     let elaborated = ast::Proof {
         constant_definitions: proof.constant_definitions.clone(),
         commands: elaborated_node.into_commands(),
     };
 
     // The elaborated proof must check too
-    checker::ProofChecker::new(&mut pool, checker_config)
+    checker::ProofChecker::new(&mut pool, &rare_rules, checker_config)
         .check(&problem, &elaborated)
         .expect("elaborated proof failed to check");
 

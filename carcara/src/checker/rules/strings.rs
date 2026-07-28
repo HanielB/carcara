@@ -170,6 +170,20 @@ fn expand_string_constants(pool: &mut dyn TermPool, term: &Rc<Term>) -> Rc<Term>
                 args: new_args,
             })
         }
+        Term::Match(t, patterns) => {
+            let new_t = expand_string_constants(pool, t);
+            let new_patterns = patterns
+                .iter()
+                .map(|(vars, pattern, res)| {
+                    (
+                        vars.clone(),
+                        pattern.clone(),
+                        expand_string_constants(pool, res),
+                    )
+                })
+                .collect();
+            pool.add(Term::Match(new_t, new_patterns))
+        }
         Term::Var(..) | Term::Const(_) | Term::Sort(_) => term.clone(),
     }
 }
@@ -765,7 +779,7 @@ pub fn concat_csplit_prefix(
     let terms = get_premise_term(&premises[0])?;
     let length = get_premise_term(&premises[1])?;
     let (t, s) = match_term_err!((= t s) = terms)?;
-    let (t_1, _) = match_term_err!((not (= (strlen t_1) 0)) = length)?;
+    let t_1 = match_term_err!((not (= (strlen t_1) 0)) = length)?;
 
     let s_flat = string_concat_flatten(pool, s.clone());
     if string_concat_flatten(pool, t.clone()).is_empty() {
@@ -813,7 +827,7 @@ pub fn concat_csplit_suffix(
     let terms = get_premise_term(&premises[0])?;
     let length = get_premise_term(&premises[1])?;
     let (t, s) = match_term_err!((= t s) = terms)?;
-    let (t_2, _) = match_term_err!((not (= (strlen t_2) 0)) = length)?;
+    let t_2 = match_term_err!((not (= (strlen t_2) 0)) = length)?;
 
     let s_flat = string_concat_flatten(pool, s.clone());
     if string_concat_flatten(pool, t.clone()).is_empty() {
@@ -1099,7 +1113,7 @@ pub fn concat_cprop_prefix(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
     let terms = get_premise_term(&premises[0])?;
     let length = get_premise_term(&premises[1])?;
     let (t, s) = match_term_err!((= t s) = terms)?;
-    let (t_1, _) = match_term_err!((not (= (strlen t_1) 0)) = length)?;
+    let t_1 = match_term_err!((not (= (strlen t_1) 0)) = length)?;
 
     let args_t = extract_arguments(t)?;
 
@@ -1145,7 +1159,7 @@ pub fn concat_cprop_suffix(RuleArgs { premises, conclusion, pool, .. }: RuleArgs
     let terms = get_premise_term(&premises[0])?;
     let length = get_premise_term(&premises[1])?;
     let (t, s) = match_term_err!((= t s) = terms)?;
-    let (t_2, _) = match_term_err!((not (= (strlen t_2) 0)) = length)?;
+    let t_2 = match_term_err!((not (= (strlen t_2) 0)) = length)?;
 
     let args_t = extract_arguments(t)?;
 
@@ -1229,7 +1243,7 @@ pub fn string_length_pos(RuleArgs { args, conclusion, polyeq_time, .. }: RuleArg
     assert_clause_len(conclusion, 1)?;
 
     let t = &args[0];
-    let (((t_1, _), (t_2, _)), (t_3, _)) = match_term_err!(
+    let (t_1, t_2, t_3) = match_term_err!(
         (or
             (and
                 (= (strlen t) 0)
@@ -1255,9 +1269,9 @@ pub fn string_length_non_empty(
     assert_clause_len(conclusion, 1)?;
 
     let term = get_premise_term(&premises[0])?;
-    let (t, _) = match_term_err!((not (= t "")) = term)?;
+    let t = match_term_err!((not (= t "")) = term)?;
 
-    let (t_conc, _) = match_term_err!(
+    let t_conc = match_term_err!(
         (not
             (= (strlen t) 0)
         ) = &conclusion[0]
@@ -1276,7 +1290,7 @@ pub fn re_inter(
     assert_num_premises(premises, 2)?;
     assert_clause_len(conclusion, 1)?;
 
-    let (x_conc, (s_conc, t_conc)) = match_term_err!((strinre x (reinter s t)) = &conclusion[0])?;
+    let (x_conc, s_conc, t_conc) = match_term_err!((strinre x (reinter s t)) = &conclusion[0])?;
 
     let t_1 = get_premise_term(&premises[0])?;
     let t_2 = get_premise_term(&premises[1])?;
@@ -1770,7 +1784,7 @@ pub fn str_replace_re_eval(
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
-    let ((s, r, t), u) = match_term_err!((= (replacere s r t) u) = &conclusion[0])?;
+    let (s, r, t, u) = match_term_err!((= (replacere s r t) u) = &conclusion[0])?;
 
     let s = s.as_string_err()?;
     let t = t.as_string_err()?;
@@ -1823,7 +1837,7 @@ pub fn str_replace_re_all_eval(
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
-    let ((s, r, t), u) = match_term_err!((= (replacereall s r t) u) = &conclusion[0])?;
+    let (s, r, t, u) = match_term_err!((= (replacereall s r t) u) = &conclusion[0])?;
 
     let s = s.as_string_err()?;
     let t = t.as_string_err()?;
@@ -1893,7 +1907,7 @@ pub fn str_in_re_eval(
     assert_num_premises(premises, 0)?;
     assert_clause_len(conclusion, 1)?;
 
-    let ((s, r), c) = match_term_err!((= (strinre s r) c) = &conclusion[0])?;
+    let (s, r, c) = match_term_err!((= (strinre s r) c) = &conclusion[0])?;
 
     let s = s.as_string_err()?;
     let c = c.as_bool_err()?;

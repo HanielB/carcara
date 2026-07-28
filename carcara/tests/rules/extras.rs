@@ -21,6 +21,32 @@ fn reordering() {
 }
 
 #[test]
+fn shuffle() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun q () Bool)
+            (declare-fun r () Bool)
+            (declare-fun x () Int)
+            (declare-fun y () Int)
+            (declare-fun z () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (= (+ x y z) (+ z x y))) :rule shuffle)": true,
+
+            "(step t1 (cl (= (and p q q r p) (and q q p p r))) :rule shuffle)": true,
+        }
+        "Invalid examples" {
+            "(step t1 (cl (= (- x y z) (- x y z))) :rule shuffle)": false,
+            "(step t1 (cl (= (or p q r) (and p q r))) :rule shuffle)": false,
+            "(step t1 (cl (= (or p q r) true)) :rule shuffle)": false,
+            "(step t1 (cl (= (* x x y) (* x y y))) :rule shuffle)": false,
+            "(step t1 (cl (= (* x x y) (+ x y))) :rule shuffle)": false,
+        }
+    }
+}
+
+#[test]
 fn symm() {
     test_cases! {
         definitions = "
@@ -98,6 +124,70 @@ fn weakening() {
 
             "(step t1 (cl a b c) :rule hole)
             (step t2 (cl a b) :rule weakening :premises (t1))": false,
+        }
+    }
+}
+
+#[test]
+fn and_intro() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun q () Bool)
+            (declare-fun r () Bool)
+        ",
+        "Simple working examples" {
+            "(assume h1 p)
+            (assume h2 q)
+            (step t1 (cl (and p q)) :rule and_intro :premises (h1 h2))": true,
+
+            "(assume h1 p)
+            (assume h2 q)
+            (assume h3 r)
+            (step t1 (cl (and p q r)) :rule and_intro :premises (h1 h2 h3))": true,
+        }
+        "Non-unit premise corresponds to a disjunction" {
+            "(step t1 (cl p q) :rule hole)
+            (assume h2 r)
+            (step t2 (cl (and (or p q) r)) :rule and_intro :premises (t1 h2))": true,
+
+            // A unit premise whose term is itself an `or` matches the same conjunct.
+            "(assume h1 (or p q))
+            (assume h2 r)
+            (step t1 (cl (and (or p q) r)) :rule and_intro :premises (h1 h2))": true,
+        }
+        "Premises must be in the right order" {
+            "(assume h1 p)
+            (assume h2 q)
+            (step t1 (cl (and q p)) :rule and_intro :premises (h1 h2))": false,
+        }
+        "A conjunct does not match its premise" {
+            "(assume h1 p)
+            (assume h2 q)
+            (step t1 (cl (and p r)) :rule and_intro :premises (h1 h2))": false,
+
+            // The disjuncts of the conjunct must match the clause order.
+            "(step t1 (cl p q) :rule hole)
+            (assume h2 r)
+            (step t2 (cl (and (or q p) r)) :rule and_intro :premises (t1 h2))": false,
+
+            // A non-unit premise must correspond to an `or`, not a single literal.
+            "(step t1 (cl p q) :rule hole)
+            (assume h2 r)
+            (step t2 (cl (and p r)) :rule and_intro :premises (t1 h2))": false,
+        }
+        "Wrong number of premises" {
+            "(assume h1 p)
+            (step t1 (cl (and p q)) :rule and_intro :premises (h1))": false,
+
+            "(assume h1 p)
+            (assume h2 q)
+            (assume h3 r)
+            (step t1 (cl (and p q)) :rule and_intro :premises (h1 h2 h3))": false,
+        }
+        "Conclusion is not a conjunction" {
+            "(assume h1 p)
+            (step t1 (cl p) :rule and_intro :premises (h1))": false,
         }
     }
 }
@@ -258,6 +348,48 @@ fn sko_forall_rename() {
             (step t1 (cl (= (forall ((x Int)) (and (p x) (p y)))
                             (and (p (choice ((x Int)) (not (and (p x) (p y))))) (p y))))
                 :rule sko_forall_rename)": false,
+        }
+    }
+}
+
+#[test]
+fn evaluate() {
+    test_cases! {
+        definitions = "
+            (declare-const x Int)
+            (declare-fun f (Int Int) Int)
+        ",
+        "Booleans" {
+            "(step t1 (cl (=
+                (=> (and true true) (or true false) (ite false false true))
+                true
+            )) :rule evaluate)": true,
+
+            "(step t1 (cl (= (or (= 0 0 1) (distinct 1 2 3 1)) false)) :rule evaluate)": true,
+        }
+        "Arithmetic" {
+            "(step t1 (cl (= (+ 1 2 (* 3 (- 1))) 0)) :rule evaluate)": true,
+            "(step t1 (cl (= (+ (div 3 (abs 2)) (mod (- 7) (- 3))) 0)) :rule evaluate)": true,
+            "(step t1 (cl (= (/ 1.0 (to_real 7)) 1/7)) :rule evaluate)": true,
+        }
+        "Bitvectors" {
+            "(step t1 (cl (=
+                (bvnot (bvudiv #b100 (@bbterm false true false)))
+                #b101
+            )) :rule evaluate)": true,
+
+            "(step t1 (cl (=
+                (bvashr ((_ rotate_left 3) #b0101100) #b0000001)
+                #b1110001
+            )) :rule evaluate)": true,
+        }
+        "Partial evaluation" {
+            "(step t1 (cl (= (+ x (+ 1 1)) (+ x 2))) :rule evaluate)": true,
+            "(step t1 (cl (= (f x (+ 1 1)) (f x 2))) :rule evaluate)": false,
+        }
+        "Invalid examples" {
+            "(step t1 (cl (= 2 (+ 1 1))) :rule evaluate)": false,
+            "(step t1 (cl (= (forall ((x Int)) true) true)) :rule evaluate)": false,
         }
     }
 }

@@ -4,8 +4,11 @@ use super::{
     assert_clause_len, assert_eq, assert_num_premises, get_premise_term, subproof, CheckerError,
     EqualityError, RuleArgs, RuleResult,
 };
-use crate::{ast::*, checker::rules::assert_operation_len};
-use indexmap::IndexSet;
+use crate::{
+    ast::*,
+    checker::{error::CongruenceError, rules::assert_operation_len},
+    utils::{MultiSet, MultiSetDifference},
+};
 
 pub fn sko_ex_rename(args: RuleArgs) -> RuleResult {
     subproof::generic_skolemization_rule(Binder::Exists, true, args)
@@ -21,15 +24,35 @@ pub fn reordering(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     let premise = premises[0].clause;
     assert_clause_len(conclusion, premise.len())?;
 
-    let premise_set: IndexSet<_> = premise.iter().collect();
-    let conclusion_set: IndexSet<_> = conclusion.iter().collect();
-    if let Some(&t) = premise_set.difference(&conclusion_set).next() {
-        Err(CheckerError::ContractionMissingTerm(t.clone()))
-    } else if let Some(&t) = conclusion_set.difference(&premise_set).next() {
-        Err(CheckerError::ContractionExtraTerm(t.clone()))
-    } else {
-        Ok(())
+    let premise_set: MultiSet<_> = premise.iter().collect();
+    let conclusion_set: MultiSet<_> = conclusion.iter().collect();
+    match conclusion_set.symmetric_difference(&premise_set) {
+        MultiSetDifference::None => Ok(()),
+        MultiSetDifference::Missing(t) => Err(CheckerError::ContractionMissingTerm((*t).clone())),
+        MultiSetDifference::Extra(t) => Err(CheckerError::ContractionExtraTerm((*t).clone())),
     }
+}
+
+pub fn shuffle(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (left, right) = match_term_err!((= l r) = &conclusion[0])?;
+    let (left_args, right_args) = {
+        let ((l_op, l), (r_op, r)) = (left.as_op_err()?, right.as_op_err()?);
+        if l_op != r_op {
+            return Err(CongruenceError::DifferentOperators(l_op, r_op).into());
+        }
+        match l_op {
+            Operator::Add | Operator::Mult | Operator::And | Operator::Or => (l, r),
+            other => return Err(CheckerError::OperatorNotCommutative(other)),
+        }
+    };
+
+    let left_multiset: MultiSet<_> = left_args.iter().collect();
+    let right_multiset: MultiSet<_> = right_args.iter().collect();
+    if left_multiset != right_multiset {
+        return Err(CheckerError::ShuffleArgsNotEqual);
+    }
+    Ok(())
 }
 
 pub fn symm(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
@@ -56,7 +79,7 @@ pub fn not_symm(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
 
 pub fn eq_symmetric(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
-    let ((t_1, u_1), (u_2, t_2)) = match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
+    let (t_1, u_1, u_2, t_2) = match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
     assert_eq(t_1, t_2)?;
     assert_eq(u_1, u_2)
 }
@@ -82,7 +105,7 @@ pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleR
     // term in `and_contents`
     for i in 0..and_contents.len() {
         let and_arg = &and_contents[i];
-        match &premises[i].clause {
+        match premises[i].clause {
             [term] => {
                 assert_eq(and_arg, term)?;
             }
@@ -94,6 +117,7 @@ pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleR
     }
     Ok(())
 }
+
 pub fn bind_let(
     RuleArgs {
         conclusion,
@@ -166,7 +190,7 @@ fn la_mult_generic(conclusion: &[Rc<Term>], is_pos: bool) -> RuleResult {
     }
 
     assert_clause_len(conclusion, 1)?;
-    let ((m_comparison, original), scaled) =
+    let (m_comparison, original, scaled) =
         match_term_err!((=> (and m_comparison original) scaled) = &conclusion[0])?;
     let (m, zero) = if is_pos {
         match_term_err!((> m zero) = m_comparison)
@@ -235,4 +259,10 @@ pub fn mod_simplify(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
         CheckerError::ExpectedNumber(expected.into(), right.clone())
     );
     Ok(())
+}
+
+pub fn evaluate(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (term, value) = match_term_err!((= term value) = &conclusion[0])?;
+    assert_eq(&term.evaluate(pool), value)
 }

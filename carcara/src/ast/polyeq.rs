@@ -10,7 +10,8 @@
 use rug::Rational;
 
 use super::{
-    AnchorArg, BindingList, Constant, Operator, ProofCommand, ProofStep, Rc, Sort, Subproof, Term,
+    AnchorArg, BindingList, Constant, NaryCase, Operator, ProofCommand, ProofStep, Rc, Sort,
+    Subproof, Term,
 };
 use crate::utils::HashMapStack;
 use std::time::{Duration, Instant};
@@ -355,15 +356,15 @@ impl Polyeq {
         if self.is_mod_nary {
             if op_a != op_b {
                 // TODO: check pairwise case
-                return if nary_case(op_a) == Some(NaryCase::Chainable) {
+                return if op_a.nary_case() == Some(NaryCase::Chainable) {
                     op_b == Operator::And && self.compare_chainable(op_a, args_a, args_b)
-                } else if nary_case(op_b) == Some(NaryCase::Chainable) {
+                } else if op_b.nary_case() == Some(NaryCase::Chainable) {
                     op_a == Operator::And && self.compare_chainable(op_b, args_b, args_a)
                 } else {
                     false
                 };
             } else if args_a.len() != args_b.len() {
-                let case = nary_case(op_a);
+                let case = op_a.nary_case();
                 return matches!(case, Some(NaryCase::RightAssoc | NaryCase::LeftAssoc))
                     && self.compare_assoc(op_a, args_a, args_b);
             };
@@ -417,7 +418,7 @@ impl Polyeq {
             _ => (),
         }
 
-        let is_right = nary_case(op) == Some(NaryCase::RightAssoc);
+        let is_right = op.nary_case() == Some(NaryCase::RightAssoc);
 
         let (left_head, mut left_tail) = split(left, is_right);
         let (right_head, mut right_tail) = split(right, is_right);
@@ -625,6 +626,17 @@ impl PolyeqComparable for Term {
                 },
             ) => op_a == op_b && op_args_a == op_args_b && comp.eq(args_a, args_b),
 
+            // Check the singleton case (op a) = a, where op is left-associative
+            (Term::Op(op, args), other) | (other, Term::Op(op, args))
+                if comp.is_mod_nary
+                    && args.len() == 1
+                    && op.nary_case() == Some(NaryCase::LeftAssoc)
+                    // We have to check with `==` first because we are calling into `comp.eq` with
+                    // `&Term`s directly (instead of `Rc<Term>`s), so the `==` check is skipped
+                    && (args[0].as_ref() == other || comp.eq(args[0].as_ref(), other)) =>
+            {
+                true
+            }
             (Term::Op(op_a, args_a), Term::Op(op_b, args_b)) => {
                 (comp.is_mod_eval
                     && a.is_evaluatable()
@@ -745,14 +757,16 @@ impl PolyeqComparable for Sort {
     fn eq(comp: &mut Polyeq, a: &Self, b: &Self) -> bool {
         match (a, b) {
             (Sort::Function(sorts_a), Sort::Function(sorts_b)) => comp.eq(sorts_a, sorts_b),
-            (Sort::Atom(a, sorts_a), Sort::Atom(b, sorts_b)) => a == b && comp.eq(sorts_a, sorts_b),
+            (Sort::Atom(a, sorts_a), Sort::Atom(b, sorts_b)) => {
+                a == b && comp.eq(sorts_a.as_ref(), sorts_b.as_ref())
+            }
             (Sort::Bool, Sort::Bool)
             | (Sort::Int, Sort::Int)
             | (Sort::Real, Sort::Real)
             | (Sort::String, Sort::String)
             | (Sort::RegLan, Sort::RegLan)
-            | (Sort::RareList, Sort::RareList)
             | (Sort::Type, Sort::Type) => true,
+            (Sort::RareList(a), Sort::RareList(b)) => comp.eq(a, b),
             (Sort::Array(x_a, y_a), Sort::Array(x_b, y_b)) => {
                 comp.eq(x_a, x_b) && comp.eq(y_a, y_b)
             }
@@ -909,114 +923,3 @@ impl DeBruijnMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NaryCase {
-    Chainable,
-    RightAssoc,
-    LeftAssoc,
-    Pairwise,
-}
-
-fn nary_case(op: Operator) -> Option<NaryCase> {
-    // We avoid using the wildcard pattern (i.e. `_`) in this match expression so that when someone
-    // adds a new operator, they are reminded to add it to this match
-    match op {
-        // Logical
-        Operator::Implies => Some(NaryCase::RightAssoc),
-        Operator::And | Operator::Or | Operator::Xor => Some(NaryCase::LeftAssoc),
-        Operator::Equals => Some(NaryCase::Chainable),
-        Operator::Distinct => Some(NaryCase::Pairwise),
-        Operator::True | Operator::False | Operator::Not | Operator::Ite => None,
-
-        // Integers/Reals
-        Operator::Add | Operator::Sub | Operator::Mult | Operator::IntDiv | Operator::RealDiv => {
-            Some(NaryCase::LeftAssoc)
-        }
-        Operator::LessThan | Operator::GreaterThan | Operator::LessEq | Operator::GreaterEq => {
-            Some(NaryCase::Chainable)
-        }
-        Operator::Mod | Operator::Abs | Operator::ToReal | Operator::ToInt | Operator::IsInt => {
-            None
-        }
-
-        // Arrays
-        Operator::Select | Operator::Store => None,
-
-        // Strings
-        Operator::StrConcat
-        | Operator::StrLessThan
-        | Operator::StrLessEq
-        | Operator::ReConcat
-        | Operator::ReUnion
-        | Operator::ReIntersection
-        | Operator::ReDiff => Some(NaryCase::LeftAssoc),
-
-        Operator::StrLen
-        | Operator::CharAt
-        | Operator::Substring
-        | Operator::PrefixOf
-        | Operator::SuffixOf
-        | Operator::Contains
-        | Operator::IndexOf
-        | Operator::Replace
-        | Operator::ReplaceAll
-        | Operator::ReplaceRe
-        | Operator::ReplaceReAll
-        | Operator::StrIsDigit
-        | Operator::StrToCode
-        | Operator::StrFromCode
-        | Operator::StrToInt
-        | Operator::StrFromInt
-        | Operator::StrToRe
-        | Operator::StrInRe
-        | Operator::ReNone
-        | Operator::ReAll
-        | Operator::ReAllChar
-        | Operator::ReKleeneClosure
-        | Operator::ReComplement
-        | Operator::ReKleeneCross
-        | Operator::ReOption
-        | Operator::ReRange
-        | Operator::ReFromAutomaton => None,
-
-        // Bitvectors
-        Operator::BvAnd | Operator::BvOr | Operator::BvAdd | Operator::BvMul => {
-            Some(NaryCase::LeftAssoc)
-        }
-        Operator::BvNot
-        | Operator::BvNeg
-        | Operator::BvUDiv
-        | Operator::BvURem
-        | Operator::BvShl
-        | Operator::BvLShr
-        | Operator::BvULt
-        | Operator::BvConcat
-        | Operator::BvNAnd
-        | Operator::BvNOr
-        | Operator::BvXor
-        | Operator::BvXNor
-        | Operator::BvComp
-        | Operator::BvSub
-        | Operator::BvSDiv
-        | Operator::BvSRem
-        | Operator::BvSMod
-        | Operator::BvAShr
-        | Operator::BvULe
-        | Operator::BvUGt
-        | Operator::BvUGe
-        | Operator::BvSLt
-        | Operator::BvSLe
-        | Operator::BvSGt
-        | Operator::BvSGe
-        | Operator::UBvToInt
-        | Operator::SBvToInt
-        | Operator::BvPBbTerm
-        | Operator::BvBbTerm
-        | Operator::BvConst
-        | Operator::BvSize
-        | Operator::RareList => None,
-
-        // Clausal
-        Operator::Cl | Operator::Delete => Some(NaryCase::LeftAssoc),
-    }
-}

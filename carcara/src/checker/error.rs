@@ -1,7 +1,8 @@
+use crate::external::ExternalError;
 use crate::{
     ast::*,
     automata::{Automaton, Trigger},
-    checker::rules::linear_arithmetic::{CmpOperator, LinearComb},
+    checker::rules::linear_arithmetic::LinearComb,
     utils::{Range, TypeName},
 };
 use rug::{Integer, Rational};
@@ -37,6 +38,12 @@ pub enum CheckerError {
 
     #[error(transparent)]
     LinearArithmetic(#[from] LinearArithmeticError),
+
+    #[error(transparent)]
+    Polynomial(#[from] PolynomialError),
+
+    #[error(transparent)]
+    External(#[from] ExternalError),
 
     #[error(transparent)]
     Subproof(#[from] SubproofError),
@@ -100,6 +107,12 @@ pub enum CheckerError {
     )]
     CannotApplyReUnfoldPosComponentDifferentArgNum(Rc<Term>, Rc<Term>),
 
+    #[error("operator '{0}' is not commutative")]
+    OperatorNotCommutative(Operator),
+
+    #[error("cannot evaluate term: '{0}'")]
+    CannotEvaluateTerm(Rc<Term>),
+
     // General errors
     #[error("expected {0} premises, got {1}")]
     WrongNumberOfPremises(Range, usize),
@@ -152,6 +165,9 @@ pub enum CheckerError {
     #[error("expected term '{0}' to be an non-negative integer constant")]
     ExpectedNonnegInteger(Rc<Term>),
 
+    #[error("expected term '{0}' to be a bitvector constant")]
+    ExpectedBitvector(Rc<Term>),
+
     #[error("expected operation term, got '{0}'")]
     ExpectedOperationTerm(Rc<Term>),
 
@@ -191,6 +207,43 @@ pub enum CheckerError {
 
     #[error(transparent)]
     IntegerEquality(#[from] EqualityError<Integer>),
+
+    // Rare Rules Error
+    #[error("expected a rare rule specified in the arguments")]
+    RareNotSpecifiedRule,
+
+    #[error("expected a rare rule specified in the arguments, but found {0}")]
+    RareRuleExpectedLiteral(Rc<Term>),
+
+    #[error("the rule {0} wasn`t found")]
+    RareRuleNotFound(String),
+
+    #[error("expected {0} number of premises, maybe you applied more arguments than needed")]
+    RareNumberOfPremisesWrong(usize),
+
+    #[error("parameter {0} wasn't not found")]
+    RareArgumentNotFound(String),
+
+    #[error("expected premise {0} to be '{1}' but instead it is a '{2}'")]
+    RareMisMatchTypes(String, Rc<Term>, Rc<Term>),
+
+    #[error("the list {0} contains unequal sorts: {1} and {2}")]
+    RareListNotSortUniform(Rc<Term>, Rc<Term>, Rc<Term>),
+
+    #[error("the term {0} has no sort defined")]
+    RareNotFoundSort(Rc<Term>),
+
+    #[error("the argument {0} isn't a list")]
+    RareArgumentIsNotRareList(String),
+
+    #[error("the premise {0} isn't equal to {1}")]
+    RarePremiseAreNotEqual(Rc<Term>, Rc<Term>),
+
+    #[error("the conclusion {0} isn't equal to {1}")]
+    RareConclusionAreNotEqual(Rc<Term>, Rc<Term>),
+
+    #[error("the conclusion of a rare rule should be exactly 1")]
+    RareConclusionNumberInvalid(),
 
     #[error("unknown rule")]
     UnknownRule,
@@ -321,13 +374,16 @@ pub enum QuantifierError {
     },
 
     #[error("unknown binding introduced in right-hand side: '{0}'")]
-    CnfNewBindingIntroduced(String),
+    NewBindingIntroduced(String),
 
     #[error("binding is missing in right-hand side: '{0}'")]
-    CnfBindingIsMissing(String),
+    BindingIsMissing(String),
 
     #[error("result clause doesn't appear in CNF of original term: '{0}'")]
     ClauseDoesntAppearInCnf(Rc<Term>),
+
+    #[error("binding '{0}' appears as free variable in term '{1}'")]
+    MiniscopeFreeVar(String, Rc<Term>),
 }
 
 /// Errors relevant to the linear arithmetic rules.
@@ -343,19 +399,41 @@ pub enum LinearArithmeticError {
     TooManyArgsInDisequality(Rc<Term>),
 
     #[error("final disequality is not contradictory: '{}'", DisplayLinearComb(.0, .1))]
-    DisequalityIsNotContradiction(CmpOperator, LinearComb),
+    DisequalityIsNotContradiction(Operator, Box<LinearComb>),
 
     #[error("final disequality is not tautological: '{}'", DisplayLinearComb(.0, .1))]
-    DisequalityIsNotTautology(CmpOperator, LinearComb),
+    DisequalityIsNotTautology(Operator, Box<LinearComb>),
 
-    #[error("cannot add operators: '{}' and '{}'", .0, .1)]
-    CannotAddOperators(CmpOperator, CmpOperator),
+    #[error("cannot add operators: '{0}' and '{1}'")]
+    CannotAddOperators(Operator, Operator),
 
     #[error("expected term '{0}' to be less than term '{1}'")]
     ExpectedLessThan(Rc<Term>, Rc<Term>),
 
     #[error("expected term '{0}' to be less than or equal to term '{1}'")]
     ExpectedLessEq(Rc<Term>, Rc<Term>),
+}
+
+/// Errors relevant to the polynomial simplification rules.
+#[derive(Debug, Error)]
+pub enum PolynomialError {
+    #[error("terms are not equal after polynomial normalization: '{0}' and '{1}'")]
+    PolynomialsNotEqual(Rc<Term>, Rc<Term>),
+
+    #[error("expected bitvector sort, got '{0}'")]
+    ExpectedBvSort(Sort),
+
+    #[error("coefficient can't be zero: '{0}'")]
+    CoeffIsZero(Rational),
+
+    #[error("coefficients should have the same signum: '{0}' and '{1}'")]
+    CoeffDifferentSignums(Rational, Rational),
+
+    #[error("coefficient should be odd: '{0}'")]
+    CoeffEven(Integer),
+
+    #[error("invalid relation operators: '{0}' and '{1}'")]
+    InvalidOperators(Operator, Operator),
 }
 
 /// Errors relevant to all rules that end subproofs (not just the `subproof` rule).
@@ -405,7 +483,7 @@ pub enum SubproofError {
 }
 
 /// A wrapper struct that implements `fmt::Display` for linear combinations.
-struct DisplayLinearComb<'a>(&'a CmpOperator, &'a LinearComb);
+struct DisplayLinearComb<'a>(&'a Operator, &'a LinearComb);
 
 impl fmt::Display for DisplayLinearComb<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -417,12 +495,8 @@ impl fmt::Display for DisplayLinearComb<'_> {
             }
         }
 
-        let DisplayLinearComb(op, LinearComb(vars, constant)) = *self;
-        if *op == CmpOperator::NotEquals {
-            write!(f, "(not (= ")?;
-        } else {
-            write!(f, "({} ", op)?;
-        }
+        let DisplayLinearComb(op, LinearComb(vars, constant)) = self;
+        write!(f, "({} ", op)?;
         match vars.len() {
             0 => write!(f, "0.0"),
             1 => write_var(f, vars.iter().next().unwrap()),
@@ -435,10 +509,6 @@ impl fmt::Display for DisplayLinearComb<'_> {
                 write!(f, ")")
             }
         }?;
-        write!(f, " {:?})", constant.to_f64())?;
-        if *op == CmpOperator::NotEquals {
-            write!(f, ")")?;
-        }
-        Ok(())
+        write!(f, " {:?})", constant.to_f64())
     }
 }

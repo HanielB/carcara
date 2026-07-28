@@ -935,6 +935,7 @@ mod tests {
         let mut polyeq_time = Duration::ZERO;
         let mut eunif_cc = None;
         let mut automata_cache = IndexMap::new();
+        let rare_rules = crate::ast::rare_rules::Rules { rules: indexmap::IndexMap::new() };
         aci_simp(RuleArgs {
             conclusion: &conclusion,
             premises: &[],
@@ -946,6 +947,7 @@ mod tests {
             polyeq_time: &mut polyeq_time,
             eunif_cc: &mut eunif_cc,
             automata_cache: &mut automata_cache,
+            rare_rules: &rare_rules,
         })
     }
 

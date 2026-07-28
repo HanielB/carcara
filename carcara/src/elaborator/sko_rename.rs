@@ -51,6 +51,7 @@ fn walk(
                 .map(|p| walk(pool, p, cache))
                 .collect();
             Rc::new(ProofNode::Subproof(SubproofNode {
+                extra_steps: Vec::new(),
                 last_step: new_last,
                 args: s.args.clone(),
                 outbound_premises,
@@ -142,6 +143,7 @@ fn rewrite_sko_rename(
     }));
 
     let bind_subproof = Rc::new(ProofNode::Subproof(SubproofNode {
+                extra_steps: Vec::new(),
         last_step: bind_step,
         args: bind_args,
         outbound_premises: Vec::new(),
@@ -166,6 +168,7 @@ fn rewrite_sko_rename(
     }));
 
     let sko_subproof = Rc::new(ProofNode::Subproof(SubproofNode {
+                extra_steps: Vec::new(),
         last_step: sko_step,
         args: args.to_vec(),
         outbound_premises,

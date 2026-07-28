@@ -2,7 +2,6 @@
 //! and the elaborated proofs (which must not contain `g_eunif` steps anymore) are checked again.
 
 use carcara::*;
-use std::io::Cursor;
 
 const PROBLEM_PRELUDE: &str = "
     (declare-sort T 0)
@@ -26,33 +25,33 @@ fn any_step_uses_rule(commands: &[ast::ProofCommand], rule: &str) -> bool {
 
 fn run_test(asserts: &str, proof: &str) {
     let problem = format!("{}{}", PROBLEM_PRELUDE, asserts);
-    let (problem, proof, mut pool) = parser::parse_instance(
-        Cursor::new(problem.as_str()),
-        Cursor::new(proof),
-        parser::Config::new(),
-    )
-    .expect("parser error");
+    let (problem, proof, rare_rules, mut pool) =
+        parser::parse_instance(problem.as_str(), proof, None, parser::Config::new())
+            .expect("parser error");
 
     let checker_config = checker::Config {
         elaborated: false,
         ignore_unknown_rules: false,
         allowed_rules: ["hole".to_owned()].into(),
+        ..Default::default()
     };
 
     // First, we check the original proof
-    checker::ProofChecker::new(&mut pool, checker_config.clone())
+    checker::ProofChecker::new(&mut pool, &rare_rules, checker_config.clone())
         .check(&problem, &proof)
         .expect("original proof is invalid");
 
     // Then we elaborate it, and make sure no `g_eunif` step is left
     let config = elaborator::Config {
-        lia_options: None,
-        hole_options: None,
+        lia_solver: None,
+        hole_solver: None,
         uncrowd_rotation: true,
+        sat_ref_tools: None,
     };
-    let node = ast::ProofNode::from_commands(proof.commands.clone());
-    let elaborated_node = elaborator::Elaborator::new(&mut pool, &problem, config.clone())
-        .elaborate_with_default_pipeline(&node);
+    let node = ast::ProofNodeForest::from_commands(proof.commands.clone());
+    let elaborated_node: ast::ProofNodeForest = elaborator::Elaborator::new(&mut pool, &problem, config.clone())
+        .elaborate_with_default_pipeline(ast::ProofNodeForest(node.0.clone()))
+        .expect("elaboration failed");
     let elaborated = ast::Proof {
         constant_definitions: proof.constant_definitions.clone(),
         commands: elaborated_node.into_commands(),
@@ -63,13 +62,14 @@ fn run_test(asserts: &str, proof: &str) {
     );
 
     // After that, we check the elaborated proof
-    checker::ProofChecker::new(&mut pool, checker_config.clone())
+    checker::ProofChecker::new(&mut pool, &rare_rules, checker_config.clone())
         .check(&problem, &elaborated)
         .expect("elaborated proof is invalid");
 
     // Then we make sure the elaboration is idempotent
     let elaborated_twice = elaborator::Elaborator::new(&mut pool, &problem, config.clone())
-        .elaborate_with_default_pipeline(&elaborated_node);
+        .elaborate_with_default_pipeline(ast::ProofNodeForest(elaborated_node.0.clone()))
+        .expect("elaboration failed");
     assert!(
         elaborated.commands == elaborated_twice.into_commands(),
         "elaboration was not idempotent"
@@ -77,22 +77,24 @@ fn run_test(asserts: &str, proof: &str) {
 
     // Finally, we run the pipeline consisting of only the `eunif` step, which should suffice to
     // remove all `g_eunif` steps and yield a checkable proof, and also be idempotent
-    let node = ast::ProofNode::from_commands(proof.commands.clone());
+    let node = ast::ProofNodeForest::from_commands(proof.commands.clone());
     let eunif_only_node = elaborator::Elaborator::new(&mut pool, &problem, config.clone())
-        .elaborate(&node, vec![elaborator::ElaborationStep::Eunif]);
+        .elaborate(node, vec![elaborator::ElaborationPass::Eunif])
+        .expect("elaboration failed");
     let eunif_only = ast::Proof {
         constant_definitions: proof.constant_definitions.clone(),
-        commands: eunif_only_node.clone().into_commands(),
+        commands: ast::ProofNodeForest(eunif_only_node.0.clone()).into_commands(),
     };
     assert!(
         !any_step_uses_rule(&eunif_only.commands, "g_eunif"),
         "eunif-only elaborated proof still uses `g_eunif`"
     );
-    checker::ProofChecker::new(&mut pool, checker_config)
+    checker::ProofChecker::new(&mut pool, &rare_rules, checker_config)
         .check(&problem, &eunif_only)
         .expect("eunif-only elaborated proof is invalid");
     let eunif_only_twice = elaborator::Elaborator::new(&mut pool, &problem, config)
-        .elaborate(&eunif_only_node, vec![elaborator::ElaborationStep::Eunif]);
+        .elaborate(ast::ProofNodeForest(eunif_only_node.0.clone()), vec![elaborator::ElaborationPass::Eunif])
+        .expect("elaboration failed");
     assert!(
         eunif_only.commands == eunif_only_twice.into_commands(),
         "eunif-only elaboration was not idempotent"
