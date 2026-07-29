@@ -15,6 +15,10 @@ use crate::{
 /// (step t3.t1 (cl (not (= F1 F2)) (not F1) F2) :rule equiv_pos2)
 /// (step t3 (cl F2) :rule resolution :premises (t3.t1 t2 t1) :args ((= F1 F2) false F1 false))
 /// ```
+///
+/// If `F2` is the negation of `F1`, the last two literals of the `equiv_pos2` step are the same, so
+/// the resolution would conclude the empty clause. It can conclude `F2` however if the resolution is
+/// just with `t2`.
 pub fn eq_mp(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -28,17 +32,18 @@ pub fn eq_mp(
     let equivalence = equiv_step.clause()[0].clone();
     let (phi_1, phi_2) = match_term_err!((= phi_1 phi_2) = &equivalence)?;
     let (phi_1, phi_2) = (phi_1.clone(), phi_2.clone());
+    let special_case = match_term!((not phi) = &phi_2) == Some(&phi_1);
 
-    // If `phi_2` is exactly the negation of `phi_1`, the last two literals introduced by
-    // `equiv_pos2` are the same, and the resolution below would derive the empty clause instead of
-    // the step's conclusion. That can only happen if the premises are contradictory, in which case
-    // we simply leave the step as it is.
-    if match_term!((not phi) = &phi_2) == Some(&phi_1) {
-        return Ok(Rc::new(ProofNode::Step(step.clone())));
+    let mut ids = IdHelper::new(&step.id);
+    // The resolution that will be introduced in the special case relies on
+    // duplicate removal. In the `uncrowd` pass, if that is active, a
+    // `contraction` step would be added. To avoid clashing of ids, we make sure
+    // that equiv_pos2 is one step deeper.
+    if special_case {
+        ids.push();
     }
-
     let equiv_pos2_step = Rc::new(ProofNode::Step(StepNode {
-        id: IdHelper::new(&step.id).next_id(),
+        id: ids.next_id(),
         depth: step.depth,
         clause: vec![
             build_term!(pool, (not {equivalence.clone()})),
@@ -48,12 +53,18 @@ pub fn eq_mp(
         rule: "equiv_pos2".to_owned(),
         ..Default::default()
     }));
-
     let f = pool.bool_false();
+    let mut premises = vec![equiv_pos2_step, equiv_step.clone()];
+    let mut args = vec![equivalence, f.clone()];
+    if !special_case {
+        premises.push(phi_1_step.clone());
+        args.extend([phi_1, f]);
+    }
+
     Ok(Rc::new(ProofNode::Step(StepNode {
         rule: "resolution".to_owned(),
-        premises: vec![equiv_pos2_step, equiv_step.clone(), phi_1_step.clone()],
-        args: vec![equivalence, f.clone(), phi_1, f],
+        premises,
+        args,
         ..step.clone()
     })))
 }

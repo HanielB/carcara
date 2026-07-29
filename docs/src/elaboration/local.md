@@ -99,6 +99,16 @@ premises and a new `equiv_pos2` step:
 (step t3.t1 (cl (not (= p q)) (not p) q) :rule equiv_pos2)
 (step t3 (cl q) :rule resolution :premises (t3.t1 h2 h1) :args ((= p q) false p false))
 ```
-A guard is added for the case where `F2` is the negation of `F1`, that is, when the premises are
-contradictory. In that case the last two literals of the `equiv_pos2` step would be the same, and
-the resolution would derive the empty clause instead of `(cl F2)`, so the step is left unchanged.
+In the odd case where `q` is exactly `(not p)` this pattern would break the
+resolution, so instead the elaboration is done with a resolution step that
+considers just the equivalence premise and relies on implicit duplicate
+elimination (which can be further eliminated by other elaboration passes if they
+are active). The `equiv_pos2` step is nested one level deeper here, so that its
+id does not clash with the ones used by the `uncrowd` pass when it adds the
+`contraction` step that removes the duplicate:
+```
+(assume h1 p)
+(assume h2 (= p (not p)))
+(step t3.t1.t1 (cl (not (= p (not p))) (not p) (not p)) :rule equiv_pos2)
+(step t3 (cl (not p)) :rule resolution :premises (t3.t1.t1 h2) :args ((= p (not p)) false))
+```
