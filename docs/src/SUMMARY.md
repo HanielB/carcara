@@ -9,6 +9,8 @@
   - ["Local" elaboration](./elaboration/local.md)
   - [Resolution uncrowding](./elaboration/uncrowding.md)
   - [Reordering elimination](./elaboration/reordering.md)
+- [The core Alethe fragment](./core.md)
+  - [Rule classification](./core/classification.md)
 - [Other features](./etc.md)
   - [Proof parsing/printing](./etc/parse.md)
   - [Proof slicing](./etc/slice.md)
