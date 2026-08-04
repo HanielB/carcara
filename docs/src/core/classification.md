@@ -6,11 +6,12 @@ The full classification of the 120 Alethe specification rules, in specification 
 [parent chapter](../core.md) for the cost criterion (R1–R4) and the worked-out recipes.
 
 The *check* column states the checking complexity of the steps a reduction emits: *syntactic* (pure
-matching), *Farkas* (arithmetic certificate checking, via `la_generic`), or *oracle* (external
-solver). The *status* column tracks Carcara's elaboration: *done* (the reduction is implemented),
-*planned*, *—* (core, nothing to reduce), or *accepted* (leaf).
+matching), *Farkas* (arithmetic certificate checking, via `la_generic`), *ring* (polynomial
+normalization, via `poly_simp`), or *oracle* (external solver). The *status* column tracks
+Carcara's elaboration: *done* (the reduction is implemented), *planned*, *—* (core, nothing to
+reduce), or *accepted* (leaf).
 
-Tally: 42 core, 32 reducible, 46 leaf.
+Tally: 42 core, 35 reducible, 43 leaf.
 
 ## Special and structural rules
 
@@ -36,8 +37,8 @@ Tally: 42 core, 32 reducible, 46 leaf.
 | `la_disequality` | leaf | — | | | negated literal is a disequality; not a Farkas consequence |
 | `la_totality` | reducible | `la_generic` + `or_neg` ×2 + `resolution` ×2 + `contraction` | 6 | Farkas + syntactic | planned; unit-clause-with-`or` packaging |
 | `la_tautology` | reducible | `la_generic` (coeff `[1]`, or `[1,1]` + `or` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
-| `la_mult_pos` | leaf | — | | | nonlinear multiplication |
-| `la_mult_neg` | leaf | — | | | nonlinear multiplication |
+| `la_mult_pos` | reducible | `la_mult_pos_pos` + `poly_simp` + `la_generic` (+ `cong`, case splits for non-strict forms) | O(1) template | syntactic + Farkas + ring | planned; needs `poly_simp` core promotion and the `la_mult_pos_pos` axiom |
+| `la_mult_neg` | reducible | same, with `la_generic` sign-flip preprocessing | O(1) template | syntactic + Farkas + ring | planned; ditto |
 
 ## Binders and quantifiers
 
@@ -104,7 +105,7 @@ usable in resolution chains without subproof wrappers).
 |---|---|---|---|---|---|
 | `weakening` | core | — | | | not derivable without rewriting consumers (R3) |
 | `reordering` | reducible | (eliminated) | 0 | — | done — reordering pass recomputes downstream conclusions |
-| `shuffle` | leaf | — | | | term-level permutation; comm/assoc rewrite expansion is O(n²), fails R1 |
+| `shuffle` | reducible | `aci_simp` (rename) | 0 | ACI normalization | planned; subsumption into a leaf — coarsens the check from multiset comparison to ACI equivalence |
 
 ## Definitional
 

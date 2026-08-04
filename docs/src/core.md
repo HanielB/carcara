@@ -20,8 +20,10 @@ the classification, the reduction recipes, and the borderline decisions.
   no cheap reduction today. They are accepted in elaborated output, but each has a documented
   long-term reduction trajectory (mostly towards `rare_rewrite`).
 
-Of the 120 specification rules, this classification yields **42 core**, **32 reducible**, and
-**46 leaf** rules.
+Of the 120 specification rules, this classification yields **42 core**, **35 reducible**, and
+**43 leaf** rules. In addition, one extra rule (`poly_simp`) is promoted into the core as a
+computational primitive, and one new axiom (`la_mult_pos_pos`) is proposed; see the arithmetic
+section below.
 
 The core property is defined *post-pipeline*: intermediate passes may emit non-core rules (e.g.
 `reordering` steps, which the final pass of the default pipeline removes); only the output of the
@@ -173,11 +175,19 @@ axiom is interderivable with its premise-taking twin via a subproof, but one sid
 The premise-free side is the right choice — it has an O(1) syntactic check, and it is usable inside
 resolution chains without subproof wrappers.
 
-## Linear arithmetic: `la_generic` as the computational core
+## Arithmetic: `la_generic` and `poly_simp` as the computational core
 
-`la_generic` is kept core: checking it requires verifying a Farkas certificate, which is arithmetic
-rather than syntactic matching, but expanding it into rewrite chains would blow up unboundedly. Two
-LA rules reduce to it:
+The core has two designated *computational* primitives for arithmetic, i.e. rules whose checking is
+not syntactic matching but a decision procedure with a fixed, well-understood algorithm:
+
+- `la_generic`: linear consequence, checked by verifying a Farkas certificate. Expanding it into
+  rewrite chains would blow up unboundedly.
+- `poly_simp` (an extra rule, not among the 120 specification rules): a unit equality between
+  polynomial terms, checked by ring-normalizing both sides. This is the *nonlinear normalization*
+  primitive: it justifies distribution, flattening, and constant folding of products — steps that
+  `la_generic` cannot express, since it treats distinct monomials as unrelated atoms.
+
+Two LA rules reduce to `la_generic` alone:
 
 - `la_tautology`, first form (a single trivially-unsatisfiable-when-negated inequality literal):
   `la_generic` with coefficient `[1]`.
@@ -188,10 +198,50 @@ LA rules reduce to it:
   still O(1).
 
 `la_disequality` stays leaf: the negation of its positive equality literal is a *disequality*, which
-a Farkas combination cannot consume; reducing it would need case-split machinery. `la_mult_pos` and
-`la_mult_neg` involve nonlinear multiplication and also stay leaf. `lia_generic` is special: it is
-not checkable at all without an external solver, and is classified as *oracle-reducible* — the
-existing hole elaboration pass replaces it with a full sub-proof produced by an external solver.
+a Farkas combination cannot consume; reducing it would need case-split machinery. `lia_generic` is
+special: it is not checkable at all without an external solver, and is classified as
+*oracle-reducible* — the existing hole elaboration pass replaces it with a full sub-proof produced
+by an external solver.
+
+### Nonlinear multiplication: reducing the `la_mult_*` family
+
+With `poly_simp` in the core, the nonlinear multiplication rules stop being leaves. The proposed
+common base is a single new axiom — the ordered-ring fact that the positive cone is closed under
+multiplication:
+
+```
+(cl (=> (and (> x 0) (> y 0)) (> (* x y) 0)))     ; la_mult_pos_pos
+```
+
+Its check is O(1) syntactic matching. It is exactly the overlap of the existing schemas: the binary
+all-positive instance of `la_mult_sign` (see the extras table below), and the (`⋈` = `>`,
+`t3` = `0`) instance of `la_mult_pos` modulo one `poly_simp` step (`(* t1 0) ≈ 0`). No negative
+variant is needed: mixed- and negative-sign cases route through `la_generic` sign-flips
+(`t < 0 → -t > 0`) plus `poly_simp` (`(* (- x) (- y)) ≈ (* x y)`).
+
+The reductions, all using subproof-discharge plus the implication-term repackaging
+(`implies_neg1/2` + two resolutions + `contraction`, the dual of the `la_totality` or-packaging):
+
+- **`la_mult_pos`/`la_mult_neg`, strict forms** — constant template: `la_generic` turns
+  `t2 ⋈ t3` into a sign fact about the difference (`(- t2 t3) > 0`), the axiom applies to
+  `(* t1 (- t2 t3))`, and `poly_simp` justifies the distribution
+  `(* t1 (- t2 t3)) ≈ (- (* t1 t2) (* t1 t3))` — the step that previously blocked this reduction —
+  before `la_generic` converts back to `(* t1 t2) ⋈ (* t1 t3)`.
+- **`≈` form** — no axiom needed at all: `cong` on the multiplication.
+- **`≤`/`≥` and disequality forms** — one bounded case split each (`t2 - t3 < 0 ∨ t2 - t3 = 0`
+  via `la_generic`/`la_disequality`-style totality), combining the strict and `cong` branches.
+- **`la_mult_sign`** (extra rule, `alethe-toolkit` branch) — O(n) fold over the monomial: one axiom
+  instance plus one `poly_simp` normalization per factor, negative factors pre-flipped through
+  `la_generic`, even-exponent factors (`v ≠ 0`) costing one bounded case split each.
+- **`la_mult_abs_comparison`** (extra rule, `alethe-toolkit` branch) — reduces to the same base
+  only once `abs` is handled by a definitional rewrite (`(abs t) ≈ (ite (>= t 0) t (- t))`, e.g. as
+  a RARE rule): then each factor costs a bounded case split and the product comparisons chain
+  through the axiom. O(n) with a larger constant; contingent on the `abs` rewrite, so it stays
+  leaf until that primitive is chosen.
+
+The trade is the usual one: elaborated proofs get O(n) scaffolding where solvers emitted one macro
+step, and the checker must trust ring normalization (`poly_simp`) as a second computational
+primitive alongside Farkas checking.
 
 ## Other reducible rules
 
@@ -202,6 +252,12 @@ existing hole elaboration pass replaces it with a full sub-proof produced by an 
   the premise from the proof DAG (relevant for slicing).
 - `th_resolution` is, per the specification, the same rule as `resolution`; elaboration normalizes
   the name.
+- `shuffle` is subsumed by `aci_simp`: multiset equality of arguments under a commutative operator
+  is a special case of ACI equivalence, `shuffle`'s operators (`+`, `*`, `and`, `or`) are all in
+  `aci_simp`'s operator list, and the conclusion shape is identical — so the reduction is a pure
+  rename, zero new steps. Note this is subsumption into a *leaf* (the rewrite tier), not into the
+  core, and the check coarsens: `aci_simp` also collapses idempotent duplicates and identity
+  elements, so the renamed step admits conclusions the multiset check would reject.
 - `reordering` is already eliminated by the reordering elaboration pass, which recomputes downstream
   conclusions instead.
 - `multi_rare_rewrite` reduces to a chain of `rare_rewrite` steps glued with `trans`/`cong`
@@ -246,10 +302,9 @@ The leaf tier is dominated by two families:
   bit-width; low payoff, since consumers prefer the leaves.
 
 The remaining leaves are structural transformations (`distinct_elim`, `nary_elim`, `bfun_elim`,
-`ite_intro`, `la_rw_eq`, `shuffle`, `qnt_join`, `qnt_rm_unused`), the miniscoping rules, and
-`qnt_cnf`, which the specification itself declares a placeholder (treated as hole-like). `shuffle`
-fails R1: expressing an arbitrary permutation via commutativity/associativity rewrites is O(n²) in
-the worst case. `nary_elim` is a promotion candidate: the polyequality elaboration itself emits it.
+`ite_intro`, `la_rw_eq`, `qnt_join`, `qnt_rm_unused`), the miniscoping rules, and `qnt_cnf`, which
+the specification itself declares a placeholder (treated as hole-like). `nary_elim` is a promotion
+candidate: the polyequality elaboration itself emits it.
 
 ## Extra rules beyond the specification
 
@@ -262,7 +317,11 @@ way:
 | `bounded_farkas` | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
 | `and_intro` | reducible | `and_neg` + one `resolution` with explicit pivots |
 | `strict_resolution` | core variant | strict form of `resolution` used after elaboration |
-| `evaluate`, `mod_simplify`, `poly_simp`, `all_simplify` | leaf (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
+| `poly_simp` | **core** (computational) | ring-normalization primitive; see the arithmetic section |
+| `la_mult_pos_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
+| `la_mult_sign` (`alethe-toolkit` branch) | reducible | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
+| `la_mult_abs_comparison` (`alethe-toolkit` branch) | leaf | reducible to the same base once an `abs` definitional rewrite exists |
+| `evaluate`, `mod_simplify`, `all_simplify` | leaf (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | leaf (theory extensions) | `sat_refutation` oracle-reducible via its dedicated pass |
 
 ## Divergences from the specification
@@ -279,6 +338,10 @@ specification maintainers:
    (`checker/rules/congruence.rs`), the two-literal form ending in `¬(P t̄), (P ū)`. Both forms
    admit the O(n) reduction shown above, but the specification and the implementations should agree
    on one shape.
+3. **`shuffle` vs `aci_simp`**: every `shuffle` instance is an `aci_simp` instance (see above), so
+   the specification carries two rules for one judgment. The apparent reason to keep both is
+   checking cost — a multiset comparison versus full ACI normalization — which is a performance
+   distinction, not an expressiveness one; worth deciding whether that justifies a separate rule.
 
 ## Validation
 
