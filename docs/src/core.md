@@ -218,7 +218,8 @@ trust anchor, at a cost: the proof grows with the size of the *distributed* norm
 worst-case exponential in the step (a product of k binomials expands to 2^k monomials), though
 benign for the polynomials solvers typically emit. The classification therefore keeps `poly_simp`
 core, with the rewrite elaboration recorded as an optional trust-reduction path rather than the
-default.
+default. The elementary ring rules this route needs are listed in
+[RARE rules for the rewrite routes](./core/rare-rules.md).
 
 Two LA rules reduce to `la_generic` alone:
 

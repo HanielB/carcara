@@ -34,7 +34,9 @@ arithmetic category and the [extras](#extra-rules-beyond-the-specification) sect
 For every **leaf** rule, the tables below also give a *reduction scheme*: the hypothetical
 reduction it would have if the named prerequisite existed, with its cost. This makes visible *why*
 each leaf is a leaf — which primitive is missing, or which cost bound (R1–R4) the reduction
-violates — and how far each rule is from becoming reducible.
+violates — and how far each rule is from becoming reducible. For the schemes that go through
+`rare_rewrite`, the concrete RARE 2.0 rules they require are catalogued in
+[RARE rules for the rewrite routes](./rare-rules.md).
 
 ## Structural
 
