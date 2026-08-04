@@ -20,10 +20,33 @@ the classification, the reduction recipes, and the borderline decisions.
   no cheap reduction today. They are accepted in elaborated output, but each has a documented
   long-term reduction trajectory (mostly towards `rare_rewrite`).
 
+Orthogonally to the tiers, the classification organizes the rules into *concern categories*:
+**structural** (proof structure: `assume`, `subproof`, `hole`), **clausal** (resolution and the
+CNF layer), **binder** (quantifiers and binders), **equality & rewriting** (congruence closure and
+term rewriting), **arithmetic**, **bitvector**, and **legacy**. The legacy category collects rules that are
+placeholders, solver-implementation artifacts, or superseded by more general rules (`lia_generic`,
+`qnt_cnf`, `ite_intro`, `bfun_elim`, and `ac_simp`, which is superseded by `aci_simp`); for these
+the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
+specification should replace them with principled counterparts.
+
 Of the 120 specification rules, this classification yields **42 core**, **35 reducible**, and
-**43 leaf** rules. In addition, one extra rule (`poly_simp`) is promoted into the core as a
-computational primitive, and one new axiom (`la_mult_pos_pos`) is proposed; see the arithmetic
-section below.
+**43 leaf** rules, distributed as follows:
+
+| category | total | core | reducible | leaf |
+|---|---|---|---|---|
+| structural | 3 | 3 | 0 | 0 |
+| clausal | 47 | 25 | 22 | 0 |
+| binder | 13 | 7 | 0 | 6 |
+| equality & rewriting | 25 | 6 | 8 | 11 |
+| arithmetic | 13 (+1) | 1 (+1) | 4 | 8 |
+| bitvector | 14 | 0 | 0 | 14 |
+| legacy | 5 | 0 | 1 | 4 |
+
+The "+1" is the extra rule `poly_simp`, promoted into the core as a computational primitive; one
+new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. For every leaf
+rule, the [classification](./core/classification.md) additionally records a hypothetical
+*reduction scheme* — what the reduction would be, at what cost, and which prerequisite is missing —
+so the distance of each leaf from the core is visible per rule.
 
 The core property is defined *post-pipeline*: intermediate passes may emit non-core rules (e.g.
 `reordering` steps, which the final pass of the default pipeline removes); only the output of the
@@ -187,6 +210,16 @@ not syntactic matching but a decision procedure with a fixed, well-understood al
   primitive: it justifies distribution, flattening, and constant folding of products — steps that
   `la_generic` cannot express, since it treats distinct monomials as unrelated atoms.
 
+For consumers that do not want to trust the ring check, `poly_simp` itself admits an elaboration
+into rewrites: replay the normalization of both sides as chains of elementary RARE arithmetic
+rewrites (distributivity, associativity/commutativity, constant folding, cancellation) glued by
+`trans`/`cong`, meeting in the shared normal form. This makes `rare_rewrite` the sole rewrite
+trust anchor, at a cost: the proof grows with the size of the *distributed* normal form, which is
+worst-case exponential in the step (a product of k binomials expands to 2^k monomials), though
+benign for the polynomials solvers typically emit. The classification therefore keeps `poly_simp`
+core, with the rewrite elaboration recorded as an optional trust-reduction path rather than the
+default.
+
 Two LA rules reduce to `la_generic` alone:
 
 - `la_tautology`, first form (a single trivially-unsatisfiable-when-negated inequality literal):
@@ -292,19 +325,24 @@ primitive alongside Farkas checking.
 
 The leaf tier is dominated by two families:
 
-- **Rewrite equalities (17 rules)**: the `*_simplify` family, `ac_simp`, `aci_simp`. Each is in
-  principle a composition of elementary rewrites glued by `refl`/`trans`/`cong`/`bind` — exactly
-  what `rare_rewrite` chains express. Reducing them requires either an external oracle (as the hole
-  elaboration already does for `all_simplify` and `rare_rewrite`) or instrumenting the deterministic
-  simplification checkers to record rewrite traces. Deterministic, no search — but a large
-  engineering effort, hence deferred.
+- **Rewrite equalities (16 rules)**: the `*_simplify` family and `aci_simp`. Each is in principle
+  a composition of elementary rewrites glued by `refl`/`trans`/`cong`/`bind` — exactly what
+  `rare_rewrite` chains express. Reducing them requires either an external oracle (as the hole
+  elaboration already does for `all_simplify` and `rare_rewrite`) or instrumenting the
+  deterministic simplification checkers to record rewrite traces. Deterministic, no search — but a
+  large engineering effort, hence deferred. The purely arithmetic members (`prod_simplify`,
+  `sum_simplify`, `minus_simplify`, `unary_minus_simplify`) additionally have the cheaper
+  `poly_simp` path: each instance is a unit polynomial equality, so both routes exist — rename to
+  `poly_simp` (ring check, zero new steps) or a RARE trace (syntactic checks, trace-length
+  proofs).
 - **Bitblasting (14 rules)**: reducible in principle to Boolean reasoning of size quadratic in the
   bit-width; low payoff, since consumers prefer the leaves.
 
-The remaining leaves are structural transformations (`distinct_elim`, `nary_elim`, `bfun_elim`,
-`ite_intro`, `la_rw_eq`, `qnt_join`, `qnt_rm_unused`), the miniscoping rules, and `qnt_cnf`, which
-the specification itself declares a placeholder (treated as hole-like). `nary_elim` is a promotion
-candidate: the polyequality elaboration itself emits it.
+The remaining leaves are structural transformations (`distinct_elim`, `nary_elim`, `la_rw_eq`),
+the quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the miniscoping
+rules), and the legacy category's `qnt_cnf`, `ite_intro`, and `bfun_elim` (placeholders and
+solver artifacts slated for removal rather than reduction). `nary_elim` is a promotion candidate:
+the polyequality elaboration itself emits it.
 
 ## Extra rules beyond the specification
 
