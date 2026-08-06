@@ -380,10 +380,12 @@ pairwise conjunction), which is beyond the RARE 2.0 fragment as specified.
 ### Binder-level rules — **[binder]**
 
 Rewriting strictly *below* a binder needs none of this — `bind` + `rare_rewrite` already covers
-it. The six binder-level rules (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) and
-the quantifier-duality instances of `connective_def` are blocked because their redex includes the
-quantifier itself, so the rules need parameters standing for *bound-variable lists*, plus
-freshness/free-variable side conditions. In a hypothetical
+it. The six binder-level rules (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) have
+a redex that includes the quantifier itself, so *as RARE rules* they need parameters standing for
+*bound-variable lists*, plus freshness/free-variable side conditions. Note, however, that the
+classification no longer depends on this extension: these rules reduce through the Skolemization
+route (the derived ∀-ε-clause template; see the parent chapter), so this section documents what
+the RARE route *would* need, as a design alternative. In a hypothetical
 extension (with `@VarList` parameters and a `:fresh-in` premise), the rules would read:
 
 ```lisp
