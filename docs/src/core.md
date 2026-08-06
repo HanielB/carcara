@@ -2,23 +2,36 @@
 
 This chapter defines a *core* set of Alethe rules that is the intended target of Carcara's
 elaboration: after the full elaboration pipeline runs, every step of the resulting proof should use
-only core rules (or *leaf* rules, see below). This gives elaboration a precise specification, and it
-shrinks the rule vocabulary that consumers of elaborated proofs — strict re-checking, and the
-translation backends to other formats — have to support.
+only core rules (or rules whose reduction has deliberately not been applied — see the reducibility
+ladder below). This gives elaboration a precise specification, and it shrinks the rule vocabulary
+that consumers of elaborated proofs — strict re-checking, and the translation backends to other
+formats — have to support.
 
 The classification covers all 120 rules of the Alethe specification, plus the extra rules Carcara
 supports beyond the specification. The full rule-by-rule table is in the
 [classification](./core/classification.md) subchapter. This chapter explains the criterion behind
 the classification, the reduction recipes, and the borderline decisions.
 
-## The three tiers
+## The reducibility ladder
+
+Every rule sits on a four-level ladder, ordered by how costly it is to push the rule down into the
+core:
 
 - **Core**: logical primitives that elaboration targets. Elaborated proofs may freely use them.
-- **Reducible**: rules with a known, cheap reduction into core rules. Elaboration should eventually
-  eliminate all of them from its output.
-- **Leaf**: theory- or rewrite-level axiom schemas (bitblasting, the `*_simplify` family, etc.) with
-  no cheap reduction today. They are accepted in elaborated output, but each has a documented
-  long-term reduction trajectory (mostly towards `rare_rewrite`).
+- **Reducible**: rules with a reduction meeting the cost criterion R1–R4 below. Elaboration should
+  eventually eliminate all of them from its output.
+- **Expensive**: rules with a concrete, small-step-count scheme that however *upgrades the checking
+  power* the step requires — a fixed syntactic schema becomes a `poly_simp` ring check or an
+  `aci_simp` ACI-normalization check (e.g. the `la_mult_*` family, `shuffle`, the arithmetic
+  `*_simplify` renames) — or that depends on a proposed-but-not-yet-adopted rule.
+- **Aggressive**: rules whose scheme is trace-replay or program-like, needs missing infrastructure
+  (RARE under binders, `bbterm` expansion, evaluation operators, checker instrumentation), or has
+  severe worst-case size. The exemplar is elaborating `poly_simp` *itself* into `rare_rewrite`
+  chains — at this level one is no longer just reducing a rule but shrinking the trust base.
+
+The last two levels are accepted in elaborated output today; the ladder records, per rule, exactly
+what it would cost to go further. Legacy rules (below) sit outside the ladder at a fifth level,
+**removal**.
 
 Orthogonally to the tiers, the classification organizes the rules into *concern categories*:
 **structural** (proof structure: `assume`, `subproof`, `hole`), **clausal** (resolution and the
@@ -29,29 +42,32 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **42 core**, **35 reducible**, and
-**43 leaf** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **41 core**, **32 reducible**,
+**11 expensive**, **31 aggressive**, and **5 removal** rules, distributed as follows:
 
-| category | total | core | reducible | leaf |
-|---|---|---|---|---|
-| structural | 3 | 3 | 0 | 0 |
-| clausal | 47 | 25 | 22 | 0 |
-| binder | 13 | 7 | 0 | 6 |
-| equality & rewriting | 25 | 6 | 8 | 11 |
-| arithmetic | 13 (+1) | 1 (+1) | 4 | 8 |
-| bitvector | 14 | 0 | 0 | 14 |
-| legacy | 5 | 0 | 1 | 4 |
+| category | total | core | reducible | expensive | aggressive | removal |
+|---|---|---|---|---|---|---|
+| structural | 3 | 3 | 0 | 0 | 0 | 0 |
+| clausal | 47 | 25 | 22 | 0 | 0 | 0 |
+| binder | 13 | 6 | 1 | 0 | 6 | 0 |
+| equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
+| arithmetic | 13 (+1) | 1 (+1) | 2 | 9 | 1 | 0 |
+| bitvector | 14 | 0 | 0 | 0 | 14 | 0 |
+| legacy | 5 | 0 | 0 | 0 | 0 | 5 |
 
 The "+1" is the extra rule `poly_simp`, promoted into the core as a computational primitive; one
-new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. For every leaf
-rule, the [classification](./core/classification.md) additionally records a hypothetical
-*reduction scheme* — what the reduction would be, at what cost, and which prerequisite is missing —
-so the distance of each leaf from the core is visible per rule.
+new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. For every
+expensive and aggressive rule, the [classification](./core/classification.md) records its
+concrete *reduction scheme* — what the reduction would be, at what cost, and which prerequisite is
+missing — so the distance of each rule from the core is visible. The classification also opens
+each category with the *proof system* it embodies, first abstractly and then as concretized by
+that category's core rules.
 
 The core property is defined *post-pipeline*: intermediate passes may emit non-core rules (e.g.
 `reordering` steps, which the final pass of the default pipeline removes); only the output of the
-full pipeline must be within core ∪ leaf. Proofs containing `hole`, `lia_generic` (without an
-external solver), or `qnt_cnf` can only ever be "core modulo holes".
+full pipeline must be within core ∪ (unapplied expensive/aggressive rules). Proofs containing
+`hole`, `lia_generic` (without an external solver), or `qnt_cnf` can only ever be "core modulo
+holes".
 
 ## The cost criterion
 
@@ -65,10 +81,12 @@ A rule is classified as reducible only if it has a reduction satisfying all of:
 - **R4 (non-circular)**: for each pair of interderivable rules, exactly one side is kept as the
   axiom.
 
-A rule that fails any of R1–R4 stays in the core (if it is a logical primitive) or in the leaf tier
-(if it is a theory/rewrite schema). The point of R1–R2 is that reducing a rule must not make proofs
-meaningfully larger or harder to check — a reduction that needs many steps, or steps whose checking
-requires search, defeats the purpose.
+A rule that fails any of R1–R4 stays in the core (if it is a logical primitive) or lands on the
+*expensive* or *aggressive* level, depending on how it fails: a check-power upgrade or a
+missing proposed rule is expensive; trace-replay, missing infrastructure, or bad worst-case size
+is aggressive. The point of R1–R2 is that reducing a rule must not make proofs meaningfully larger
+or harder to check — a reduction that needs many steps, or steps whose checking requires search,
+defeats the purpose.
 
 ## The subproof-discharge vehicle
 
@@ -231,8 +249,9 @@ Two LA rules reduce to `la_generic` alone:
   `(cl (or φ1 φ2))`: two `or_neg` steps and two resolutions plus a `contraction` — six steps total,
   still O(1).
 
-`la_disequality` stays leaf: the negation of its positive equality literal is a *disequality*, which
-a Farkas combination cannot consume; reducing it would need case-split machinery. `lia_generic` is
+`la_disequality` is expensive: the negation of its positive equality literal is a *disequality*,
+which a Farkas combination cannot consume — its scheme goes through `la_rw_eq` as the
+order-antisymmetry axiom instead (see the classification). `lia_generic` is
 special: it is not checkable at all without an external solver, and is classified as
 *oracle-reducible* — the existing hole elaboration pass replaces it with a full sub-proof produced
 by an external solver.
@@ -270,8 +289,8 @@ The reductions, all using subproof-discharge plus the implication-term repackagi
 - **`la_mult_abs_comparison`** (extra rule, `alethe-toolkit` branch) — reduces to the same base
   only once `abs` is handled by a definitional rewrite (`(abs t) ≈ (ite (>= t 0) t (- t))`, e.g. as
   a RARE rule): then each factor costs a bounded case split and the product comparisons chain
-  through the axiom. O(n) with a larger constant; contingent on the `abs` rewrite, so it stays
-  leaf until that primitive is chosen.
+  through the axiom. O(n) with a larger constant; contingent on the `abs` rewrite, so it stays at
+  the aggressive level until that primitive is chosen.
 
 The trade is the usual one: elaborated proofs get O(n) scaffolding where solvers emitted one macro
 step, and the checker must trust ring normalization (`poly_simp`) as a second computational
@@ -289,14 +308,75 @@ primitive alongside Farkas checking.
 - `shuffle` is subsumed by `aci_simp`: multiset equality of arguments under a commutative operator
   is a special case of ACI equivalence, `shuffle`'s operators (`+`, `*`, `and`, `or`) are all in
   `aci_simp`'s operator list, and the conclusion shape is identical — so the reduction is a pure
-  rename, zero new steps. Note this is subsumption into a *leaf* (the rewrite tier), not into the
-  core, and the check coarsens: `aci_simp` also collapses idempotent duplicates and identity
-  elements, so the renamed step admits conclusions the multiset check would reject.
+  rename, zero new steps — though the check coarsens: `aci_simp` also collapses idempotent
+  duplicates and identity elements, so the renamed step admits conclusions the multiset check
+  would reject. That check-power upgrade is what places `shuffle` at the *expensive* level rather
+  than among the strictly reducible rules.
 - `reordering` is already eliminated by the reordering elaboration pass, which recomputes downstream
   conclusions instead.
 - `multi_rare_rewrite` reduces to a chain of `rare_rewrite` steps glued with `trans`/`cong`
   scaffolding (the exact recipe depends on the rule-position semantics and should be validated when
   implemented).
+
+## Skolemization: one rule suffices
+
+`sko_ex` and `sko_forall` are duals through the quantifier duality that `connective_def` already
+provides (`∃x̄.φ ≈ ¬∀x̄.¬φ` and vice versa), so only one needs to be primitive. The
+classification keeps `sko_forall` and reduces `sko_ex` by a constant template, independent of the
+number of variables:
+
+1. from `sko_ex`'s premise `Γ, ctx ▷ φ ≈ ψ`, derive `¬φ ≈ ¬ψ` by `cong`;
+2. apply `sko_forall` to `∀x̄.¬φ`, concluding `∀x̄.¬φ ≈ ¬ψ`;
+3. `cong` (¬) gives `¬∀x̄.¬φ ≈ ¬¬ψ`;
+4. chain with `connective_def` (`∃x̄.φ ≈ ¬∀x̄.¬φ`) and a `¬¬ψ ≈ ψ` rewrite through `trans`.
+
+Six steps for any n. The direction is conventional — the symmetric template reduces `sko_forall`
+to `sko_ex` — and R4 just requires picking one.
+
+Two prerequisites make this exact, both worth raising with the specification:
+
+- **The spec's statement of `sko_forall` is erroneous for n > 1.** It maps every
+  `xᵢ ↦ εxᵢ.¬φ` over the bare body, leaving the later variables `x_{i+1}…xₙ` free in the choice
+  term with nothing to bind them. Implementations use the well-formed sequential form: Carcara's
+  checker (`checker/rules/subproof.rs`) expects `εxᵢ.¬(∀x_{i+1}…xₙ.φ')`, remaining variables
+  re-quantified and earlier skolemizations substituted — the exact dual of `sko_ex`'s
+  `εxᵢ.(∃x_{i+1}…xₙ.φ')`. The spec text should be fixed to the sequential form.
+- **`bind` must be generalized to the choice binder.** The witnesses of a `sko_ex` step
+  (`εxᵢ.(∃…φ)`) and those produced by the dual route (`εxᵢ.¬(∀…¬φ)`) differ by a duality rewrite
+  *under* `ε`, and no current rule reasons under choice binders — `bind` covers only `∀`/`∃`.
+  Extending `bind`'s binder set to `choice` (from `Γ, x↦y ▷ φ ≈ ψ` conclude
+  `Γ ▷ εx.φ ≈ εy.ψ`) closes exactly this gap: with it, the `¬∀¬`/`∃`-shaped witnesses of
+  existing proofs can be bridged by `connective_def` + `not-not` reasoning under the binder, and
+  the reduction applies to already-produced steps, not just to new proofs that take the duality
+  detour from the start.
+
+## Elaborating `onepoint`
+
+`onepoint` also admits an elaboration, built from two observations.
+
+First, *iff-introduction is derivable*: Alethe has no rule concluding `A ≈ B` from the two
+implications, but the clausal derivation exists — from `(cl ¬A B)` and `(cl A ¬B)`, resolving
+against the axioms `equiv_neg2` (`(cl (= A B) A B)`) and `equiv_neg1` (`(cl (= A B) ¬A ¬B)`)
+with two `contraction`s yields `(cl (= A B))` in about seven steps.
+
+Second, the two implications of a `onepoint` step `(∀x̄.φ) ≈ (∀x_k̄.φ')` are derivable from core
+rules:
+
+- **→**: `forall_inst` instantiating the eliminated variables by their points `x_j := t_j` and
+  the kept variables by themselves (`x_k := x_k`, under the enclosing anchor), then the step's own
+  premise `φ ≈ φ'` (whose context performs exactly `x_j ↦ t_j`) via `equiv1` + `resolution`.
+- **←**: for arbitrary `x̄` assuming `φ'`, a case split on each point equality `x_j ≈ t_j`
+  (O(m) splits): the false branch satisfies the positive-polarity guard in `φ` directly, the true
+  branch transports `φ'` to `φ` by `cong` with the point equality.
+
+The existential case dualizes through `connective_def` + `forall_inst` on the negated body. The
+whole scheme is O(m + n) steps of core rules, wrapped in a subproof over the kept variables and
+closed by the derived iff-introduction. Notably, it would *discharge* the specification's admitted
+gap in `onepoint` (the unproved substitution into point terms becomes explicit `cong`/`trans`
+obligations). Two caveats keep `onepoint` in the core pending validation: the interaction with a
+non-empty enclosing context (the `▷` judgment is not plain truth under a context), and the
+generality of the "positive polarity" condition, whose exotic shapes may not fit the guarded
+case-split template.
 
 ## Borderline rules kept in the core
 
@@ -318,39 +398,45 @@ primitive alongside Farkas checking.
   under binders that no core rule provides. Kept whole for uniformity.
 - **`la_generic`** and **`rare_rewrite`** — the designated computational and rewrite primitives, as
   discussed above.
-- **The binder rules** (`bind`, `let`, `bind_let`, `onepoint`, `sko_ex`, `sko_forall`) — primitives
-  with no reduction candidates. `onepoint` additionally has a specification-acknowledged gap (the
-  substitution into the point terms is unproved).
+- **The binder rules** `bind`, `let`, `bind_let` — primitives with no reduction candidates.
+- **`sko_forall`** — the designated Skolemization primitive. Its dual `sko_ex` is reducible
+  through the quantifier duality (see the Skolemization section below); by R4 exactly one of the
+  pair is kept, and the choice is conventional.
+- **`onepoint`** — kept core for now, but an elaboration scheme exists (see below); promotion
+  candidate pending validation. It also carries the specification-acknowledged gap (the
+  substitution into the point terms is unproved), which the elaboration would discharge.
 
-## The leaf tier and its trajectory
+## The expensive and aggressive levels, and their trajectory
 
-The leaf tier is dominated by two families:
+The aggressive level is dominated by two families:
 
-- **Rewrite equalities (16 rules)**: the `*_simplify` family and `aci_simp`. Each is in principle
-  a composition of elementary rewrites glued by `refl`/`trans`/`cong`/`bind` — exactly what
-  `rare_rewrite` chains express. Reducing them requires either an external oracle (as the hole
-  elaboration already does for `all_simplify` and `rare_rewrite`) or instrumenting the
-  deterministic simplification checkers to record rewrite traces. Deterministic, no search — but a
-  large engineering effort, hence deferred. The purely arithmetic members (`prod_simplify`,
-  `sum_simplify`, `minus_simplify`, `unary_minus_simplify`) additionally have the cheaper
-  `poly_simp` path: each instance is a unit polynomial equality, so both routes exist — rename to
-  `poly_simp` (ring check, zero new steps) or a RARE trace (syntactic checks, trace-length
-  proofs).
+- **Rewrite equalities**: the Boolean/ite/equality `*_simplify` rules and `aci_simp`. Each is in
+  principle a composition of elementary rewrites glued by `refl`/`trans`/`cong`/`bind` — exactly
+  what `rare_rewrite` chains express. Reducing them requires either an external oracle (as the
+  hole elaboration already does for `all_simplify` and `rare_rewrite`) or instrumenting the
+  deterministic simplification checkers to record rewrite traces. Deterministic, no search — but
+  a large engineering effort, hence deferred.
 - **Bitblasting (14 rules)**: reducible in principle to Boolean reasoning of size quadratic in the
-  bit-width; low payoff, since consumers prefer the leaves.
+  bit-width; low payoff, since consumers prefer the schemas.
 
-The remaining leaves are structural transformations (`distinct_elim`, `nary_elim`, `la_rw_eq`),
-the quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the miniscoping
-rules), and the legacy category's `qnt_cnf`, `ite_intro`, and `bfun_elim` (placeholders and
-solver artifacts slated for removal rather than reduction). `nary_elim` is a promotion candidate:
-the polyequality elaboration itself emits it.
+The quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the miniscoping
+rules) are aggressive for a different reason: they wait on RARE-under-binders support, not on
+engineering volume.
+
+The expensive level collects the schemes that are cheap in steps but upgrade the required
+checking power: the `la_mult_*` family and the arithmetic `*_simplify` members through
+`poly_simp` (the purely arithmetic simplifications — `prod_simplify`, `sum_simplify`,
+`minus_simplify`, `unary_minus_simplify` — have both routes: rename to `poly_simp` with a ring
+check and zero new steps, or a RARE trace with syntactic checks at trace-length cost),
+`shuffle` and `la_disequality` through `aci_simp`/`la_rw_eq`, and `nary_elim` (a promotion
+candidate instead: the polyequality elaboration itself emits it).
 
 ## Extra rules beyond the specification
 
 Carcara checks several rules that are not among the 120 specification rules. Classified the same
 way:
 
-| rule | class | reduction |
+| rule | level | reduction |
 |---|---|---|
 | `eq_mp` | reducible (**done**) | `equiv_pos2` + `resolution` (local elaboration) |
 | `bounded_farkas` | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
@@ -358,10 +444,10 @@ way:
 | `strict_resolution` | core variant | strict form of `resolution` used after elaboration |
 | `poly_simp` | **core** (computational) | ring-normalization primitive; see the arithmetic section |
 | `la_mult_pos_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
-| `la_mult_sign` (`alethe-toolkit` branch) | reducible | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
-| `la_mult_abs_comparison` (`alethe-toolkit` branch) | leaf | reducible to the same base once an `abs` definitional rewrite exists |
-| `evaluate`, `mod_simplify`, `all_simplify` | leaf (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
-| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | leaf (theory extensions) | `sat_refutation` oracle-reducible via its dedicated pass |
+| `la_mult_sign` (`alethe-toolkit` branch) | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
+| `la_mult_abs_comparison` (`alethe-toolkit` branch) | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
+| `evaluate`, `mod_simplify`, `all_simplify` | aggressive (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
+| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | aggressive (theory extensions) | `sat_refutation` oracle-reducible via its dedicated pass |
 
 ## Divergences from the specification
 
@@ -381,6 +467,14 @@ specification maintainers:
    the specification carries two rules for one judgment. The apparent reason to keep both is
    checking cost — a multiset comparison versus full ACI normalization — which is a performance
    distinction, not an expressiveness one; worth deciding whether that justifies a separate rule.
+4. **`sko_forall`'s choice terms are ill-formed for n > 1**: the stated `εxᵢ.¬φ` leaves the later
+   variables free; implementations (Carcara's checker, mirroring what solvers emit) use the
+   sequential form `εxᵢ.¬(∀x_{i+1}…xₙ.φ')`. The spec text should be corrected to the sequential
+   form.
+5. **The Skolemization pair and choice-binder congruence**: only one of `sko_ex`/`sko_forall`
+   needs to be primitive (see the Skolemization section); making the reduction applicable to
+   existing proofs requires generalizing `bind` to the choice binder, which is proposed as a spec
+   extension.
 
 ## Validation
 
@@ -389,6 +483,6 @@ Each reduction recipe is validated by:
 1. a hand-worked before/after example in this chapter or the classification table;
 2. a minimal problem/proof pair exercising the rule, elaborated with the default pipeline and
    re-checked in elaborated (strict) mode, with a vocabulary check asserting that every output rule
-   is core or leaf;
+   is core or an unapplied expensive/aggressive rule;
 3. corpus-level measurement of elaborated-proof size and checking time using the benchmarking
    infrastructure, before any reduction is made default-on.

@@ -326,7 +326,7 @@ the elaboration replays the checker's order.
   :conclusion (= (abs t) (ite (>= t 0) t (- t))))
 ```
 
-`la-rw-eq` discharges the `la_rw_eq` leaf outright; `abs-def` is the prerequisite the
+`la-rw-eq` discharges the `la_rw_eq` rule outright; `abs-def` is the prerequisite the
 `la_mult_abs_comparison` scheme names. Note that the proposed `la_mult_pos_pos` axiom is *not* a
 RARE rule: its conclusion is an implication, not an equality, so it stays a proper Alethe rule.
 
