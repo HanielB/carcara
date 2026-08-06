@@ -12,9 +12,9 @@ category's core rules — followed by its rules grouped by *reducibility level*:
   power* the step requires (e.g. a syntactic schema becomes a `poly_simp` ring check or an
   `aci_simp` ACI-normalization check) or depends on a proposed-but-not-yet-adopted rule;
 - **aggressive** — a scheme exists in principle but is trace-replay or program-like, needs
-  missing infrastructure (RARE under binders, `bbterm` expansion, evaluation operators, checker
-  instrumentation), or has severe worst-case size. The exemplar is elaborating `poly_simp` itself
-  into `rare_rewrite` chains — reducing not just a rule but the trust base.
+  missing infrastructure (RARE under binders, evaluation operators, checker instrumentation), or
+  has severe worst-case size. The exemplar is elaborating `poly_simp` itself into `rare_rewrite`
+  chains — reducing not just a rule but the trust base.
 
 Legacy rules sit outside the ladder: their level is **removal** (solvers should stop emitting
 them, or the specification should replace them). See the [parent chapter](../core.md) for the
@@ -31,25 +31,46 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 25 | 22 | 0 | 0 | 0 |
-| binder | 13 | 6 | 1 | 0 | 6 | 0 |
+| clausal | 47 | 12 | 33 | 2 | 0 | 0 |
+| binder | 13 | 5 | 2 | 0 | 6 | 0 |
 | equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
 | arithmetic | 13 (+1) | 1 (+1) | 2 | 9 | 1 | 0 |
-| bitvector | 14 | 0 | 0 | 0 | 14 | 0 |
+| bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **41** | **32** | **11** | **31** | **5** |
+| **total** | **120** | **41** | **44** | **13** | **17** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
 axiom `la_mult_pos_pos` is proposed as the base of the nonlinear multiplication schemes.
 
+## The judgment forms
+
+Two judgment forms underlie all of the categories, and every proof-system description below is
+phrased in terms of them:
+
+- the **clause judgment** `▷ l₁, …, lₙ` — a sequent asserting the disjunction of the literals;
+- the **contextual equality judgment** `Γ ▷ t ≈ u`, where the context `Γ` carries bound variables
+  and substitution entries `x ↦ s`; semantically it asserts `σΓ(t) ≈ u`, which is why the topmost
+  equality is *not* symmetric.
+
+The structural category connects the two: subproofs let a derivation of one judgment under
+hypotheses be discharged into a clause, and anchors let equality reasoning proceed under a
+context. Each category below states its abstract inference rules over these judgments, then names
+the core rules that concretize them.
+
 ## Structural
 
-**Proof system.** The judgment structure of the calculus: clauses as sequents, hypothetical
-reasoning by assumption introduction and discharge, and a marked escape hatch for unverified
-reasoning. Concretely: `assume` introduces hypotheses, `subproof` discharges them into a clause
-(implication introduction in clausal form — the vehicle for all clausal-tautology reductions),
-and `hole` marks trust failures.
+**Proof system.** Abstractly, the hypothetical-reasoning skeleton of natural deduction, over
+clause judgments:
+
+- **[hyp]** — introduce a hypothesis `φ`;
+- **[discharge]** — from a derivation of `ψ` under hypotheses `φ₁, …, φₖ`, conclude the clause
+  `▷ ¬φ₁, …, ¬φₖ, ψ` (implication introduction, in clausal form);
+- **[oracle]** — assert any clause, marked as unverified.
+
+Concretely: `assume` is [hyp], `subproof` with its `:discharge` annotation is [discharge] — the
+vehicle for all clausal-tautology reductions — and `hole` is [oracle] (terminal, taints
+validity).
 
 3 rules, all core.
 
@@ -61,35 +82,56 @@ and `hole` marks trust failures.
 
 ## Clausal
 
-**Proof system.** Ground resolution over a Tseitin-style CNF encoding: a refutationally complete
-propositional calculus consisting of binary resolution with factoring and weakening, applied to
-*defining clauses* that relate each connective to its arguments. Concretely: `resolution` (with
-explicit pivots), `contraction` (factoring), `weakening`, the polarity units `true`/`false`,
-`not_not` for explicit double-negation merging, and the 19 `*_pos`/`*_neg` axioms as the defining
-clauses of `and`, `or`, `xor`, `=>`, Boolean `=`, and `ite`.
+**Proof system.** Abstractly, ground resolution over a Tseitin-style CNF encoding — a
+refutationally complete propositional calculus over clause judgments, with two consequence
+readings:
 
-47 rules: 25 core, 22 reducible.
+- **[res]** — from `▷ C₁, l` and `▷ C₂, ¬l`, conclude `▷ C₁, C₂` (chained; pivot `l` explicit);
+- **[rup]** — conclude `▷ C` whenever unit-propagating `¬C` over the premises yields a conflict
+  (subsumes [res] chains, and absorbs the structural rules below);
+- **[fact]** / **[weak]** — the structural rules of factoring (merge duplicate literals) and
+  weakening (append literals);
+- **[def]** — for each connective `∘`, its *defining clauses*: the CNF of `x ↔ ∘(x̄)` relating a
+  formula to its immediate subformulas.
 
-### Core (25)
+Concretely: `resolution` carries both [res] (the chain reading, explicit pivots, syntactic check
+— what elaboration produces and strict mode checks) and [rup] (`rup_resolution`, unit
+propagation); `true`/`false` are the polarity units and `not_not` normalizes literals with
+stacked negations; the 8 retained CNF axioms are [def] for `and`, `or`, and Boolean `=`.
+[fact]/[weak] are `contraction`/`weakening` — bookkeeping absorbed by the [rup] reading (hence
+expensive, below); the [def] clauses for `xor`, `ite`, and `implies` are derived through
+`connective_def` (the `implies` case via its proposed extension with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`,
+divergence item 6).
+
+47 rules: 12 core, 33 reducible, 2 expensive.
+
+### Core (12)
 
 | rule | notes |
 |---|---|
-| `resolution` | local elaboration already adds explicit pivots |
-| `contraction` | |
-| `weakening` | not derivable without rewriting consumers (R3) |
+| `resolution` | dual semantics, both core: chain-with-explicit-pivots (`resolution_with_args`, syntactic) and RUP consequence (`rup_resolution`, unit propagation) |
 | `true` | |
 | `false` | |
 | `not_not` | primitive for explicit double-negation merging; deriving it would pull in the rewrite tier |
-| `and_pos` (k), `and_neg`, `or_pos`, `or_neg` (k), `xor_pos1/2`, `xor_neg1/2`, `implies_pos`, `implies_neg1/2`, `equiv_pos1/2`, `equiv_neg1/2`, `ite_pos1/2`, `ite_neg1/2` | the 19 CNF axioms. One side of each axiom/premise-rule pair must be primitive (R4); the premise-free side wins (O(1) syntactic check, usable in resolution chains without subproof wrappers) |
+| `and_pos` (k), `and_neg`, `or_pos`, `or_neg` (k), `equiv_pos1/2`, `equiv_neg1/2` | the 8 retained CNF axioms. One side of each axiom/premise-rule pair must be primitive (R4); the `equiv` family is the bootstrap for unpacking `connective_def` equivalences; `and`/`or` are the Tseitin base every derivation re-clausifies into |
 
-### Reducible (22)
+### Reducible (33)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `th_resolution` | `resolution` | 0 | syntactic | planned; same rule per the spec, normalize the name |
 | `tautology` | `true` | 1 | syntactic | planned; conclusion is literally `⊤`; drops the premise from the DAG |
 | `reordering` | (eliminated) | 0 | — | done — reordering pass recomputes downstream conclusions |
-| 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | planned; pivot = the premise formula |
+| `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2` | `connective_def` + `equiv_pos1/2` + `and`/`or`/`implies` axioms (+ `not_not`) + `resolution` | ≤ ~10 each | syntactic | planned; unpack the connective's definition and re-clausify (worked example in the parent chapter) |
+| `implies_pos`, `implies_neg1`, `implies_neg2` | `connective_def` (proposed `→` extension) + `equiv_pos1/2` + `or_pos`/`or_neg` (+ `not_not`) + `resolution` | 4–6 each | syntactic | planned; requires divergence item 6 (extend `connective_def` with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`) |
+| 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | planned; pivot = the premise formula. The `xor`/`ite` targets are themselves reducible — reductions compose |
+
+### Expensive (2)
+
+| rule | reduction scheme | cost | what makes it expensive |
+|---|---|---|---|
+| `weakening` | rename to `resolution` (RUP reading): negating the conclusion falsifies the premise before any propagation | 0 | a linear syntactic containment scan becomes a unit-propagation check; not derivable at all under the chain reading (chain resolution never introduces literals) |
+| `contraction` | rename to `resolution` (RUP reading): same degenerate-RUP argument | 0 | ditto — and the chain-targeting pipeline *introduces* explicit `contraction` steps (uncrowding) precisely to avoid implicit duplicate merging; the two readings pull in opposite directions here |
 
 The exact axiom pairings for the premise clausification rules (the `equiv` family crosses indices):
 
@@ -108,56 +150,77 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
 
 ## Binder
 
-**Proof system.** First-order binder handling in the tradition of Hilbert's ε-calculus:
-α-conversion and congruence under binders, universal instantiation, Skolemization via the choice
-operator, definition unfolding, and guarded quantifier elimination. Concretely: `bind`
-(α-renaming and congruence under `∀`/`∃` — proposed to be generalized to `choice`),
-`forall_inst` (∀-elimination), `sko_forall` (the ε-axiom; `sko_ex` derived through the duality),
-`let`/`bind_let` (definition unfolding), and `onepoint` (guarded quantifier elimination —
-candidate for derivation).
+**Proof system.** Abstractly, first-order binder handling in the tradition of Hilbert's
+ε-calculus, over contextual equality judgments:
 
-13 rules: 6 core, 1 reducible, 6 aggressive.
+- **[α/congr-bind]** — congruence under a binder: from `Γ, ȳ, x̄↦ȳ ▷ φ ≈ ψ`, conclude
+  `Γ ▷ Qx̄.φ ≈ Qȳ.ψ` (α-renaming as the special case);
+- **[inst]** — universal instantiation, `∀x̄.φ → φ[x̄↦t̄]`;
+- **[ε]** — the critical axiom of the ε-calculus: `Qx̄.φ ≈ φ[x̄ ↦ ε-witnesses]`, where the
+  witness for each variable is a choice term over the remaining prefix;
+- **[unfold]** — definition/let expansion, replacing defined variables by their definientia;
+- **[qe-point]** — guarded one-point quantifier elimination: a variable forced to equal a term by
+  a positive-polarity equality is instantiated to it.
 
-### Core (6)
+Concretely: `bind` is [α/congr-bind] (proposed to be generalized to the `choice` binder, so
+[α/congr-bind] can also reason under ε-witnesses); `forall_inst` is [inst]; `sko_forall` is the
+designated [ε] axiom, with `sko_ex` derived through the quantifier duality; `let`/`bind_let` are
+[unfold]; and `onepoint` is [qe-point] — derived, see below.
+
+13 rules: 5 core, 2 reducible, 6 aggressive.
+
+### Core (5)
 
 | rule | notes |
 |---|---|
-| `bind` | proposed to be generalized to the `choice` binder (see parent chapter) — needed to reason under Skolem witnesses |
+| `bind` | proposed to be generalized to the `choice` binder (see parent chapter) — needed to reason under Skolem witnesses. Together with `rare_rewrite`, already suffices for rewriting *below* a binder |
 | `let` | |
 | `bind_let` | emitted by the polyeq elaboration itself |
-| `onepoint` | elaboration scheme identified (two implications + derivable iff-introduction; see parent chapter) — promotion candidate pending validation; would discharge the spec-acknowledged proof gap |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
 | `forall_inst` | polyeq elaboration already normalizes it |
 
-### Reducible (1)
+### Reducible (2)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans` | 6 (any n) | syntactic | planned; mutually dual with `sko_forall` — either could be the primitive (R4 picks one). Elaborating *existing* steps additionally needs `bind` generalized to `choice` to bridge the `∃`-shaped vs `¬∀¬`-shaped witnesses |
+| `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by the derivable iff-introduction and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers additionally need the `Qȳ.⊤ ≈ ⊤` schema (`qnt_simplify`'s instance). Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
 
 ### Aggressive (6)
 
-All six are quantifier-level rewrites blocked on the same missing prerequisite: a rewrite
-primitive that works under binders (binder-aware RARE rules applied through `bind`).
+Plain rewriting *below* a binder needs no new machinery — `bind` + `rare_rewrite` already covers
+it. What blocks these six rules is that their redex *includes the quantifier itself* (eliminating,
+shrinking, merging, splitting, or duplicating the binder), which `bind` — preserving the binder
+skeleton by construction — cannot express. The missing prerequisite is thus **binder-pattern
+RARE**: rewrite rules with variable-list parameters in binding position (see the RARE chapter).
 
 | rule | reduction scheme | cost | missing prerequisite |
 |---|---|---|---|
-| `qnt_simplify` | binder-aware `rare_rewrite` chain + `bind`/`trans` | O(trace) | RARE under binders |
-| `qnt_join` | single binder-aware rewrite schema + `bind` | O(1) | RARE under binders |
-| `qnt_rm_unused` | single binder-aware rewrite schema + `bind` | O(1) | RARE under binders |
-| `miniscope_distribute` | per-connective distribution schema + `bind`/`cong` scaffolding | O(n) | RARE under binders |
-| `miniscope_split` | same | O(n) | RARE under binders |
-| `miniscope_ite` | same | O(n) | RARE under binders |
+| `qnt_simplify` | its `Qx̄.⊤/⊥ ≈ ⊤/⊥` schema is the minimal binder-pattern axiom (also needed by the `onepoint` template) | O(1) | binder-pattern RARE |
+| `qnt_join` | single binder-pattern rewrite schema | O(1) | binder-pattern RARE |
+| `qnt_rm_unused` | single binder-pattern rewrite schema | O(1) | binder-pattern RARE |
+| `miniscope_distribute` | per-connective distribution schema + `cong` scaffolding | O(n) | binder-pattern RARE |
+| `miniscope_split` | same, plus partitioning the variable list (program-like) | O(n) | binder-pattern RARE |
+| `miniscope_ite` | same | O(n) | binder-pattern RARE |
 
 ## Equality and rewriting
 
-**Proof system.** Equational logic in Birkhoff's sense — reflexivity, symmetry, transitivity,
-congruence, and closure under contexts — extended by an axiom-schema layer of oriented rewrite
-rules. Concretely: `refl` (which also applies the context substitution), `symm`, `trans`, and
-`cong` form the equational base; `connective_def` contributes the definitional axioms of the
-connectives; and `rare_rewrite` is the generic interface through which arbitrary equational
-axiom schemas (RARE rules) enter the system. The clausal `eq_*` forms are the same system
-repackaged as premise-free clauses through `subproof` discharge.
+**Proof system.** Abstractly, equational logic in Birkhoff's sense, over contextual equality
+judgments:
+
+- **[refl]**, **[sym]**, **[trans]** — equivalence of `≈`;
+- **[congr]** — compatibility with function application: from `tᵢ ≈ uᵢ`, conclude
+  `f(t̄) ≈ f(ū)`;
+- **[subst]** — closure of the axiom layer under substitution instances;
+- **[axiom]** — an axiom-schema store: definitional equalities of the connectives, plus an open
+  set of oriented rewrite rules (a rewrite system R) whose instances enter the derivation.
+
+Concretely: `refl`, `symm`, `trans`, `cong` are the four Birkhoff rules ([subst] is realized by
+the context mechanism — `refl` is the one rule that applies the context substitution);
+`connective_def` contributes the fixed definitional [axiom]s of the connectives; and
+`rare_rewrite` is the generic [axiom] interface through which arbitrary RARE rules enter the
+system. The clausal `eq_*` forms are the same system repackaged as premise-free clauses through
+`subproof` discharge.
 
 25 rules: 6 core, 7 reducible, 2 expensive, 10 aggressive.
 
@@ -201,12 +264,18 @@ repackaged as premise-free clauses through `subproof` discharge.
 
 ## Arithmetic
 
-**Proof system.** Certificate checking for ordered-ring reasoning along three axes: Farkas'-lemma
-combinations for *linear order* consequences, polynomial identity (ring normalization) for the
-*equational* part, and positivity of products for the *nonlinear order* part. Concretely:
-`la_generic` (Farkas certificates), `poly_simp` (ring normalization; the extra rule promoted into
-the core), and the proposed axiom `la_mult_pos_pos` (`(> x 0) ∧ (> y 0) → (> (* x y) 0)`, the
-positive cone closed under multiplication).
+**Proof system.** Abstractly, certificate checking for ordered-ring reasoning, along three axes:
+
+- **[farkas]** — *linear order*: a clause of linear constraints is valid if a positive
+  combination of the negated constraints (given by the certificate coefficients) is
+  contradictory;
+- **[ring]** — *equational*: `t ≈ u` whenever `t` and `u` normalize to the same polynomial;
+- **[pos-cone]** — *nonlinear order*: the positive cone is closed under multiplication,
+  `x > 0 ∧ y > 0 → x·y > 0`.
+
+Concretely: `la_generic` is [farkas], `poly_simp` (the extra rule promoted into the core) is
+[ring], and the proposed axiom `la_mult_pos_pos` is [pos-cone]. Everything else in the category
+reduces to combinations of these three plus the clausal and equational cores.
 
 13 specification rules (1 core, 2 reducible, 9 expensive, 1 aggressive) plus the extra rule
 `poly_simp` in the core. See the
@@ -246,21 +315,20 @@ the parent chapter for the recipes.
 
 ## Bitvector
 
-**Proof system.** Bit-blasting semantics: bitvector terms interpreted as tuples of Booleans, each
-operation defined bit-wise. There are no core rules in this category — the 14 `bitblast_*` axioms
-are per-operation definitional schemas, and abstractly the whole category compiles down to the
-*clausal* system over `bbterm` definitions (which the spec itself notes are expressible with
-standard SMT-LIB functions).
+**Proof system.** Abstractly, the definitional interpretation of bitvectors as tuples of
+Booleans: one axiom scheme per operation,
 
-14 rules, all aggressive: `bitblast_extract`, `bitblast_concat`, `bitblast_sext`, `bitblast_eq`,
+- **[bv-def(∘)]** — `∘(x̄) ≈ ⟦∘⟧(bits(x̄))`, equating each bitvector operation applied to
+  bit-tuples with its Boolean bit-level definition at the given width.
+
+Concretely, the 14 `bitblast_*` axioms *are* [bv-def(∘)] for their respective operations — they
+constitute the definitional core of the category, and consumers take them as such.
+
+14 rules, all core: `bitblast_extract`, `bitblast_concat`, `bitblast_sext`, `bitblast_eq`,
 `bitblast_ult`, `bitblast_slt`, `bitblast_add`, `bitblast_neg`, `bitblast_mult`, `bitblast_and`,
-`bitblast_or`, `bitblast_xor`, `bitblast_xnor`, `bitblast_not`.
-
-Shared reduction scheme: unfold the bit-level definition via `cong` plus the Boolean CNF axioms,
-after expanding the `bbterm` machinery definitionally. Cost: O(n) in the conclusion, but the
-conclusion is already O(width) to O(width²) large, so the constants are big. Missing
-prerequisite: `bbterm` definitional expansion; and the payoff is low, since consumers prefer the
-schemas.
+`bitblast_or`, `bitblast_xor`, `bitblast_xnor`, `bitblast_not`. Like `la_generic` and `poly_simp`,
+they are computational schemas — checking one recomputes the bit-level definition at the given
+width and compares — so they extend the computational core rather than the syntactic one.
 
 ## Legacy
 

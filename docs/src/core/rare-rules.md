@@ -379,9 +379,11 @@ pairwise conjunction), which is beyond the RARE 2.0 fragment as specified.
 
 ### Binder-level rules — **[binder]**
 
-The six binder leaves (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) and the
-quantifier-duality instances of `connective_def` all need parameters standing for
-*bound-variable lists*, plus freshness/free-variable side conditions. In a hypothetical
+Rewriting strictly *below* a binder needs none of this — `bind` + `rare_rewrite` already covers
+it. The six binder-level rules (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) and
+the quantifier-duality instances of `connective_def` are blocked because their redex includes the
+quantifier itself, so the rules need parameters standing for *bound-variable lists*, plus
+freshness/free-variable side conditions. In a hypothetical
 extension (with `@VarList` parameters and a `:fresh-in` premise), the rules would read:
 
 ```lisp
