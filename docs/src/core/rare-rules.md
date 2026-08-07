@@ -2,7 +2,9 @@
 
 Several reduction schemes in the [classification](./classification.md) go through `rare_rewrite`:
 the Boolean `*_simplify` bundles, the RARE alternative for the arithmetic simplifications, the
-optional elaboration of `poly_simp` itself, and the (currently blocked) binder-level rewrites.
+optional elaboration of `poly_simp` itself, and the binder-level rewrites (for the latter, a
+documented design alternative — the classification reduces them through the generalized `bind` /
+Skolemization routes instead).
 This chapter catalogues the RARE 2.0 rules those routes require, in Carcara's
 `declare-rare-rule` syntax (the concrete implementation of RARE 2.0's `declare-rule`; see the
 [Checking Rare rewrites](../checking/rare.md) chapter). The rewrite sets are taken from the
@@ -383,9 +385,10 @@ Rewriting strictly *below* a binder needs none of this — `bind` + `rare_rewrit
 it. The six binder-level rules (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) have
 a redex that includes the quantifier itself, so *as RARE rules* they need parameters standing for
 *bound-variable lists*, plus freshness/free-variable side conditions. Note, however, that the
-classification no longer depends on this extension: these rules reduce through the Skolemization
-route (the derived ∀-ε-clause template; see the parent chapter), so this section documents what
-the RARE route *would* need, as a design alternative. In a hypothetical
+classification no longer depends on this extension: these rules reduce through the generalized
+`bind` (divergence 8) or, proposal-free, the Skolemization route (the derived ∀-ε-clause
+template; see the parent chapter), so this section documents what the RARE route *would* need, as
+a design alternative. In a hypothetical
 extension (with `@VarList` parameters and a `:fresh-in` premise), the rules would read:
 
 ```lisp
@@ -408,8 +411,9 @@ extension (with `@VarList` parameters and a `:fresh-in` premise), the rules woul
   :conclusion (= (forall (xs x ys) phi) (forall (xs ys) phi)))
 ```
 
-Three extensions over RARE 2.0 as specified are visible here, and together they *are* the
-"RARE under binders" prerequisite of the classification: (a) variable-list parameters that can
+Three extensions over RARE 2.0 as specified are visible here, and together they constitute the
+binder-pattern RARE extension (no longer a prerequisite of the classification): (a)
+variable-list parameters that can
 appear in binding position, (b) a freshness side condition, and (c) for
 `miniscope_distribute`/`miniscope_split`, mapping a binder over a `:list` parameter
 (`qnt_join`'s variable-list merge has the same list-computation flavor). `miniscope_split`
@@ -427,4 +431,4 @@ program-like rather than pattern-like.
 | `la_rw_eq`, `abs` | 2 | yes |
 | ACI / `nary_elim` | 5 per operator | yes; normalization order must be replayed, not searched |
 | `distinct_elim` | 2 + general case | Boolean cases yes; general case needs **[program]** |
-| binder rules | 6+ | no — needs **[binder]** extensions (variable-list parameters, freshness premises, binder mapping) |
+| binder rules | 6+ | no — needs **[binder]** extensions (variable-list parameters, freshness premises, binder mapping); superseded as a prerequisite by the generalized `bind` / Skolemization routes |

@@ -12,8 +12,8 @@ category's core rules — followed by its rules grouped by *reducibility level*:
   power* the step requires (e.g. a syntactic schema becomes a `poly_simp` ring check or an
   `aci_simp` ACI-normalization check) or depends on a proposed-but-not-yet-adopted rule;
 - **aggressive** — a scheme exists in principle but is trace-replay or program-like, needs
-  missing infrastructure (RARE under binders, evaluation operators, checker instrumentation), or
-  has severe worst-case size. The exemplar is elaborating `poly_simp` itself into `rare_rewrite`
+  missing infrastructure (evaluation operators, checker instrumentation), or has severe
+  worst-case size. The exemplar is elaborating `poly_simp` itself into `rare_rewrite`
   chains — reducing not just a rule but the trust base.
 
 Legacy rules sit outside the ladder: their level is **removal** (solvers should stop emitting
@@ -164,13 +164,13 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
 - **[qe-point]** — guarded one-point quantifier elimination: a variable forced to equal a term by
   a positive-polarity equality is instantiated to it.
 
-Concretely: `bind` is [α/congr-bind] — kept primitive for the sake of its `choice` instance
-(divergence 5), though its `∀`/`∃` instances are derivable from [gen] (see parent chapter);
-`forall_inst` is [inst]; the proposed generalization of `bind` realizes [gen], and recasts
-[α/congr-bind] *derives* — `bind` becomes a reducible rule, with binder congruence for `choice`
-as the one primitive residue (divergence 5, needed to reason under ε-witnesses); `sko_forall` is
-the designated [ε] axiom, with `sko_ex` derived through the quantifier duality; `let`/`bind_let`
-are [unfold]; and `onepoint` is [qe-point] — derived, see below.
+Concretely: `bind` is [α/congr-bind], and its proposed generalization (divergence 8) also
+realizes [gen] — recasting [α/congr-bind], [ε], and [qe-point] as one anchor-closing scheme
+under three substitution disciplines, with binder congruence for `choice` as the one primitive
+residue (divergence 5, needed to reason under ε-witnesses); `forall_inst` is [inst], independent
+of [ε] (see parent chapter); `sko_forall` is the designated [ε] axiom, with `sko_ex` derived
+through the quantifier duality; `let`/`bind_let` are [unfold]; and `onepoint` is [qe-point] —
+derived, see below.
 
 The quantifier rewrites reduce through the **Skolemization route** (RESOLUTE-inspired, documented
 in the parent chapter): since `refl` under a witness context + `sko_forall` + `equiv_pos1` derive
@@ -197,7 +197,7 @@ own variable and reintroduced by generalization.
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans` | 6 (any n) | syntactic | planned; mutually dual with `sko_forall` — either could be the primitive (R4 picks one). Elaborating *existing* steps additionally needs binder congruence for `choice` to bridge the `∃`-shaped vs `¬∀¬`-shaped witnesses |
-| `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by the derivable iff-introduction and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
+| `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by `equiv_intro` (or its derivation) and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
 | `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | planned; witness-free with divergence 8, else ∀-ε-clause template |
 | `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | planned; ditto |
 | `qnt_join` | same, nested for the merged prefix | O(1) | syntactic | planned; ditto |
@@ -206,7 +206,8 @@ own variable and reintroduced by generalization.
 | `miniscope_ite` | same, through the `ite` axioms | O(1) | syntactic | planned; ditto |
 
 All six quantifier rewrites have two routes: witness-free and linear via the proposed
-the generalized `bind` (divergence 8), or the proposal-free Skolemization fallback (∀-ε-clause template),
+generalization of `bind` (divergence 8), or the proposal-free Skolemization fallback (∀-ε-clause
+template),
 whose ε-witness terms embed copies of the bodies and make proof *text* quadratic without
 `let`-sharing.
 
@@ -239,7 +240,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `trans` | |
 | `cong` | |
 | `symm` | kept against the spec's "superfluous" note: explicit symmetry for elaborated output |
-| `connective_def` | propositional instances O(1)-derivable, quantifier-duality instance is not; kept whole |
+| `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 
 ### Reducible (7)
@@ -300,8 +301,8 @@ the parent chapter for the recipes.
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `la_totality` | `la_generic` + `or_neg` ×2 + `resolution` ×2 + `contraction` | 6 | Farkas + syntactic | planned; unit-clause-with-`or` packaging |
-| `la_tautology` | `la_generic` (coeff `[1]`, or `[1,1]` + `or` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
+| `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | planned; unit-clause-with-`or` quirk |
+| `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
 
 ### Expensive (9)
 

@@ -1,29 +1,32 @@
-/* Floating per-page table of contents. Hidden below 1200px viewport width. */
+/* Floating per-page table of contents, anchored left of the content column
+   and vertically centered (positioned by pagetoc.js; hidden when no room). */
 .pagetoc {
   display: none;
+  box-sizing: border-box;
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 220px;
+  max-height: 72vh;
+  overflow-y: auto;
+  font-size: 0.8em;
+  line-height: 1.45;
+  padding: 8px 10px 10px 10px;
+  background-color: var(--bg);
+  border: 1px solid var(--table-border-color, #ccc);
+  border-radius: 6px;
+  z-index: 100;
 }
-@media only screen and (min-width: 1200px) {
-  /* keep a minimum gap between the content column and the toc card:
-     stays centered when there is room, shifts left when there is not */
-  .content main {
-    margin-left: auto;
-    margin-right: max(285px, calc(50% - var(--content-max-width) / 2));
-  }
-  .pagetoc {
-    display: block;
-    position: fixed;
-    top: 100px;
-    right: 16px;
-    width: 240px;
-    max-height: calc(100vh - 140px);
-    overflow-y: auto;
-    font-size: 0.8em;
-    line-height: 1.45;
-    padding: 8px 10px 10px 10px;
-    background-color: var(--bg);
-    border: 1px solid var(--table-border-color, #ccc);
+/* Compact the wide prev/next chevrons into bottom-corner buttons so the
+   floating toc (vertically centered) never blocks them. */
+@media only screen and (min-width: 1080px) {
+  .nav-wide-wrapper .nav-chapters {
+    top: auto;
+    bottom: 20px;
+    min-width: 60px;
+    max-width: 60px;
+    height: 70px;
     border-radius: 6px;
-    z-index: 100;
   }
 }
 .pagetoc-header {

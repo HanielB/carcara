@@ -78,9 +78,28 @@
       progress.style.height = y + "px";
       marker.style.top = (y - 3) + "px";
     }
-    document.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update, { passive: true });
-    update();
+    var CARD_WIDTH = 220;
+    function position() {
+      if (window.innerWidth < 1080) { toc.style.display = "none"; return; }
+      var rect = main.getBoundingClientRect();
+      var sidebar = document.getElementById("sidebar");
+      var sidebarRight = 0;
+      if (sidebar) {
+        var sr = sidebar.getBoundingClientRect();
+        if (sr.right > 0) { sidebarRight = sr.right; }
+      }
+      var left = rect.left - CARD_WIDTH - 16;
+      if (left < sidebarRight + 4) { toc.style.display = "none"; return; }
+      toc.style.display = "block";
+      toc.style.left = left + "px";
+    }
+    function onchange() { position(); update(); }
+    document.addEventListener("scroll", onchange, { passive: true });
+    window.addEventListener("resize", onchange, { passive: true });
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(onchange).observe(main);
+    }
+    onchange();
   }
 
   if (document.readyState === "loading") {
