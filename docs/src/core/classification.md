@@ -296,6 +296,58 @@ template),
 whose ε-witness terms embed copies of the bodies and make proof *text* quadratic without
 `let`-sharing.
 
+<details id="ex-sko-fallback">
+<summary>Example: the Skolemization fallback (<code>qnt_rm_unused</code> without divergence 8)</summary>
+
+The same `qnt_rm_unused` instance as above, using only today's rules. Wherever the generalized
+`bind` closed an anchor over a symbolic variable, the fallback derives the quantifier's
+∀-ε-clause from `sko_forall` and reasons *at the witness term*. Abbreviate the witnesses
+(each spelled once — note how `c2` embeds `c1`, the quadratic-text cost):
+
+```
+cB = (choice ((x S)) (not (P x)))                          ; for (forall ((x S)) (P x))
+c1 = (choice ((x S)) (not (forall ((y S)) (P x))))         ; sequential witnesses
+c2 = (choice ((y S)) (not (P (choice ((x S)) (not (forall ((y S)) (P x)))))))
+                                                           ; = (choice ((y S)) (not (P c1)))
+dy = (choice ((y S)) true)                                 ; dummy for the vanished y
+```
+
+Direction →, at `cB`:
+
+```
+(anchor :step t.k1 :args ((:= (x S) cB)))
+(step t.k1.t1 (cl (= (P x) (P cB))) :rule refl)
+(step t.k1 (cl (= (forall ((x S)) (P x)) (P cB))) :rule sko_forall)
+(step t.k2 (cl (forall ((x S)) (P x)) (not (P cB))) :rule equiv2 :premises (t.k1))
+(step t.k3 (cl (not (forall ((x S) (y S)) (P x))) (P cB))
+    :rule forall_inst :args (cB dy))
+(step t.k4 (cl (not (forall ((x S) (y S)) (P x))) (forall ((x S)) (P x)))
+    :rule resolution :premises (t.k2 t.k3))
+```
+
+Direction ←, at the sequential witnesses `c1`, `c2`:
+
+```
+(anchor :step t.k5 :args ((:= (x S) c1) (:= (y S) c2)))
+(step t.k5.t1 (cl (= (P x) (P c1))) :rule refl)
+(step t.k5 (cl (= (forall ((x S) (y S)) (P x)) (P c1))) :rule sko_forall)
+(step t.k6 (cl (forall ((x S) (y S)) (P x)) (not (P c1))) :rule equiv2 :premises (t.k5))
+(step t.k7 (cl (not (forall ((x S)) (P x))) (P c1)) :rule forall_inst :args (c1))
+(step t.k8 (cl (not (forall ((x S)) (P x))) (forall ((x S) (y S)) (P x)))
+    :rule resolution :premises (t.k6 t.k7))
+
+(step t (cl (= (forall ((x S) (y S)) (P x)) (forall ((x S)) (P x))))
+    :rule equiv_intro :premises (t.k4 t.k8))
+```
+
+Compare with the generalized-`bind` example above: the shape is identical, but symbolic
+variables became witness terms, the vanished `y` needs the dummy `dy`, and each subproof body
+carries the choice terms textually. One degenerate delight: for `qnt_simplify` the body is
+closed, so the fallback collapses — the `sko_forall` anchor with the vacuous witness context
+yields `(cl (= (forall ((x S)) true) true))` directly in two steps.
+
+</details>
+
 <details id="ex-sko-ex">
 <summary>Example: <code>sko_ex</code> via duality</summary>
 

@@ -562,6 +562,55 @@ positional construction, and syntactic comparison — plus the scope enforcement
 performs incrementally. The one assumption to state explicitly: a checker whose parser is lax
 about unbound variables would inherit that obligation in the rule checker.
 
+#### What the generalization buys
+
+Since the rule is admissible, *nothing new is provable* with it — its value is proof-theoretic,
+and sharper than "shorter proofs":
+
+1. **It closes a symbolic derivation instead of replaying it.** The generalization adds *one
+   step* on top of a derivation carried out at a symbolic variable; the Skolemization fallback
+   cannot close anything symbolic — it must run the entire inner derivation substituted at the
+   witness, pushing `x := c` through every step (compounding for nested closures).
+2. **ε-free proofs of ε-free facts.** The fallback smuggles choice terms into elaborations of
+   statements that mention no choice at all; the generalization keeps the quantifier rewrites
+   inside the choice-free fragment — which matters for reconstruction targets without Hilbert
+   choice, and reserves `sko_*` for genuine Skolemization content.
+3. **Linear checking, not just linear text.** The fallback's `forall_inst`/`sko_forall` steps are
+   substitution-instance checks over terms embedding body copies, so checking *time* scales with
+   witness size; the generalization's closures are positional shape comparisons, independent of
+   body size.
+
+Side by side, on the inner closure of the worked example below — the generalized `bind` (left
+column of steps) versus the fallback for the very same conclusion:
+
+```
+; generalized bind: three symbolic steps, one closing step
+(anchor :step s :args ((x S)))
+(step s.t1 (cl (not (forall ((x S)) (and P Q))) (and P Q)) :rule forall_inst :args (x))
+(step s.t2 (cl (and P Q)) :rule resolution :premises (h s.t1))
+(step s.t3 (cl P)         :rule and :premises (s.t2) :args (0))
+(step s (cl (forall ((x S)) P)) :rule bind)                  ; unit closure over {x}
+```
+
+```
+; fallback: the same three steps REPLAYED at c = (choice ((x S)) (not P)),
+; plus the epsilon-clause of the target quantifier
+(step s.t1 (cl (not (forall ((x S)) (and P Q))) (and P[c] Q[c])) :rule forall_inst :args (c))
+(step s.t2 (cl (and P[c] Q[c])) :rule resolution :premises (h s.t1))
+(step s.t3 (cl P[c])            :rule and :premises (s.t2) :args (0))
+(anchor :step s.t4 :args ((:= (x S) c)))
+(step s.t4.t1 (cl (= P P[c])) :rule refl)
+(step s.t4 (cl (= (forall ((x S)) P) P[c])) :rule sko_forall)
+(step s.t5 (cl (forall ((x S)) P) (not P[c])) :rule equiv2 :premises (s.t4))
+(step s.t6 (cl (forall ((x S)) P)) :rule resolution :premises (s.t5 s.t3))
+```
+
+Four steps against seven — but more importantly, on the left the three inner steps are untouched
+by the closure and mention no witness, while on the right *the same three steps* reappear with
+`P[c]`, `Q[c]` spelled out (each a copy of the body inside `c`), and two further steps carry the
+witness again. Scale `P` and `Q` up, or nest closures, and the two routes diverge quadratically
+in both text and checking time, while the left column's cost is unchanged.
+
 Further consequences:
 
 - the quantifier-rewrite elaborations become **witness-free and linear** — quantifiers are
