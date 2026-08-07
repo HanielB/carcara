@@ -157,7 +157,7 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
   `Γ ▷ Qx̄.φ ≈ Qȳ.ψ` (α-renaming as the special case);
 - **[inst]** — universal instantiation, `∀x̄.φ → φ[x̄↦t̄]`;
 - **[gen]** — generalization: from a derivation of `φ` at a fresh `x̄`, conclude `∀x̄.φ`
-  (admissible via [ε]; proposed as the explicit rule `forall_intro`, divergence 8);
+  (admissible via [ε]; realized by the proposed generalization of `bind`, divergence 8);
 - **[ε]** — the critical axiom of the ε-calculus: `Qx̄.φ ≈ φ[x̄ ↦ ε-witnesses]`, where the
   witness for each variable is a choice term over the remaining prefix;
 - **[unfold]** — definition/let expansion, replacing defined variables by their definientia;
@@ -166,7 +166,7 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
 
 Concretely: `bind` is [α/congr-bind] — kept primitive for the sake of its `choice` instance
 (divergence 5), though its `∀`/`∃` instances are derivable from [gen] (see parent chapter);
-`forall_inst` is [inst]; the proposed `forall_intro` is [gen], from which
+`forall_inst` is [inst]; the proposed generalization of `bind` realizes [gen], and recasts
 [α/congr-bind] *derives* — `bind` becomes a reducible rule, with binder congruence for `choice`
 as the one primitive residue (divergence 5, needed to reason under ε-witnesses); `sko_forall` is
 the designated [ε] axiom, with `sko_ex` derived through the quantifier duality; `let`/`bind_let`
@@ -176,38 +176,37 @@ The quantifier rewrites reduce through the **Skolemization route** (RESOLUTE-ins
 in the parent chapter): since `refl` under a witness context + `sko_forall` + `equiv_pos1` derive
 the clausal ∀-ε-form `(cl ∀x.φ, ¬φ[c])` in a constant template, each quantifier rewrite falls to
 a two-implication derivation with `forall_inst` and the CNF axioms — no binder-pattern RARE
-needed. Under the proposed `forall_intro` rule (divergence 8) the same derivations become
+needed. Under the proposed generalization of `bind` (divergence 8) the same derivations become
 witness-free and linear: quantifiers are eliminated by `forall_inst` at a variables-only anchor's
 own variable and reintroduced by generalization.
 
-13 rules: 5 core (+ 1 proposed), 8 reducible.
+13 rules: 5 core, 8 reducible.
 
-### Core (5 + 1 proposed)
+### Core (5)
 
 | rule | notes |
 |---|---|
-| `bind` | binder congruence, kept primitive: its `∀`/`∃` instances are derivable from `forall_intro`, but the `choice` instance (divergence 5) is not, and a congruence primitive is needed for `choice` anyway. Together with `rare_rewrite` it covers rewriting *below* a binder |
+| `bind` | binder congruence; divergence 8 proposes generalizing it so that anchors carry fresh variables and substitutions, and the closing step additionally concludes a single ∀-closure literal (unit in practice; miniscoping only on binder *sets*, clause structure untouched) — ∀-introduction becomes the no-substitutions instance, vanilla `bind` an instance with zero extra steps, `sko_*`/`onepoint` the same closing scheme under their substitution disciplines, and `qnt_rm_unused` is absorbed. Checking stays free-variable-free: declared binder subsets verified positionally, scoping enforced by the parser (see parent chapter). The `choice` instance (divergence 5) stays outside. Together with `rare_rewrite` it covers rewriting *below* a binder |
 | `let` | |
 | `bind_let` | emitted by the polyeq elaboration itself |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
 | `forall_inst` | polyeq elaboration already normalizes it; independent of Skolemization — some arbitrary-term principle must be primitive (see parent chapter) |
-| `forall_intro` (proposed) | per-literal ∀-introduction over variables-only anchors (divergence 8); admissible via the Skolemization route; makes `bind`'s `∀`/`∃` instances derivable in principle (see parent chapter) |
 
 ### Reducible (8)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans` | 6 (any n) | syntactic | planned; mutually dual with `sko_forall` — either could be the primitive (R4 picks one). Elaborating *existing* steps additionally needs binder congruence for `choice` to bridge the `∃`-shaped vs `¬∀¬`-shaped witnesses |
-| `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by the derivable iff-introduction and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with `forall_intro` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
-| `qnt_simplify` | `forall_intro` + `true` + iff-intro | 4 | syntactic | planned; witness-free with divergence 8, else ∀-ε-clause template |
-| `qnt_rm_unused` | `forall_inst` at the anchor variables + `forall_intro` + iff-intro | O(1) | syntactic | planned; ditto |
+| `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by the derivable iff-introduction and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
+| `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | planned; witness-free with divergence 8, else ∀-ε-clause template |
+| `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | planned; ditto |
 | `qnt_join` | same, nested for the merged prefix | O(1) | syntactic | planned; ditto |
-| `miniscope_distribute` | `forall_inst` at the anchor variable + `and_pos`/`and_neg` + `forall_intro` + iff-intro (worked example in the parent chapter) | O(conjuncts) | syntactic | planned; ditto. ∃/∨ form via the axiomatic duality instance of `connective_def` |
+| `miniscope_distribute` | `forall_inst` at the anchor variable + `and_pos`/`and_neg` + generalized `bind` + iff-intro (worked example in the parent chapter) | O(conjuncts) | syntactic | planned; ditto. ∃/∨ form via the axiomatic duality instance of `connective_def` |
 | `miniscope_split` | same, per disjunct | O(disjuncts) | syntactic | planned; ditto |
 | `miniscope_ite` | same, through the `ite` axioms | O(1) | syntactic | planned; ditto |
 
 All six quantifier rewrites have two routes: witness-free and linear via the proposed
-`forall_intro` (divergence 8), or the proposal-free Skolemization fallback (∀-ε-clause template),
+the generalized `bind` (divergence 8), or the proposal-free Skolemization fallback (∀-ε-clause template),
 whose ε-witness terms embed copies of the bodies and make proof *text* quadratic without
 `let`-sharing.
 
@@ -360,12 +359,13 @@ way, with their concern category noted:
 | rule | category | level | reduction |
 |---|---|---|---|
 | `eq_mp` | clausal | reducible (**done**) | `equiv_pos2` + `resolution` (local elaboration) |
+| `equiv_intro` (proposed) | clausal | reducible | iff-introduction from the two implications; `equiv_neg1/2` + resolutions + contractions (~7 steps) — names the closing pattern of every two-implication template |
+| `or_intro` (proposed) | clausal | reducible | packs `(cl l₁ … lₙ)` into `(cl (or l₁ … lₙ))`; `or_neg` ×n + resolutions + `contraction` — the packaging step of the LA reductions and the generalized `bind`'s unit closure |
 | `and_intro` | clausal | reducible | `and_neg` + one `resolution` with explicit pivots |
 | `strict_resolution` | clausal | core variant | strict form of `resolution` used after elaboration |
 | `bounded_farkas` | arithmetic | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
 | `poly_simp` | arithmetic | **core** (computational) | ring-normalization primitive; listed in the arithmetic core table above |
 | `la_mult_pos_pos` | arithmetic | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` schemes |
-| `forall_intro` | binder | proposed core rule | per-literal ∀-introduction over variables-only anchors (divergence 8); listed in the binder core table above |
 | `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
 | `evaluate`, `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |

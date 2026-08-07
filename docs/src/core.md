@@ -373,6 +373,29 @@ primitive alongside Farkas checking.
   scaffolding (the exact recipe depends on the rule-position semantics and should be validated when
   implemented).
 
+## Proposed convenience rules: `equiv_intro` and `or_intro`
+
+Two derivation patterns recur throughout the reductions of this chapter, and are worth naming as
+explicit rules — *proposed* additions that are themselves **reducible**, so they enlarge the
+vocabulary only as compact abbreviations, never the trust base:
+
+- **`equiv_intro`** — iff-introduction: from `(cl ¬A B)` and `(cl A ¬B)`, conclude
+  `(cl (= A B))`. Reducible via the clausal derivation used throughout this chapter: resolve the
+  premises against `equiv_neg2` (`(cl (= A B) A B)`) and `equiv_neg1` (`(cl (= A B) ¬A ¬B)`) with
+  two contractions — ~7 steps, all syntactic. Every two-implication template (the quantifier
+  rewrites, `onepoint`, the `xor`/`ite`/`implies` axiom derivations) ends in exactly this
+  pattern, so naming it shrinks elaborated proofs by a constant factor at their most repetitive
+  point.
+- **`or_intro`** — packing a clause into its disjunction term: from `(cl l₁ … lₙ)`, conclude
+  `(cl (or l₁ … lₙ))` — the inverse of the `or` rule's deconstruction. Reducible via `or_neg` on
+  each literal + n resolutions + `contraction`, O(n) and syntactic. This is the packaging step of
+  the `la_totality`/`la_tautology` reductions, of the implication-term packaging, and of the
+  generalized `bind`'s unit-closure discipline (packing a multi-literal conclusion before closing
+  over the anchor). The name parallels the existing extra `and_intro`.
+
+Both sit at the reducible level: an elaboration may emit them freely (consumers reduce them on
+demand by the recipes above), or expand them inline when targeting the strict core.
+
 ## Skolemization: one rule suffices
 
 `sko_ex` and `sko_forall` are duals through the quantifier duality that `connective_def` already
@@ -399,8 +422,8 @@ Two prerequisites make this exact, both worth raising with the specification:
 - **A binder-congruence rule for `choice` is needed.** The witnesses of a `sko_ex` step
   (`εxᵢ.(∃…φ)`) and those produced by the dual route (`εxᵢ.¬(∀…¬φ)`) differ by a duality rewrite
   *under* `ε`, and no current rule reasons under choice binders — `bind` covers only `∀`/`∃`, and
-  the derivation of binder congruence from `forall_intro` (see below) covers only binders with
-  elimination/introduction rules, which `ε` lacks. A congruence rule for `choice` (from
+  the generalized `bind`'s conclusion formers are `∀`/`∃` only (see below), so no route reasons
+  under `ε`. A congruence rule for `choice` (from
   `Γ, x↦y ▷ φ ≈ ψ` conclude `Γ ▷ εx.φ ≈ εy.ψ`) closes exactly this gap: with it, the
   `¬∀¬`/`∃`-shaped witnesses of existing proofs can be bridged by `connective_def` + `not-not`
   reasoning under the binder, and the reduction applies to already-produced steps, not just to new
@@ -457,110 +480,105 @@ derivations are clausal where the binder category is otherwise equational: the e
 derived as clauses and injected into rewriting chains via iff-introduction — the same benign
 context-mixing as the `onepoint` template.
 
-### A generalization rule (proposed): `forall_intro`
+### Generalizing `bind` (proposed)
 
-The witness blowup disappears entirely under one further proposed rule (divergence 8),
-`forall_intro`: natural-deduction ∀-introduction organized by the anchor mechanism — an anchor
-whose arguments are *plain fresh variables* (the syntax `onepoint` anchors already use), closed by
-generalizing each literal over the anchor variables it mentions:
+The witness blowup disappears entirely under one further proposal (divergence 8): generalize
+`bind` so that ∀-introduction is one of its instances. The anchor takes *both* fresh variables
+and substitution entries (capture-avoiding), and the inner derivation may conclude *any* clause:
 
 ```
-(anchor :step t :args ((y1 S1) ... (yk Sk)))
+(anchor :step t :args ((y1 S1) ... (yk Sk) (:= (x1 T1) u1) ... (:= (xm Tm) um)))
 ... steps concluding (cl l1 ... ln) ...
-(step t (cl (forall ȳ1 l1) ... (forall ȳn ln)) :rule forall_intro)
+(step t (cl L1 ... Ln') :rule bind)
 ```
 
-where `ȳi` is the subset of anchor variables free in `li` (literals mentioning no anchor variable
-stay unchanged). The side conditions carry the whole capture story, as special cases of the
-multi-variable form rather than separate rules: each anchor variable may occur free in **at most
-one** literal (wrapping two `y`-sharing literals separately is unsound — `∀y.(φ∨χ)` does not
-imply `∀y.φ ∨ ∀y.χ`); the wrapped variables form one block in anchor order; and nested anchors
-must use names fresh with respect to the enclosing scope. Soundness is by scoping: the anchor
-variables are fresh, so every outer premise is automatically free of them. Checking is syntactic
-(clause shape plus freeness), and the rule is *admissible* given the Skolemization route — such
-an anchor is exactly what the ε-route replays at the witness — so adopting it changes no logical
-content; it internalizes the replay, keeping the variables symbolic instead of substituting
-choice terms everywhere.
+The conclusion is computed literal-wise, in two forms:
 
-**Binder congruence — `bind`'s content — for `∀`/`∃` could be derived from it.** `bind`'s form —
-an anchor with renaming entries, closed into `Qx̄.φ ≈ Qȳ.ψ` — is in principle a derived template
-over `forall_intro`. Take a typical rewriting-under-a-binder use of `bind` as it appears today
-(in polyeq elaboration and simplification chains):
+- **Transformation literals** — equalities `(= a b)` whose left side mentions substituted
+  variables — close as today: `(= (Q x̄ₐ ȳₐ. a) (Q ȳᵦ. b))`, with each binder set *miniscoped*
+  to the variables actually free on that side (unused variables may be dropped — `qnt_rm_unused`
+  built into the rule; binding the full declared sets remains legal, so every current `bind`
+  instance is unchanged).
+- **The generalization literal** — at most *one* non-equality literal closes as `∀Ȳ.l`, with `Ȳ`
+  a declared subset of the fresh variables; the remaining literals pass through untouched, and are
+  therefore `ȳ`-free by scoping. Miniscoping thus applies only to binder *sets* (the equality
+  sides above, and the closure's declared subset), never to clause structure. This restriction
+  loses no generality: a multi-literal conclusion is packed into its disjunction *term* before
+  closing (`or_neg` + resolutions + `contraction`, O(n) — the `la_totality` packaging), and side
+  hypotheses are assumed *outside* the anchor — which is how the elaboration templates are
+  structured anyway, so in practice the closure applies to a unit conclusion, exactly like the
+  spec's existing binder subproofs. ∀-introduction is the no-substitutions instance.
 
-```
-(anchor :step t1 :args ((y S) (:= (x S) y)))
-(step t1.t1 (cl (= (and (P y) true) (P y))) :rule rare_rewrite ...)
-(step t1 (cl (= (forall ((x S)) (and (P x) true)) (forall ((y S)) (P y)))) :rule bind)
-```
+Vanilla `bind` is the instance with renaming substitutions and a single equality literal — the
+conclusion coincides syntactically with today's rule, with zero extra steps. Checking stays
+syntactic and linear (see "Checking without free-variable computation" below). The
+capture story is carried entirely by the side conditions: the substitution must be
+capture-avoiding, fresh names distinct under nesting.
 
-With `forall_intro`, the same reasoning splits into (1) the *same body derivation*, now closed by
-generalization into a pointwise equivalence, and (2) a fixed congruence template that lifts it to
-the quantified equivalence:
+**Where arbitrariness must stop.** For a transformation literal, the *equivalence* conclusion is
+sound only under a discipline on the substituted terms `ū`: with arbitrary `ū`, only the ←
+direction holds (`Qȳ.b` covers just the instances `a[ū]`, not all `x̄`). The disciplines are
+exactly the existing binder rules:
 
-```
-; 1. the bind subproof body, closed by forall_intro
-(anchor :step t1 :args ((y S)))
-(step t1.t1 (cl (= (and (P y) true) (P y))) :rule rare_rewrite ...)      ; body reasoning, unchanged
-(step t1 (cl (forall ((y S)) (= (and (P y) true) (P y)))) :rule forall_intro)
+| discipline on `ū` | rule |
+|---|---|
+| renamings into the fresh variables | `bind` (vanilla instance) |
+| ε-witnesses of the sequential shape | `sko_forall` / `sko_ex` |
+| points justified by the guarded-occurrence grammar | `onepoint` |
 
-; 2. the fixed congruence template (~12 steps), sketched:
-(anchor :step t2)
-(assume t2.h (forall ((x S)) (and (P x) true)))
-(anchor :step t2.t1 :args ((y S)))
-(step t2.t1.t1 (cl (not (forall ((x S)) (and (P x) true))) (and (P y) true))
-                                            :rule forall_inst :args (y))   ; renames x to y
-(step t2.t1.t2 (cl (and (P y) true))        :rule resolution :premises (t2.h t2.t1.t1))
-(step t2.t1.t3 (cl (not (forall ((y S)) (= (and (P y) true) (P y))))
-                   (= (and (P y) true) (P y))) :rule forall_inst :args (y))
-(step t2.t1.t4 (cl (P y))                   :rule resolution  ; equiv_pos2 + t1 + t3 + t2
-(step t2.t1 (cl (forall ((y S)) (P y)))     :rule forall_intro)
-(step t2 (cl (not (forall ((x S)) (and (P x) true))) (forall ((y S)) (P y)))
-                                            :rule subproof :discharge (t2.h))
-; ... the symmetric direction via equiv_pos1, then iff-introduction ...
-```
+So the generalization recasts the binder category as **one anchor-closing scheme parameterized by
+the substitution discipline** — [α/congr-bind], [ε], and [qe-point] are the three justifications
+for the same closing step, and [gen] is the discipline-free case. What remains outside is
+congruence under `choice` (divergence 5): the conclusion formers here are `∀`/`∃`, and `ε` has no
+elimination/introduction rules, so binder congruence for `choice` is still the one primitive
+extension.
 
-Two things do the work the renaming context used to do: `forall_inst :args (y)` instantiates the
-`x`-bound body *at the anchor variable `y`*, so α-renaming happens by instantiation; and the
-pointwise equivalence from part 1 is `forall_inst`-ed in both directions, so the body reasoning
-is derived once and shared, not duplicated. Pure α-renaming (`∀x.φ ≈ ∀y.φ[x↦y]`) is the special
-case where part 1 is trivial, and the `∃` form of `bind` goes through the duality. **Where this
-breaks is `choice`**: `ε` has no elimination/introduction rules to run the template, so binder
-congruence for `choice` (divergence 5) is not derivable from `forall_intro` — and since a
-congruence primitive is needed for `choice` anyway, `bind` is *kept core as it is*, with the
-derivability of its `∀`/`∃` instances recorded as an observation rather than a reduction.
+#### Checking without free-variable computation
+
+Restricting miniscoping to binder sets makes checking free of free-variable computation: only the
+*shapes* of the arguments and of the subproof's conclusion are inspected, and the quantifier
+prefixes are *built* from them.
+
+- **Declared binder sets, positional construction**: the closure's prefix `Ȳ` and each
+  transformation literal's binder sets are declared (in the conclusion as written); the checker
+  verifies each is a subset of the corresponding anchor sets *in anchor order* — pure list checks
+  — and compares the positionally built conclusion with the written one syntactically.
+- **Scoping does the rest, for free.** With anchor variable names required to be *fresh for the
+  ambient scope* — a symbol-table membership test at anchor time, not a term traversal — the
+  parser's ordinary well-scopedness discipline enforces every remaining condition: a pass-through
+  literal that uses a fresh variable has it *unbound*, and is rejected before the rule checker
+  runs; a *dropped* binder variable that was actually used is caught the same way; and a declared
+  variable a literal does not use is a vacuous binder, hence harmless (the checker is
+  deliberately permissive about it — `qnt_rm_unused`-flavored slack).
+- **The unsound shape is inexpressible.** With grouping, the one shape scoping cannot reject is
+  the split of `∀` over `∨` — `(cl (∀y.l₁) (∀y.l₂))` from `(cl l₁(y) l₂(y))`. With a single
+  closure literal there is nothing to split: a second `∀y` would have to introduce a shadowing
+  name (rejected by freshness), and any stray use of the real `y` is unbound.
+
+Free-variable computation thus moves entirely to the *producer*, which chooses tight prefixes at
+elaboration time (and knows the free variables anyway); the checker's work is subset checks,
+positional construction, and syntactic comparison — plus the scope enforcement its parser already
+performs incrementally. The one assumption to state explicitly: a checker whose parser is lax
+about unbound variables would inherit that obligation in the rule checker.
 
 Further consequences:
 
 - the quantifier-rewrite elaborations become **witness-free and linear** — quantifiers are
-  eliminated by `forall_inst` *at the anchor variable itself* and reintroduced by `forall_intro`
-  (worked example below); the Skolemization route remains the proposal-free fallback;
-- `qnt_simplify` is four steps: `anchor x`; `true`; `forall_intro`; iff-introduction — no `ε`
-  anywhere;
+  eliminated by `forall_inst` *at the anchor variable itself* and reintroduced by the generalized
+  `bind`'s closure (worked example below); the Skolemization route remains the proposal-free
+  fallback;
+- `qnt_simplify` is four steps: `anchor x`; `true`; close by generalization; iff-introduction —
+  no `ε` anywhere — and `qnt_rm_unused` instances are absorbed into the rule itself;
 - `onepoint`'s inner-quantifier case becomes direct generalization, dropping its `∀ȳ.⊤ ≈ ⊤`
   detour;
-- the abstract proof system becomes the honest natural-deduction picture: [inst] and [gen] as the
-  ∀-elimination/introduction pair, with [α/congr-bind] derivable from them for `∀`/`∃` (kept
-  primitive for the sake of `choice`), and [ε] (`sko_*`) reserved for genuine Skolemization.
+- mixed instances add genuinely new expressive power: an equality literal *plus* `ȳ`-free side
+  literals concludes a conditional rewrite under a binder, `(cl (= (Qx̄.φ) (Qȳ.ψ)) ¬p)` — today
+  inexpressible without detours;
+- the abstract proof system reads: [inst] and [gen] as the ∀-elimination/introduction pair, with
+  [α/congr-bind], [ε], [qe-point] as the three substitution disciplines of the same closing
+  scheme, and `choice` congruence as the residue.
 
-### Worked example: elaborating `miniscope_distribute`
-
-Take the single-variable, binary instance
-
-```
-(step t (cl (= A B)) :rule miniscope_distribute)
-```
-
-with `A = (forall ((x S)) (and P Q))` and `B = (and (forall ((x S)) P) (forall ((x S)) Q))`.
-Write `φ[c]` for `φ` with `x` substituted by `c` (in the real proof these are fully expanded
-terms), and abbreviate the three counterexample witnesses
-
-```
-c1 = (choice ((x S)) (not P))          ; for (forall x. P)
-c2 = (choice ((x S)) (not Q))          ; for (forall x. Q)
-c3 = (choice ((x S)) (not (and P Q)))  ; for A
-```
-
-With `forall_intro`, the derivation is organized entirely by the anchor mechanism — two
+With the generalized `bind`, the derivation is organized entirely by the anchor mechanism — two
 assume/discharge subproofs, one per direction, each using a variables-only anchor to eliminate
 the quantifiers at the anchor variable and reintroduce them by generalization; no choice term
 appears anywhere:
@@ -574,7 +592,7 @@ appears anywhere:
 (step t.p1.t1.t2 (cl (and P Q))             :rule resolution :premises (t.p1.h t.p1.t1.t1))
 (step t.p1.t1.t3 (cl (not (and P Q)) P)     :rule and_pos :args (0))
 (step t.p1.t1.t4 (cl P)                     :rule resolution :premises (t.p1.t1.t3 t.p1.t1.t2))
-(step t.p1.t1 (cl (forall ((x S)) P))       :rule forall_intro)
+(step t.p1.t1 (cl (forall ((x S)) P))       :rule bind)          ; generalized: closure over the anchor variable
    … same four steps for Q, giving t.p1.t2 (cl (forall ((x S)) Q)) …
 (step t.p1.t3 (cl B (not (forall ((x S)) P)) (not (forall ((x S)) Q))) :rule and_neg)
 (step t.p1.t4 (cl B)                        :rule resolution :premises (t.p1.t3 t.p1.t1 t.p1.t2))
@@ -591,7 +609,7 @@ appears anywhere:
    … same for Q …
 (step t.p2.t1.t5 (cl (and P Q) (not P) (not Q))     :rule and_neg)
 (step t.p2.t1.t6 (cl (and P Q))                     :rule resolution :premises (…)
-(step t.p2.t1 (cl (forall ((x S)) (and P Q)))       :rule forall_intro)      ; = (cl A)
+(step t.p2.t1 (cl (forall ((x S)) (and P Q)))       :rule bind)          ; generalized: closure over the anchor variable      ; = (cl A)
 (step t.p2 (cl (not B) A) :rule subproof :discharge (t.p2.h))
 
 ; iff-introduction (the derivable equiv-intro)
@@ -604,7 +622,7 @@ appears anywhere:
 
 About sixteen steps, all unit-clause reasoning under the hypotheses, linear in the original step
 — the anchors carry all the binding structure, and `forall_inst :args (x)` at the anchor's own
-variable does the elimination. Without `forall_intro`, the same derivation runs through the
+variable does the elimination. Without the generalization, the same derivation runs through the
 Skolemization fallback: each variables-only anchor is replaced by explicit reasoning at the
 counterexample witness of the quantifier being introduced (`sko_forall`'s equivalence at
 `c = εx.¬φ` via `refl` + `equiv_pos1`), which is what makes that route's proof text quadratic —
@@ -773,7 +791,7 @@ specification maintainers:
 5. **The Skolemization pair and choice-binder congruence**: only one of `sko_ex`/`sko_forall`
    needs to be primitive (see the Skolemization section); making the reduction applicable to
    existing proofs requires a binder-congruence rule for `choice`, which is proposed as a spec
-   extension (the sole instance of binder congruence not derivable from `forall_intro`).
+   extension (the one binder not covered by the generalized `bind`'s closing scheme).
 6. **Extend `connective_def` with implication**: adding `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)` to
    `connective_def`'s definition list lets the three `implies` CNF axioms reduce like the `xor`
    and `ite` families, shrinking the axiomatic CNF base to the `and`/`or`/`equiv` families.
@@ -782,12 +800,14 @@ specification maintainers:
    grammar implemented by Carcara's `extract_points` should become the official side condition —
    it is simultaneously the induction structure of the rule's elaboration (see "Elaborating
    `onepoint`").
-8. **Add a generalization rule (`forall_intro`)**: per-literal ∀-introduction over variables-only
-   anchors (see "A generalization rule"). Admissible given Skolemization, so it adds no logical
-   content; it makes the quantifier-rewrite elaborations witness-free and linear, completes the
-   natural-deduction pairing [inst]/[gen], and makes `bind`'s `∀`/`∃` instances derivable in
-   principle — `bind` stays core regardless, since the `choice` instance (divergence 5) needs a
-   congruence primitive that `forall_intro` cannot provide.
+8. **Generalize `bind`** (see "Generalizing `bind`"): anchors carry fresh variables and
+   capture-avoiding substitutions, and the closing step concludes, per literal, either the usual
+   quantified equivalence (transformation literals, miniscoped binder sets) or the automatically
+   miniscoped ∀-closure (generalization literals). Vanilla `bind` is an instance with zero extra
+   steps; ∀-introduction is the no-substitutions instance; `sko_*` and `onepoint` become the same
+   closing scheme under their substitution disciplines; `qnt_rm_unused` is absorbed into the
+   rule. Admissible given Skolemization, so no logical content is added. `choice` congruence
+   (divergence 5) remains the one extension outside the scheme.
 
 ## Validation
 
