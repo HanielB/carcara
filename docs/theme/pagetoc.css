@@ -1,0 +1,120 @@
+/* Floating per-page table of contents. Hidden below 1200px viewport width. */
+.pagetoc {
+  display: none;
+}
+@media only screen and (min-width: 1200px) {
+  /* keep a minimum gap between the content column and the toc card:
+     stays centered when there is room, shifts left when there is not */
+  .content main {
+    margin-left: auto;
+    margin-right: max(285px, calc(50% - var(--content-max-width) / 2));
+  }
+  .pagetoc {
+    display: block;
+    position: fixed;
+    top: 100px;
+    right: 16px;
+    width: 240px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    font-size: 0.8em;
+    line-height: 1.45;
+    padding: 8px 10px 10px 10px;
+    background-color: var(--bg);
+    border: 1px solid var(--table-border-color, #ccc);
+    border-radius: 6px;
+    z-index: 100;
+  }
+}
+.pagetoc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--table-border-color, #ccc);
+  padding-bottom: 5px;
+  margin-bottom: 7px;
+}
+.pagetoc-title {
+  font-weight: bold;
+  color: var(--fg);
+}
+.pagetoc-count {
+  font-size: 0.85em;
+  font-family: var(--mono-font, monospace);
+  color: var(--sidebar-fg, var(--fg));
+  opacity: 0.7;
+}
+.pagetoc-body {
+  position: relative;
+  padding-left: 14px;
+}
+.pagetoc-track {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--table-border-color, #ddd);
+  border-radius: 1px;
+}
+.pagetoc-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  background: var(--sidebar-active, var(--links));
+  border-radius: 1px;
+  transition: height 0.15s ease-out;
+}
+.pagetoc-marker {
+  position: absolute;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sidebar-active, var(--links));
+  transition: top 0.15s ease-out;
+}
+.pagetoc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pagetoc-list li {
+  margin: 0;
+  padding: 2px 0;
+  position: relative;
+}
+.pagetoc-list li::before {
+  content: "\2022";
+  position: absolute;
+  left: -1px;
+  color: var(--sidebar-fg, var(--fg));
+  opacity: 0.45;
+  font-size: 0.9em;
+}
+.pagetoc-list li.pagetoc-h2 a {
+  padding-left: 10px;
+}
+.pagetoc-list li.pagetoc-h3::before {
+  content: "\2013";
+  left: 9px;
+}
+.pagetoc-list li.pagetoc-h3 a {
+  padding-left: 22px;
+}
+.pagetoc a {
+  color: var(--sidebar-fg, var(--fg));
+  text-decoration: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pagetoc a:hover {
+  color: var(--sidebar-active, var(--links));
+}
+.pagetoc a.active {
+  color: var(--sidebar-active, var(--links));
+  font-weight: bold;
+}
