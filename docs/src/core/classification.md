@@ -21,6 +21,10 @@ them, or the specification should replace them). See the [parent chapter](../cor
 criteria and the worked-out recipes; the RARE rules required by the rewrite-based schemes are
 catalogued in [RARE rules for the rewrite routes](./rare-rules.md).
 
+For every non-trivial reduction, a collapsible **example** follows its table — click to expand.
+The [reduction graph](./reduction-graph.md) shows the same content as an interactive picture:
+its nodes link back to the sections and examples here.
+
 The *check* column states the checking complexity of the steps a scheme emits: *syntactic* (pure
 matching), *Farkas* (arithmetic certificate checking, via `la_generic`), *ring* (polynomial
 normalization, via `poly_simp`), or *oracle* (external solver). The *status* column tracks
@@ -122,8 +126,8 @@ divergence item 6).
 | `th_resolution` | `resolution` | 0 | syntactic | planned; same rule per the spec, normalize the name |
 | `tautology` | `true` | 1 | syntactic | planned; conclusion is literally `⊤`; drops the premise from the DAG |
 | `reordering` | (eliminated) | 0 | — | done — reordering pass recomputes downstream conclusions |
-| `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2` | `connective_def` + `equiv_pos1/2` + `and`/`or`/`implies` axioms (+ `not_not`) + `resolution` | ≤ ~10 each | syntactic | planned; unpack the connective's definition and re-clausify (worked example in the parent chapter) |
-| `implies_pos`, `implies_neg1`, `implies_neg2` | `connective_def` (proposed `→` extension) + `equiv_pos1/2` + `or_pos`/`or_neg` (+ `not_not`) + `resolution` | 4–6 each | syntactic | planned; requires divergence item 6 (extend `connective_def` with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`) |
+| `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2` | `connective_def` + `equiv1`/`equiv2` + `and`/`or`/`implies` axioms (+ `not_not`) + `resolution` | ≤ ~9 each | syntactic | planned; unpack the connective's definition and re-clausify (worked example in the parent chapter) |
+| `implies_pos`, `implies_neg1`, `implies_neg2` | `connective_def` (proposed `→` extension) + `equiv1`/`equiv2` + `or_pos`/`or_neg` (+ `not_not`) + `resolution` | 3–5 each | syntactic | planned; requires divergence item 6 (extend `connective_def` with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`) |
 | 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | planned; pivot = the premise formula. The `xor`/`ite` targets are themselves reducible — reductions compose |
 
 ### Expensive (2)
@@ -147,6 +151,87 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
 | `not_xor2` | `xor_neg2` | | `not_ite2` | `ite_neg2` |
 | `implies` | `implies_pos` | | `not_implies1` | `implies_neg1` |
 | `not_implies2` | `implies_neg2` | | | |
+
+<details id="ex-clausification">
+<summary>Example: a clausification rule (<code>and</code>)</summary>
+
+```
+(step t2 (cl q) :rule and :premises (t1) :args (1))     ; t1: (cl (and p q r))
+```
+
+becomes
+
+```
+(step t2.t1 (cl (not (and p q r)) q) :rule and_pos :args (1))
+(step t2 (cl q) :rule resolution :premises (t2.t1 t1) :args ((and p q r) false))
+```
+
+The other 18 premise clausification rules follow the identical two-step shape with their paired
+axiom from the table above.
+
+</details>
+
+<details id="ex-xor-axioms">
+<summary>Example: the <code>xor</code> axioms (<code>xor_pos1</code>, <code>xor_neg1</code>) via <code>connective_def</code></summary>
+
+With `X = (xor φ₁ φ₂)` and the definition `X ≈ D`, `D = (or (and (not φ₁) φ₂) (and φ₁ (not φ₂)))`.
+For `xor_pos1` (`¬X ∨ φ₁ ∨ φ₂`):
+
+```
+t1. (cl (= X D))                 connective_def
+t2. (cl ¬X D)                    equiv1 t1
+t3. (cl ¬D (¬φ₁∧φ₂) (φ₁∧¬φ₂))    or_pos
+t4. (cl ¬(¬φ₁∧φ₂) φ₂)            and_pos (index 1)
+t5. (cl ¬(φ₁∧¬φ₂) φ₁)            and_pos (index 0)
+t6. (cl ¬X φ₂ φ₁)                resolution t2 t3 t4 t5      ; = xor_pos1
+```
+
+For `xor_neg1` (`X ∨ φ₁ ∨ ¬φ₂`), through the other direction of the definition and the first
+disjunct `(¬φ₁∧φ₂)`:
+
+```
+u1. (cl (= X D))                 connective_def
+u2. (cl X ¬D)                    equiv2 u1
+u3. (cl D ¬(¬φ₁∧φ₂))             or_neg (index 0)
+u4. (cl (¬φ₁∧φ₂) ¬¬φ₁ ¬φ₂)       and_neg
+u5. (cl ¬¬¬φ₁ φ₁)                not_not
+u6. (cl D ¬¬φ₁ ¬φ₂)              resolution u3 u4
+u7. (cl D φ₁ ¬φ₂)                resolution u6 u5
+u8. (cl X φ₁ ¬φ₂)                resolution u2 u7             ; = xor_neg1
+```
+
+The other two `xor` axioms and the four `ite` axioms (through
+`(ite φ₁ φ₂ φ₃) ≈ (φ₁→φ₂) ∧ (¬φ₁→φ₃)` and the `implies` axioms) follow the same two patterns.
+
+</details>
+
+<details id="ex-implies-axioms">
+<summary>Example: the <code>implies</code> axioms (<code>implies_pos</code>, <code>implies_neg1</code>) via the proposed <code>→</code> extension</summary>
+
+With `I = (=> p q)` and the proposed definition `I ≈ D`, `D = (or (not p) q)`. For `implies_pos`
+(`¬I ∨ ¬p ∨ q`):
+
+```
+t1. (cl (= I D))                 connective_def (→ extension, divergence 6)
+t2. (cl ¬I D)                    equiv1 t1
+t3. (cl ¬D (not p) q)            or_pos
+t4. (cl ¬I (not p) q)            resolution t2 t3            ; = implies_pos
+```
+
+For `implies_neg1` (`I ∨ p`):
+
+```
+u1. (cl (= I D))                 connective_def (→ extension)
+u2. (cl I ¬D)                    equiv2 u1
+u3. (cl D ¬¬p)                   or_neg (index 0)
+u4. (cl ¬¬¬p p)                  not_not
+u5. (cl D p)                     resolution u3 u4
+u6. (cl I p)                     resolution u2 u5            ; = implies_neg1
+```
+
+`implies_neg2` (`I ∨ ¬q`) is `u2` + `or_neg` (index 1) + one resolution — no `not_not` needed.
+
+</details>
 
 ## Binder
 
@@ -173,7 +258,7 @@ through the quantifier duality; `let`/`bind_let` are [unfold]; and `onepoint` is
 derived, see below.
 
 The quantifier rewrites reduce through the **Skolemization route** (RESOLUTE-inspired, documented
-in the parent chapter): since `refl` under a witness context + `sko_forall` + `equiv_pos1` derive
+in the parent chapter): since `refl` under a witness context + `sko_forall` + `equiv2` derive
 the clausal ∀-ε-form `(cl ∀x.φ, ¬φ[c])` in a constant template, each quantifier rewrite falls to
 a two-implication derivation with `forall_inst` and the CNF axioms — no binder-pattern RARE
 needed. Under the proposed generalization of `bind` (divergence 8) the same derivations become
@@ -210,6 +295,363 @@ generalization of `bind` (divergence 8), or the proposal-free Skolemization fall
 template),
 whose ε-witness terms embed copies of the bodies and make proof *text* quadratic without
 `let`-sharing.
+
+<details id="ex-sko-ex">
+<summary>Example: <code>sko_ex</code> via duality</summary>
+
+For a step `(step t (cl (= (exists ((x S)) φ) ψ)) :rule sko_ex)` whose subproof's last step
+`t.tk` concludes `(cl (= φ ψ))` under the witness context:
+
+```
+(step t.k1 (cl (= (not φ) (not ψ))) :rule cong :premises (t.tk))
+(step t.k2 (cl (= (forall ((x S)) (not φ)) (not ψ))) :rule sko_forall)     ; closes the subproof
+(step t.k3 (cl (= (exists ((x S)) φ) (not (forall ((x S)) (not φ))))) :rule connective_def)
+(step t.k4 (cl (= (not (forall ((x S)) (not φ))) (not (not ψ)))) :rule cong :premises (t.k2))
+(step t.k5 (cl (= (not (not ψ)) ψ)) :rule rare_rewrite :args ("not-not-elim" ψ))
+(step t (cl (= (exists ((x S)) φ) ψ)) :rule trans :premises (t.k3 t.k4 t.k5))
+```
+
+For already-produced steps, aligning the `∃`-shaped witness of the original context with the
+`¬∀¬`-shaped one `sko_forall` expects needs the choice-congruence rule (divergence 5).
+
+</details>
+
+<details id="ex-onepoint">
+<summary>Example: <code>onepoint</code></summary>
+
+The instance, with its premise subproof (the context performs `x ↦ t`, and `refl` proves the
+substituted body):
+
+```
+(anchor :step s :args ((:= (x S) t)))
+(step s.t1 (cl (= (=> (= x t) (P x)) (=> (= t t) (P t)))) :rule refl)
+(step s (cl (= (forall ((x S)) (=> (= x t) (P x))) (=> (= t t) (P t)))) :rule onepoint)
+```
+
+The elaboration, in full. Direction →: `forall_inst` at the point `t` produces exactly the
+right-hand side (with a non-trivial premise subproof, one extra `equiv1` + `resolution` bridges
+`φ[t]` to `φ'`):
+
+```
+(anchor :step s.p1)
+(assume s.p1.h (forall ((x S)) (=> (= x t) (P x))))
+(step s.p1.t1 (cl (not (forall ((x S)) (=> (= x t) (P x)))) (=> (= t t) (P t)))
+    :rule forall_inst :args (t))
+(step s.p1.t2 (cl (=> (= t t) (P t))) :rule resolution :premises (s.p1.h s.p1.t1))
+(step s.p1 (cl (not (forall ((x S)) (=> (= x t) (P x)))) (=> (= t t) (P t)))
+    :rule subproof :discharge (s.p1.h))
+```
+
+Direction ←: derive `(P t)` from the hypothesis, transport it through the guard equality inside
+an inner discharge subproof (the guarded-occurrence grammar's production for `⇒`-guards), package
+the implication term, and close over `x`:
+
+```
+(anchor :step s.p2)
+(assume s.p2.h (=> (= t t) (P t)))
+(anchor :step s.p2.t1 :args ((x S)))
+(step s.p2.t1.t1 (cl (= t t)) :rule eq_reflexive)
+(step s.p2.t1.t2 (cl (not (= t t)) (P t)) :rule implies :premises (s.p2.h))
+(step s.p2.t1.t3 (cl (P t)) :rule resolution :premises (s.p2.t1.t2 s.p2.t1.t1))
+(anchor :step s.p2.t1.t4)
+(assume s.p2.t1.t4.h (= x t))
+(step s.p2.t1.t4.t1 (cl (= t x)) :rule symm :premises (s.p2.t1.t4.h))
+(step s.p2.t1.t4.t2 (cl (= (P t) (P x))) :rule cong :premises (s.p2.t1.t4.t1))
+(step s.p2.t1.t4.t3 (cl (P x)) :rule eq_mp :premises (s.p2.t1.t3 s.p2.t1.t4.t2))
+(step s.p2.t1.t4 (cl (not (= x t)) (P x)) :rule subproof :discharge (s.p2.t1.t4.h))
+(step s.p2.t1.t5 (cl (=> (= x t) (P x)) (= x t)) :rule implies_neg1)
+(step s.p2.t1.t6 (cl (=> (= x t) (P x)) (not (P x))) :rule implies_neg2)
+(step s.p2.t1.t7 (cl (not (= x t)) (=> (= x t) (P x)))
+    :rule resolution :premises (s.p2.t1.t4 s.p2.t1.t6))
+(step s.p2.t1.t8 (cl (=> (= x t) (P x)) (=> (= x t) (P x)))
+    :rule resolution :premises (s.p2.t1.t7 s.p2.t1.t5))
+(step s.p2.t1.t9 (cl (=> (= x t) (P x))) :rule contraction :premises (s.p2.t1.t8))
+(step s.p2.t1 (cl (forall ((x S)) (=> (= x t) (P x)))) :rule bind)   ; unit closure over {x}
+(step s.p2 (cl (not (=> (= t t) (P t))) (forall ((x S)) (=> (= x t) (P x))))
+    :rule subproof :discharge (s.p2.h))
+(step s (cl (= (forall ((x S)) (=> (= x t) (P x))) (=> (= t t) (P t))))
+    :rule equiv_intro :premises (s.p1 s.p2))
+```
+
+Deeper guard shapes add one `or_neg`/`and_pos` step per grammar production; multiple points case
+split in anchor order.
+
+</details>
+
+<details id="ex-qnt-simplify">
+<summary>Example: <code>qnt_simplify</code></summary>
+
+```
+(anchor :step t.p :args ((x S)))
+(step t.p.t1 (cl true) :rule true)
+(step t.p (cl (forall ((x S)) true)) :rule bind)      ; unit closure (divergence 8)
+(step t.t1 (cl true) :rule true)
+(step t.t2 (cl (= (forall ((x S)) true) true)
+              (not (forall ((x S)) true)) (not true)) :rule equiv_neg1)
+(step t (cl (= (forall ((x S)) true) true)) :rule resolution :premises (t.t2 t.p t.t1))
+```
+
+</details>
+
+<details id="ex-qnt-rm-unused">
+<summary>Example: <code>qnt_rm_unused</code></summary>
+
+For `(cl (= (forall ((x S) (y S)) (P x)) (forall ((x S)) (P x))))` (`y` unused in the body):
+
+```
+(anchor :step t.p1)
+(assume t.p1.h (forall ((x S) (y S)) (P x)))
+(anchor :step t.p1.t1 :args ((x S)))
+(step t.p1.t1.t1 (cl (not (forall ((x S) (y S)) (P x))) (P x)) :rule forall_inst :args (x x))
+(step t.p1.t1.t2 (cl (P x)) :rule resolution :premises (t.p1.h t.p1.t1.t1))
+(step t.p1.t1 (cl (forall ((x S)) (P x))) :rule bind)        ; unit closure over {x}
+(step t.p1 (cl (not (forall ((x S) (y S)) (P x))) (forall ((x S)) (P x)))
+    :rule subproof :discharge (t.p1.h))
+
+(anchor :step t.p2)
+(assume t.p2.h (forall ((x S)) (P x)))
+(anchor :step t.p2.t1 :args ((x S) (y S)))
+(step t.p2.t1.t1 (cl (not (forall ((x S)) (P x))) (P x)) :rule forall_inst :args (x))
+(step t.p2.t1.t2 (cl (P x)) :rule resolution :premises (t.p2.h t.p2.t1.t1))
+(step t.p2.t1 (cl (forall ((x S) (y S)) (P x))) :rule bind)  ; closure over {x, y}, y vacuous
+(step t.p2 (cl (not (forall ((x S)) (P x))) (forall ((x S) (y S)) (P x)))
+    :rule subproof :discharge (t.p2.h))
+
+(step t (cl (= (forall ((x S) (y S)) (P x)) (forall ((x S)) (P x))))
+    :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+In the → direction, `y` is instantiated at `x` (any term of `y`'s sort works, since `y` does not
+occur in the body); in the ← direction, the vacuous `y` is simply part of the declared closure
+prefix. The Skolemization fallback instead instantiates `y` at a dummy witness
+`(choice ((y S)) true)`.
+
+</details>
+
+<details id="ex-qnt-join">
+<summary>Example: <code>qnt_join</code></summary>
+
+For `(cl (= (forall ((x S)) (forall ((y S)) P)) (forall ((x S) (y S)) P)))` (`P` may mention
+both `x` and `y`):
+
+```
+(anchor :step t.p1)
+(assume t.p1.h (forall ((x S)) (forall ((y S)) P)))
+(anchor :step t.p1.t1 :args ((x S) (y S)))
+(step t.p1.t1.t1 (cl (not (forall ((x S)) (forall ((y S)) P))) (forall ((y S)) P))
+    :rule forall_inst :args (x))
+(step t.p1.t1.t2 (cl (forall ((y S)) P)) :rule resolution :premises (t.p1.h t.p1.t1.t1))
+(step t.p1.t1.t3 (cl (not (forall ((y S)) P)) P) :rule forall_inst :args (y))
+(step t.p1.t1.t4 (cl P) :rule resolution :premises (t.p1.t1.t2 t.p1.t1.t3))
+(step t.p1.t1 (cl (forall ((x S) (y S)) P)) :rule bind)      ; unit closure over {x, y}
+(step t.p1 (cl (not (forall ((x S)) (forall ((y S)) P))) (forall ((x S) (y S)) P))
+    :rule subproof :discharge (t.p1.h))
+
+(anchor :step t.p2)
+(assume t.p2.h (forall ((x S) (y S)) P))
+(anchor :step t.p2.t1 :args ((x S)))
+(anchor :step t.p2.t1.t1 :args ((y S)))
+(step t.p2.t1.t1.t1 (cl (not (forall ((x S) (y S)) P)) P) :rule forall_inst :args (x y))
+(step t.p2.t1.t1.t2 (cl P) :rule resolution :premises (t.p2.h t.p2.t1.t1.t1))
+(step t.p2.t1.t1 (cl (forall ((y S)) P)) :rule bind)         ; inner closure over {y}
+(step t.p2.t1 (cl (forall ((x S)) (forall ((y S)) P))) :rule bind)  ; outer closure over {x}
+(step t.p2 (cl (not (forall ((x S) (y S)) P)) (forall ((x S)) (forall ((y S)) P)))
+    :rule subproof :discharge (t.p2.h))
+
+(step t (cl (= (forall ((x S)) (forall ((y S)) P)) (forall ((x S) (y S)) P)))
+    :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+The ← direction nests two closures, rebuilding the quantifier structure one binder at a time.
+
+</details>
+
+<details id="ex-miniscope-distribute">
+<summary>Example: <code>miniscope_distribute</code></summary>
+
+The full derivation (also the worked example of the parent chapter):
+
+```
+; direction →: assume the left-hand side; each conjunct's quantifier by unit closure
+(anchor :step t.p1)
+(assume t.p1.h (forall ((x S)) (and P Q)))
+(anchor :step t.p1.t1 :args ((x S)))
+(step t.p1.t1.t1 (cl (not (forall ((x S)) (and P Q))) (and P Q))
+    :rule forall_inst :args (x))
+(step t.p1.t1.t2 (cl (and P Q)) :rule resolution :premises (t.p1.h t.p1.t1.t1))
+(step t.p1.t1.t3 (cl P) :rule and :premises (t.p1.t1.t2) :args (0))
+(step t.p1.t1 (cl (forall ((x S)) P)) :rule bind)            ; unit closure over {x}
+(anchor :step t.p1.t2 :args ((x S)))
+(step t.p1.t2.t1 (cl (not (forall ((x S)) (and P Q))) (and P Q))
+    :rule forall_inst :args (x))
+(step t.p1.t2.t2 (cl (and P Q)) :rule resolution :premises (t.p1.h t.p1.t2.t1))
+(step t.p1.t2.t3 (cl Q) :rule and :premises (t.p1.t2.t2) :args (1))
+(step t.p1.t2 (cl (forall ((x S)) Q)) :rule bind)            ; unit closure over {x}
+(step t.p1.t3 (cl (and (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule and_intro :premises (t.p1.t1 t.p1.t2))
+(step t.p1 (cl (not (forall ((x S)) (and P Q)))
+               (and (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule subproof :discharge (t.p1.h))
+
+; direction ←: assume the right-hand side; rebuild the body under one anchor
+(anchor :step t.p2)
+(assume t.p2.h (and (forall ((x S)) P) (forall ((x S)) Q)))
+(anchor :step t.p2.t1 :args ((x S)))
+(step t.p2.t1.t1 (cl (forall ((x S)) P)) :rule and :premises (t.p2.h) :args (0))
+(step t.p2.t1.t2 (cl (not (forall ((x S)) P)) P) :rule forall_inst :args (x))
+(step t.p2.t1.t3 (cl P) :rule resolution :premises (t.p2.t1.t1 t.p2.t1.t2))
+(step t.p2.t1.t4 (cl (forall ((x S)) Q)) :rule and :premises (t.p2.h) :args (1))
+(step t.p2.t1.t5 (cl (not (forall ((x S)) Q)) Q) :rule forall_inst :args (x))
+(step t.p2.t1.t6 (cl Q) :rule resolution :premises (t.p2.t1.t4 t.p2.t1.t5))
+(step t.p2.t1.t7 (cl (and P Q)) :rule and_intro :premises (t.p2.t1.t3 t.p2.t1.t6))
+(step t.p2.t1 (cl (forall ((x S)) (and P Q))) :rule bind)    ; unit closure over {x}
+(step t.p2 (cl (not (and (forall ((x S)) P) (forall ((x S)) Q)))
+               (forall ((x S)) (and P Q)))
+    :rule subproof :discharge (t.p2.h))
+
+; close with the proposed convenience rule
+(step t (cl (= (forall ((x S)) (and P Q))
+               (and (forall ((x S)) P) (forall ((x S)) Q))))
+    :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+</details>
+
+<details id="ex-miniscope-split">
+<summary>Example: <code>miniscope_split</code></summary>
+
+For `(cl (= (forall ((x S)) (or P Q)) (or (forall ((x S)) P) Q)))`, where `Q` is `x`-free (the
+essential single-disjunct-with-residue instance; more disjuncts iterate the same shape, each
+closing over only its own declared variables). Note the pass-through literal in the → closure:
+`Q` is `x`-free, so it stays outside the wrapped literal — the generalized `bind`'s side-literal
+case:
+
+```
+(anchor :step t.p1)
+(assume t.p1.h (forall ((x S)) (or P Q)))
+(anchor :step t.p1.t1 :args ((x S)))
+(step t.p1.t1.t1 (cl (not (forall ((x S)) (or P Q))) (or P Q)) :rule forall_inst :args (x))
+(step t.p1.t1.t2 (cl (or P Q)) :rule resolution :premises (t.p1.h t.p1.t1.t1))
+(step t.p1.t1.t3 (cl P Q) :rule or :premises (t.p1.t1.t2))
+(step t.p1.t1 (cl (forall ((x S)) P) Q) :rule bind)   ; closure wraps P; Q passes through
+(step t.p1.t2 (cl (or (forall ((x S)) P) Q)) :rule or_intro :premises (t.p1.t1))
+(step t.p1 (cl (not (forall ((x S)) (or P Q))) (or (forall ((x S)) P) Q))
+    :rule subproof :discharge (t.p1.h))
+
+(anchor :step t.p2)
+(assume t.p2.h (or (forall ((x S)) P) Q))
+(anchor :step t.p2.t1 :args ((x S)))
+(step t.p2.t1.t1 (cl (forall ((x S)) P) Q) :rule or :premises (t.p2.h))
+(step t.p2.t1.t2 (cl (not (forall ((x S)) P)) P) :rule forall_inst :args (x))
+(step t.p2.t1.t3 (cl P Q) :rule resolution :premises (t.p2.t1.t1 t.p2.t1.t2))
+(step t.p2.t1.t4 (cl (or P Q)) :rule or_intro :premises (t.p2.t1.t3))
+(step t.p2.t1 (cl (forall ((x S)) (or P Q))) :rule bind)     ; unit closure over {x}
+(step t.p2 (cl (not (or (forall ((x S)) P) Q)) (forall ((x S)) (or P Q)))
+    :rule subproof :discharge (t.p2.h))
+
+(step t (cl (= (forall ((x S)) (or P Q)) (or (forall ((x S)) P) Q)))
+    :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+</details>
+
+<details id="ex-miniscope-ite">
+<summary>Example: <code>miniscope_ite</code></summary>
+
+For `(cl (= (forall ((x S)) (ite c P Q)) (ite c (forall ((x S)) P) (forall ((x S)) Q))))`, where
+`c` is `x`-free. Both directions case split on `c` *outside* the variable anchor (legal since `c`
+is `x`-free). Direction →:
+
+```
+(anchor :step t.p1)
+(assume t.p1.h (forall ((x S)) (ite c P Q)))
+(anchor :step t.p1.b1)                                        ; branch c
+(assume t.p1.b1.h c)
+(anchor :step t.p1.b1.t1 :args ((x S)))
+(step t.p1.b1.t1.t1 (cl (not (forall ((x S)) (ite c P Q))) (ite c P Q))
+    :rule forall_inst :args (x))
+(step t.p1.b1.t1.t2 (cl (ite c P Q)) :rule resolution :premises (t.p1.h t.p1.b1.t1.t1))
+(step t.p1.b1.t1.t3 (cl (not c) P) :rule ite2 :premises (t.p1.b1.t1.t2))
+(step t.p1.b1.t1.t4 (cl P) :rule resolution :premises (t.p1.b1.t1.t3 t.p1.b1.h))
+(step t.p1.b1.t1 (cl (forall ((x S)) P)) :rule bind)          ; unit closure over {x}
+(step t.p1.b1.t2 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q))
+                     (not c) (not (forall ((x S)) P))) :rule ite_neg2)
+(step t.p1.b1.t3 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule resolution :premises (t.p1.b1.t2 t.p1.b1.h t.p1.b1.t1))
+(step t.p1.b1 (cl (not c) (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule subproof :discharge (t.p1.b1.h))
+(anchor :step t.p1.b2)                                        ; branch (not c)
+(assume t.p1.b2.h (not c))
+(anchor :step t.p1.b2.t1 :args ((x S)))
+(step t.p1.b2.t1.t1 (cl (not (forall ((x S)) (ite c P Q))) (ite c P Q))
+    :rule forall_inst :args (x))
+(step t.p1.b2.t1.t2 (cl (ite c P Q)) :rule resolution :premises (t.p1.h t.p1.b2.t1.t1))
+(step t.p1.b2.t1.t3 (cl c Q) :rule ite1 :premises (t.p1.b2.t1.t2))
+(step t.p1.b2.t1.t4 (cl Q) :rule resolution :premises (t.p1.b2.t1.t3 t.p1.b2.h))
+(step t.p1.b2.t1 (cl (forall ((x S)) Q)) :rule bind)          ; unit closure over {x}
+(step t.p1.b2.t2 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q))
+                     c (not (forall ((x S)) Q))) :rule ite_neg1)
+(step t.p1.b2.t3 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule resolution :premises (t.p1.b2.t2 t.p1.b2.h t.p1.b2.t1))
+(step t.p1.b2 (cl (not (not c)) (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule subproof :discharge (t.p1.b2.h))
+(step t.p1.t3 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q))
+                  (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule resolution :premises (t.p1.b1 t.p1.b2))             ; pivot (not c)
+(step t.p1.t4 (cl (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule contraction :premises (t.p1.t3))
+(step t.p1 (cl (not (forall ((x S)) (ite c P Q)))
+               (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule subproof :discharge (t.p1.h))
+```
+
+Direction ← mirrors it exactly — assume the `ite` of quantifiers, case split on `c`, extract the
+corresponding quantifier with `ite2`/`ite1`, instantiate at the anchor variable, rebuild
+`(ite c P Q)` with `ite_neg2`/`ite_neg1`, close over `{x}`, merge the branches by resolution +
+`contraction`, discharge — and `equiv_intro` closes:
+
+```
+(anchor :step t.p2)
+(assume t.p2.h (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+(anchor :step t.p2.b1)                                        ; branch c
+(assume t.p2.b1.h c)
+(step t.p2.b1.t1 (cl (not c) (forall ((x S)) P)) :rule ite2 :premises (t.p2.h))
+(step t.p2.b1.t2 (cl (forall ((x S)) P)) :rule resolution :premises (t.p2.b1.t1 t.p2.b1.h))
+(anchor :step t.p2.b1.t3 :args ((x S)))
+(step t.p2.b1.t3.t1 (cl (not (forall ((x S)) P)) P) :rule forall_inst :args (x))
+(step t.p2.b1.t3.t2 (cl P) :rule resolution :premises (t.p2.b1.t2 t.p2.b1.t3.t1))
+(step t.p2.b1.t3.t3 (cl (ite c P Q) (not c) (not P)) :rule ite_neg2)
+(step t.p2.b1.t3.t4 (cl (ite c P Q))
+    :rule resolution :premises (t.p2.b1.t3.t3 t.p2.b1.h t.p2.b1.t3.t2))
+(step t.p2.b1.t3 (cl (forall ((x S)) (ite c P Q))) :rule bind)  ; unit closure over {x}
+(step t.p2.b1 (cl (not c) (forall ((x S)) (ite c P Q)))
+    :rule subproof :discharge (t.p2.b1.h))
+(anchor :step t.p2.b2)                                        ; branch (not c)
+(assume t.p2.b2.h (not c))
+(step t.p2.b2.t1 (cl c (forall ((x S)) Q)) :rule ite1 :premises (t.p2.h))
+(step t.p2.b2.t2 (cl (forall ((x S)) Q)) :rule resolution :premises (t.p2.b2.t1 t.p2.b2.h))
+(anchor :step t.p2.b2.t3 :args ((x S)))
+(step t.p2.b2.t3.t1 (cl (not (forall ((x S)) Q)) Q) :rule forall_inst :args (x))
+(step t.p2.b2.t3.t2 (cl Q) :rule resolution :premises (t.p2.b2.t2 t.p2.b2.t3.t1))
+(step t.p2.b2.t3.t3 (cl (ite c P Q) c (not Q)) :rule ite_neg1)
+(step t.p2.b2.t3.t4 (cl (ite c P Q))
+    :rule resolution :premises (t.p2.b2.t3.t3 t.p2.b2.h t.p2.b2.t3.t2))
+(step t.p2.b2.t3 (cl (forall ((x S)) (ite c P Q))) :rule bind)  ; unit closure over {x}
+(step t.p2.b2 (cl (not (not c)) (forall ((x S)) (ite c P Q)))
+    :rule subproof :discharge (t.p2.b2.h))
+(step t.p2.t3 (cl (forall ((x S)) (ite c P Q)) (forall ((x S)) (ite c P Q)))
+    :rule resolution :premises (t.p2.b1 t.p2.b2))             ; pivot (not c)
+(step t.p2.t4 (cl (forall ((x S)) (ite c P Q))) :rule contraction :premises (t.p2.t3))
+(step t.p2 (cl (not (ite c (forall ((x S)) P) (forall ((x S)) Q)))
+               (forall ((x S)) (ite c P Q)))
+    :rule subproof :discharge (t.p2.h))
+
+(step t (cl (= (forall ((x S)) (ite c P Q))
+               (ite c (forall ((x S)) P) (forall ((x S)) Q))))
+    :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+</details>
 
 ## Equality and rewriting
 
@@ -250,10 +692,127 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `eq_reflexive` | `refl` (empty context) | 1 | syntactic | planned |
 | `eq_transitive` | subproof + `trans` (+ `symm`) | ≤ 2n | syntactic | planned; current local elaboration canonicalizes flips but keeps the rule |
 | `eq_congruent` | subproof + `cong` (+ `symm`) | ≤ 2n+2 | syntactic | planned; ditto |
-| `eq_congruent_pred` | subproof + `cong` + `equiv_pos2` + `resolution` | ≤ 2n+4 | syntactic | planned; see the spec-divergence note on its conclusion shape |
-| `eq_symmetric` | subproof + `symm` | 3 | syntactic | planned |
+| `eq_congruent_pred` | subproof + `cong` + `eq_mp` | ≤ 2n+3 | syntactic | planned; see the spec-divergence note on its conclusion shape |
+| `eq_symmetric` | two `symm` subproofs (one per direction) + `equiv_intro` | ~9 | syntactic | planned; the conclusion is an *equivalence*, so both directions are needed |
 | `not_symm` | subproof + `symm` + `resolution` | 4 | syntactic | planned |
 | `multi_rare_rewrite` | `rare_rewrite` chain + `trans`/`cong` | O(k·depth) | syntactic | planned; validate rule-position semantics first |
+
+<details id="ex-eq-transitive">
+<summary>Example: <code>eq_transitive</code></summary>
+
+```
+(step t1 (cl (not (= a b)) (not (= b c)) (= a c)) :rule eq_transitive)
+```
+
+becomes
+
+```
+(anchor :step t1)
+(assume t1.a0 (= a b))
+(assume t1.a1 (= b c))
+(step t1.t1 (cl (= a c)) :rule trans :premises (t1.a0 t1.a1))
+(step t1 (cl (not (= a b)) (not (= b c)) (= a c)) :rule subproof :discharge (t1.a0 t1.a1))
+```
+
+Flipped literals insert a `symm` step over the corresponding assumption.
+
+</details>
+
+<details id="ex-eq-congruent">
+<summary>Example: <code>eq_congruent</code> and <code>eq_congruent_pred</code></summary>
+
+`eq_congruent`:
+
+```
+(step t1 (cl (not (= a b)) (not (= c d)) (= (f a c) (f b d))) :rule eq_congruent)
+```
+
+becomes
+
+```
+(anchor :step t1)
+(assume t1.a0 (= a b))
+(assume t1.a1 (= c d))
+(step t1.t1 (cl (= (f a c) (f b d))) :rule cong :premises (t1.a0 t1.a1))
+(step t1 (cl (not (= a b)) (not (= c d)) (= (f a c) (f b d))) :rule subproof
+    :discharge (t1.a0 t1.a1))
+```
+
+`eq_congruent_pred` in the veriT form (two final literals `¬(P t̄), (P ū)`) additionally assumes
+`(P a c)` and applies `eq_mp`:
+
+```
+(step t1 (cl (not (= a b)) (not (= c d)) (not (P a c)) (P b d)) :rule eq_congruent_pred)
+```
+
+becomes
+
+```
+(anchor :step t1)
+(assume t1.a0 (= a b))
+(assume t1.a1 (= c d))
+(assume t1.a2 (P a c))
+(step t1.t1 (cl (= (P a c) (P b d))) :rule cong :premises (t1.a0 t1.a1))
+(step t1.t2 (cl (P b d)) :rule eq_mp :premises (t1.a2 t1.t1))
+(step t1 (cl (not (= a b)) (not (= c d)) (not (P a c)) (P b d)) :rule subproof
+    :discharge (t1.a0 t1.a1 t1.a2))
+```
+
+</details>
+
+<details id="ex-eq-symmetric">
+<summary>Example: <code>eq_symmetric</code> and <code>not_symm</code></summary>
+
+`eq_symmetric` concludes an *equivalence*, so both directions are needed:
+
+```
+(step t (cl (= (= a b) (= b a))) :rule eq_symmetric)
+```
+
+becomes
+
+```
+(anchor :step t.p1)
+(assume t.p1.a (= a b))
+(step t.p1.t1 (cl (= b a)) :rule symm :premises (t.p1.a))
+(step t.p1 (cl (not (= a b)) (= b a)) :rule subproof :discharge (t.p1.a))
+
+(anchor :step t.p2)
+(assume t.p2.a (= b a))
+(step t.p2.t1 (cl (= a b)) :rule symm :premises (t.p2.a))
+(step t.p2 (cl (not (= b a)) (= a b)) :rule subproof :discharge (t.p2.a))
+
+(step t (cl (= (= a b) (= b a))) :rule equiv_intro :premises (t.p1 t.p2))
+```
+
+`not_symm` needs only one direction, resolved with its premise `t1: (cl (not (= a b)))`:
+
+```
+(anchor :step t.p)
+(assume t.p.a (= b a))
+(step t.p.t1 (cl (= a b)) :rule symm :premises (t.p.a))
+(step t.p (cl (not (= b a)) (= a b)) :rule subproof :discharge (t.p.a))
+(step t (cl (not (= b a))) :rule resolution :premises (t.p t1))
+```
+
+</details>
+
+<details id="ex-multi-rare-rewrite">
+<summary>Example: <code>multi_rare_rewrite</code></summary>
+
+A step rewriting `(and p true (not (not q)))` to `(and p q)` by two RARE rules — `and-true-elim`
+at the root and `not-not-elim` below it — unfolds into single rewrites glued by `cong`/`trans`:
+
+```
+(step s1 (cl (= (and p true (not (not q))) (and p (not (not q)))))
+    :rule rare_rewrite :args ("and-true-elim" p (not (not q))))
+(step s2 (cl (= (not (not q)) q))
+    :rule rare_rewrite :args ("not-not-elim" q))
+(step s3 (cl (= (and p (not (not q))) (and p q))) :rule cong :premises (s2))
+(step s  (cl (= (and p true (not (not q))) (and p q))) :rule trans :premises (s1 s3))
+```
+
+</details>
 
 ### Expensive (2)
 
@@ -261,6 +820,20 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 |---|---|---|---|
 | `shuffle` | `aci_simp` (rename) | 0 | the check coarsens from multiset comparison to full ACI normalization |
 | `nary_elim` | chain of binary-associativity `rare_rewrite` steps | O(n) | the polyeq elaboration itself emits it (near-circular); promotion-to-core candidate instead |
+
+<details id="ex-nary-elim">
+<summary>Example: <code>nary_elim</code></summary>
+
+```
+(step s1 (cl (= (or a b c) (or a (or b c))))
+    :rule rare_rewrite :args ("or-unfold-binary" a b c))
+(step s2 (cl (= (or b c) (or b (or c))))
+    :rule rare_rewrite :args ("or-unfold-binary" b c))
+(step s3 (cl (= (or a (or b c)) (or a (or b (or c))))) :rule cong :premises (s2))
+(step s  (cl (= (or a b c) (or a (or b (or c))))) :rule trans :premises (s1 s3))
+```
+
+</details>
 
 ### Aggressive (10)
 
@@ -304,16 +877,109 @@ the parent chapter for the recipes.
 | `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | planned; unit-clause-with-`or` quirk |
 | `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
 
+<details id="ex-la-totality">
+<summary>Example: <code>la_totality</code></summary>
+
+```
+(step t (cl (or (<= a b) (<= b a))) :rule la_totality)
+```
+
+becomes
+
+```
+(step t.t1 (cl (<= a b) (<= b a)) :rule la_generic :args (1 1))
+(step t (cl (or (<= a b) (<= b a))) :rule or_intro :premises (t.t1))
+```
+
+(`or_intro` expands, if needed, to `or_neg` ×2 + `resolution` ×2 + `contraction`.) The binary
+form of `la_tautology` is identical; its unit form is a single `la_generic` step with
+coefficient `[1]`.
+
+</details>
+
 ### Expensive (9)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
 | `la_mult_pos` | `la_mult_pos_pos` + `poly_simp` + `la_generic` (+ `cong`, case splits for non-strict forms) | O(1) template | a syntactic schema becomes ring + Farkas checking; needs the proposed `la_mult_pos_pos` axiom |
 | `la_mult_neg` | same, with `la_generic` sign-flip preprocessing | O(1) template | ditto |
-| `la_disequality` | subproof + `la_rw_eq` + `and_neg` + `equiv_pos1` + `resolution` (order antisymmetry via `la_rw_eq`) | ~7 (O(1)) | relies on `la_rw_eq` staying in the vocabulary |
+| `la_disequality` | subproof + `la_rw_eq` + `and_intro` + `equiv_pos1` + `resolution` (order antisymmetry via `la_rw_eq`) | ~6 (O(1)) | relies on `la_rw_eq` staying in the vocabulary |
 | `la_rw_eq` | single `rare_rewrite` instance | 1 | needs the `(t ≈ u) ≈ (t ≤ u ∧ u ≤ t)` RARE rule adopted |
 | `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` | rename to `poly_simp`; *alternative*: `rare_rewrite` chain over the RARE arithmetic rules | 0, or O(trace) via RARE | per-schema syntactic checking becomes the ring check (the RARE path keeps checks syntactic at trace-length cost) |
 | `div_simplify` | `poly_simp` for real division by constants; `evaluate`/RARE for the integer `div`/`mod` cases | O(1) | integer division semantics are outside the ring primitive |
+
+<details id="ex-la-mult-pos">
+<summary>Example: <code>la_mult_pos</code>, strict form</summary>
+
+```
+(step t (cl (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3)))) :rule la_mult_pos)
+```
+
+becomes
+
+```
+(anchor :step t.p)
+(assume t.p.h (and (> t1 0) (< t2 t3)))
+(step t.p.t1 (cl (> t1 0)) :rule and :premises (t.p.h) :args (0))
+(step t.p.t2 (cl (< t2 t3)) :rule and :premises (t.p.h) :args (1))
+(step t.p.t3 (cl (not (< t2 t3)) (> (- t3 t2) 0)) :rule la_generic :args (1 1))
+(step t.p.t4 (cl (> (- t3 t2) 0)) :rule resolution :premises (t.p.t3 t.p.t2))
+(step t.p.t5 (cl (=> (and (> t1 0) (> (- t3 t2) 0)) (> (* t1 (- t3 t2)) 0)))
+    :rule la_mult_pos_pos)
+(step t.p.t6 (cl (not (and (> t1 0) (> (- t3 t2) 0))) (> (* t1 (- t3 t2)) 0))
+    :rule implies :premises (t.p.t5))
+(step t.p.t7 (cl (and (> t1 0) (> (- t3 t2) 0))) :rule and_intro :premises (t.p.t1 t.p.t4))
+(step t.p.t8 (cl (> (* t1 (- t3 t2)) 0)) :rule resolution :premises (t.p.t6 t.p.t7))
+(step t.p.t9 (cl (= (* t1 (- t3 t2)) (- (* t1 t3) (* t1 t2)))) :rule poly_simp)
+(step t.p.t10 (cl (= 0 0)) :rule eq_reflexive)
+(step t.p.t11 (cl (= (> (* t1 (- t3 t2)) 0) (> (- (* t1 t3) (* t1 t2)) 0)))
+    :rule cong :premises (t.p.t9 t.p.t10))
+(step t.p.t12 (cl (> (- (* t1 t3) (* t1 t2)) 0)) :rule eq_mp :premises (t.p.t8 t.p.t11))
+(step t.p.t13 (cl (not (> (- (* t1 t3) (* t1 t2)) 0)) (< (* t1 t2) (* t1 t3)))
+    :rule la_generic :args (1 1))
+(step t.p.t14 (cl (< (* t1 t2) (* t1 t3))) :rule resolution :premises (t.p.t13 t.p.t12))
+(step t.p (cl (not (and (> t1 0) (< t2 t3))) (< (* t1 t2) (* t1 t3)))
+    :rule subproof :discharge (t.p.h))
+(step t.t1 (cl (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3)))
+               (and (> t1 0) (< t2 t3))) :rule implies_neg1)
+(step t.t2 (cl (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3)))
+               (not (< (* t1 t2) (* t1 t3)))) :rule implies_neg2)
+(step t.t3 (cl (not (and (> t1 0) (< t2 t3)))
+               (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3))))
+    :rule resolution :premises (t.p t.t2))
+(step t.t4 (cl (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3)))
+               (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3))))
+    :rule resolution :premises (t.t3 t.t1))
+(step t (cl (=> (and (> t1 0) (< t2 t3)) (< (* t1 t2) (* t1 t3))))
+    :rule contraction :premises (t.t4))
+```
+
+The `≈` form needs only `cong`; the `≤`/`≥` and disequality forms add one case split each;
+`la_mult_neg` prepends the `la_generic` sign-flip `t1 < 0 → -t1 > 0` and uses `poly_simp` for
+`(* (- t1) t2) ≈ (- (* t1 t2))`.
+
+</details>
+
+<details id="ex-la-disequality">
+<summary>Example: <code>la_disequality</code></summary>
+
+Target `(cl (= t1 t2) (not (<= t1 t2)) (not (<= t2 t1)))` (modulo literal order):
+
+```
+(anchor :step t)
+(assume t.a0 (<= t1 t2))
+(assume t.a1 (<= t2 t1))
+(step t.t1 (cl (= (= t1 t2) (and (<= t1 t2) (<= t2 t1)))) :rule rare_rewrite
+    :args ("la-rw-eq" t1 t2))                                 ; the la_rw_eq schema
+(step t.t3 (cl (and (<= t1 t2) (<= t2 t1))) :rule and_intro :premises (t.a0 t.a1))
+(step t.t4 (cl (not (= (= t1 t2) (and (<= t1 t2) (<= t2 t1))))
+               (= t1 t2) (not (and (<= t1 t2) (<= t2 t1)))) :rule equiv_pos1)
+(step t.t5 (cl (= t1 t2)) :rule resolution :premises (t.t4 t.t1 t.t3))
+(step t (cl (not (<= t1 t2)) (not (<= t2 t1)) (= t1 t2)) :rule subproof
+    :discharge (t.a0 t.a1))
+```
+
+</details>
 
 ### Aggressive (1)
 
@@ -371,3 +1037,55 @@ way, with their concern category noted:
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
 | `evaluate`, `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | aggressive | `sat_refutation` oracle-reducible via its dedicated pass |
+
+<details id="ex-eq-mp">
+<summary>Example: <code>eq_mp</code> (implemented)</summary>
+
+```
+(step t3 (cl F2) :rule eq_mp :premises (t1 t2))     ; t1: (cl F1), t2: (cl (= F1 F2))
+```
+
+becomes
+
+```
+(step t3.t1 (cl (not (= F1 F2)) (not F1) F2) :rule equiv_pos2)
+(step t3 (cl F2) :rule resolution :premises (t3.t1 t2 t1)
+    :args ((= F1 F2) false F1 false))
+```
+
+</details>
+
+<details id="ex-equiv-or-intro">
+<summary>Example: <code>equiv_intro</code>, <code>or_intro</code>, and <code>and_intro</code> (their own reductions)</summary>
+
+`equiv_intro` from `p1: (cl (not A) B)` and `p2: (cl A (not B))`:
+
+```
+(step s1 (cl (= A B) A B)             :rule equiv_neg2)
+(step s2 (cl (= A B) (not A) (not B)) :rule equiv_neg1)
+(step s3 (cl (= A B) B B)             :rule resolution :premises (s1 p1))
+(step s4 (cl (= A B) B)               :rule contraction :premises (s3))
+(step s5 (cl (= A B) (not B) (not B)) :rule resolution :premises (s2 p2))
+(step s6 (cl (= A B) (not B))         :rule contraction :premises (s5))
+(step s7 (cl (= A B) (= A B))         :rule resolution :premises (s4 s6))
+(step s  (cl (= A B))                 :rule contraction :premises (s7))
+```
+
+`or_intro` from `p: (cl l1 l2)`:
+
+```
+(step s1 (cl (or l1 l2) (not l1)) :rule or_neg :args (0))
+(step s2 (cl (or l1 l2) (not l2)) :rule or_neg :args (1))
+(step s3 (cl (or l1 l2) l2)       :rule resolution :premises (p s1))
+(step s4 (cl (or l1 l2) (or l1 l2)) :rule resolution :premises (s3 s2))
+(step s  (cl (or l1 l2))          :rule contraction :premises (s4))
+```
+
+`and_intro` from `p1: (cl l1)` and `p2: (cl l2)`:
+
+```
+(step s1 (cl (and l1 l2) (not l1) (not l2)) :rule and_neg)
+(step s  (cl (and l1 l2)) :rule resolution :premises (s1 p1 p2))
+```
+
+</details>

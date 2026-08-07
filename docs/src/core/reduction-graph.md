@@ -13,7 +13,15 @@ Ubiquitous glue targets are omitted to keep the graph readable: nearly every red
 `resolution`, `subproof`, and iff-introduction (`equiv_intro`, or its `equiv_neg1/2` derivation),
 so those edges are drawn only where they are the distinctive target.
 
-![Reduction graph of the core Alethe classification](./reduction-graph.svg)
+The graph is **interactive**: click a node to jump to its reduction row or worked example in the
+[classification](./classification.md) (collapsible examples open automatically when targeted),
+and hover a node for a one-line summary of its reduction.
 
-The source is [`reduction-graph.dot`](./reduction-graph.dot); regenerate with
-`dot -Tsvg reduction-graph.dot -o reduction-graph.svg`.
+{{#include reduction-graph.svg}}
+
+The source is [`reduction-graph.dot`](./reduction-graph.dot) — node `URL`/`tooltip` attributes
+carry the links. Regenerate with `dot -Tsvg reduction-graph.dot -o reduction-graph.svg`, then
+strip the XML prolog and replace the fixed `width`/`height` with
+`style="width:100%;height:auto"` and join the opening `<svg …>` tag onto a single line (a multi-line tag is not a CommonMark HTML block) so the SVG can be inlined responsively (the
+`{{#include}}` above inlines it, which is what makes the links clickable — an `<img>` embed would
+swallow them).

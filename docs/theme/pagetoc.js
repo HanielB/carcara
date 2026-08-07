@@ -102,9 +102,23 @@
     onchange();
   }
 
+  // Auto-open <details> elements targeted by the URL hash (e.g. links from the
+  // reduction graph into the collapsible examples of the classification).
+  function openHashTarget() {
+    if (!location.hash) { return; }
+    var el;
+    try { el = document.querySelector(location.hash); } catch (e) { return; }
+    if (el && el.tagName === "DETAILS") {
+      el.open = true;
+      el.scrollIntoView();
+    }
+  }
+  window.addEventListener("hashchange", openHashTarget);
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", function () { init(); openHashTarget(); });
   } else {
     init();
+    openHashTarget();
   }
 })();

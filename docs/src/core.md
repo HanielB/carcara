@@ -106,7 +106,9 @@ primitives (`trans`, `cong`, `symm`) take premises. The bridge is the `subproof`
 discharges its assumptions into exactly the clause shape of the clausal tautologies. This makes the
 whole clausal `eq_*` family reducible with linear-size, syntactically-checkable output. It also
 dissolves the specification's stated reason for keeping `eq_symmetric` as a primitive (that deriving
-it from `symm` "would require a long and tedious use of subproof"): the subproof is three steps.
+it from `symm` "would require a long and tedious use of subproof"): since `eq_symmetric` concludes
+an equivalence, the derivation needs one three-step `symm` subproof per direction plus
+iff-introduction (`equiv_intro`) — about nine steps, constant and entirely mechanical.
 
 ### Worked example: `eq_transitive`
 
@@ -150,8 +152,8 @@ becomes
 For `eq_congruent_pred` there is a divergence between the specification and practice (see
 [divergences](#divergences-from-the-specification) below). In the form veriT produces and Carcara
 checks, the step ends in two literals `(not (P t̄)) (P ū)` rather than the single equality
-`(= (P t̄) (P ū))` of the specification. The reduction additionally assumes `(P t̄)` and applies the
-`equiv_pos2` + `resolution` pattern already used by the `eq_mp` elaboration:
+`(= (P t̄) (P ū))` of the specification. The reduction additionally assumes `(P t̄)` and applies
+`eq_mp` (an extra reducible rule, itself elaborated to `equiv_pos2` + `resolution`):
 
 ```
 (step t1 (cl (not (= a b)) (not (= c d)) (not (P a c)) (P b d)) :rule eq_congruent_pred)
@@ -165,9 +167,7 @@ becomes
 (assume t1.a1 (= c d))
 (assume t1.a2 (P a c))
 (step t1.t1 (cl (= (P a c) (P b d))) :rule cong :premises (t1.a0 t1.a1))
-(step t1.t2 (cl (not (= (P a c) (P b d))) (not (P a c)) (P b d)) :rule equiv_pos2)
-(step t1.t3 (cl (P b d)) :rule resolution :premises (t1.t2 t1.t1 t1.a2)
-    :args ((= (P a c) (P b d)) false (P a c) false))
+(step t1.t2 (cl (P b d)) :rule eq_mp :premises (t1.a2 t1.t1))
 (step t1 (cl (not (= a b)) (not (= c d)) (not (P a c)) (P b d)) :rule subproof
     :discharge (t1.a0 t1.a1 t1.a2))
 ```
@@ -225,26 +225,26 @@ definition `X ≈ D` where `D = (¬φ₁ ∧ φ₂) ∨ (φ₁ ∧ ¬φ₂)`):
 
 ```
 t1. (cl (= X D))                 connective_def
-t2. (cl ¬(= X D) ¬X D)           equiv_pos2
-t3. (cl ¬X D)                    resolution t2 t1
-t4. (cl ¬D (¬φ₁∧φ₂) (φ₁∧¬φ₂))    or_pos
-t5. (cl ¬(¬φ₁∧φ₂) φ₂)            and_pos (index 2)
-t6. (cl ¬(φ₁∧¬φ₂) φ₁)            and_pos (index 1)
-t7. (cl ¬X φ₂ φ₁)                resolution t3 t4 t5 t6
+t2. (cl ¬X D)                    equiv1 t1
+t3. (cl ¬D (¬φ₁∧φ₂) (φ₁∧¬φ₂))    or_pos
+t4. (cl ¬(¬φ₁∧φ₂) φ₂)            and_pos (index 1)
+t5. (cl ¬(φ₁∧¬φ₂) φ₁)            and_pos (index 0)
+t6. (cl ¬X φ₂ φ₁)                resolution t2 t3 t4 t5
 ```
 
-Seven steps, all syntactic. The `neg` variants additionally use `equiv_pos1` (the other direction
-of the definition), `and_neg`/`or_neg`, and `not_not` to strip the `¬¬φ` literals the definition
-introduces; the four `ite` axioms follow the same pattern through `ite`'s definition
-`(φ₁→φ₂) ∧ (¬φ₁→φ₃)` and the `implies` axioms. Every derivation is a constant template of at most
-~10 steps.
+Six steps, all syntactic (`equiv1` is the reducible clausification rule — reductions compose).
+The `neg` variants use `equiv2` (the other direction of the definition), `and_neg`/`or_neg`, and
+`not_not` to strip the `¬¬φ` literals the definition introduces; the four `ite` axioms follow the
+same pattern through `ite`'s definition `(φ₁→φ₂) ∧ (¬φ₁→φ₃)` and the `implies` axioms. Every
+derivation is a constant template of at most ~9 steps.
 
 The `implies` family reduces the same way under the **proposed extension of `connective_def`**
 with the implication definition `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)` (divergence item 6), which this
-classification adopts: `implies_pos` unpacks the definition via `equiv_pos2` and re-clausifies
-with `or_pos` (5 steps); `implies_neg2` uses `equiv_pos1` + `or_neg` (4 steps); `implies_neg1`
-additionally needs `not_not` to strip the `¬¬φ₁` literal (6 steps). No circularity: the
-derivations touch only the `equiv`, `and`/`or`, and `not_not` primitives.
+classification adopts: `implies_pos` unpacks the definition via `equiv1` and re-clausifies with
+`or_pos` (4 steps); `implies_neg2` uses `equiv2` + `or_neg` (3 steps); `implies_neg1`
+additionally needs `not_not` to strip the `¬¬φ₁` literal (5 steps). No circularity: `equiv1` and
+`equiv2` reduce through the `equiv` axioms, so the derivations bottom out in the `equiv`,
+`and`/`or`, and `not_not` primitives.
 
 The remaining 8 axioms are genuinely primitive: the `equiv` family is the *bootstrap* — unpacking
 any `connective_def` equivalence requires `equiv_pos1`/`equiv_pos2`, so R4 keeps all four `equiv`
@@ -355,8 +355,10 @@ primitive alongside Farkas checking.
 ## Other reductions
 
 - `eq_reflexive` is `refl` with an empty context: a rename, one step.
-- `eq_symmetric` reduces to `subproof { assume (= t1 t2); symm; discharge }` — three steps.
-- `not_symm` reduces to the same subproof plus one resolution against the premise — four steps.
+- `eq_symmetric` concludes an equivalence, so it reduces to two `symm` subproofs (one per
+  direction) closed by `equiv_intro` — about nine steps.
+- `not_symm` needs only one direction: a `symm` subproof plus one resolution against the
+  premise — four steps.
 - `tautology` concludes exactly `⊤`, so it reduces to a premise-free `true` step. Note this drops
   the premise from the proof DAG (relevant for slicing).
 - `th_resolution` is, per the specification, the same rule as `resolution`; elaboration normalizes
@@ -446,13 +448,11 @@ template. For any `φ`, with witness `c = (choice ((x S)) (not φ))`:
 (anchor :step tk :args ((:= (x S) c)))
 (step tk.t1 (cl (= φ φ[c])) :rule refl)                          ; refl applies the context
 (step tk (cl (= (forall ((x S)) φ) φ[c])) :rule sko_forall)
-(step tk'  (cl (not (= (forall ((x S)) φ) φ[c]))
-               (forall ((x S)) φ) (not φ[c]))     :rule equiv_pos1)
-(step tk'' (cl (forall ((x S)) φ) (not φ[c]))     :rule resolution :premises (tk' tk))
+(step tk' (cl (forall ((x S)) φ) (not φ[c])) :rule equiv2 :premises (tk))
 ```
 
-Five steps, and the **∀-ε-clause** `(cl ∀x.φ, ¬φ[c])` is available for resolution reasoning at
-any witness. (`equiv_pos2` instead of `equiv_pos1` yields the elimination direction
+Four steps, and the **∀-ε-clause** `(cl ∀x.φ, ¬φ[c])` is available for resolution reasoning at
+any witness. (`equiv1` instead of `equiv2` yields the elimination direction
 `(cl ¬∀x.φ, φ[c])`, though `forall_inst` already provides it at arbitrary terms. The n-ary form
 works the same way with `sko_forall`'s sequential witnesses; the ∃-variants derive through the
 quantifier-duality instance of `connective_def`, which stays axiomatic as the R4 orientation —
@@ -581,59 +581,155 @@ Further consequences:
 
 ### Worked example: elaborating `miniscope_distribute`
 
+The instance to elaborate, written out in full (with `P`, `Q` schematic bodies that may mention
+`x`):
+
+```
+(step t (cl (= (forall ((x S)) (and P Q))
+               (and (forall ((x S)) P) (forall ((x S)) Q)))) :rule miniscope_distribute)
+```
+
 With the generalized `bind`, the derivation is organized entirely by the anchor mechanism — two
-assume/discharge subproofs, one per direction, each using a variables-only anchor whose closing
-step is a generalized-`bind` instance: no substitutions, a *unit* inner conclusion, and the
-closure prefix declared in the concluded quantifier (here the full anchor, `{x}`). No choice term
-appears anywhere:
+assume/discharge subproofs, one per direction, each using variables-only anchors whose closing
+steps are generalized-`bind` instances: no substitutions, a *unit* inner conclusion, and the
+closure prefix `{x}` declared in the concluded quantifier. Auxiliary patterns appear only through
+their named rules (`and`, `and_intro`, `equiv_intro`), never inline-expanded — reductions
+compose. No choice term appears anywhere:
 
 ```
-; direction A → B: assume A; each conjunct's quantifier by unit closure
+; direction →: assume the left-hand side; each conjunct's quantifier by unit closure
 (anchor :step t.p1)
-(assume t.p1.h A)
+(assume t.p1.h (forall ((x S)) (and P Q)))
 (anchor :step t.p1.t1 :args ((x S)))
-(step t.p1.t1.t1 (cl (not A) (and P Q))     :rule forall_inst :args (x))
-(step t.p1.t1.t2 (cl (and P Q))             :rule resolution :premises (t.p1.h t.p1.t1.t1))
-(step t.p1.t1.t3 (cl (not (and P Q)) P)     :rule and_pos :args (0))
-(step t.p1.t1.t4 (cl P)                     :rule resolution :premises (t.p1.t1.t3 t.p1.t1.t2))
-(step t.p1.t1 (cl (forall ((x S)) P))       :rule bind)   ; unit closure, declared prefix {x}
-   … same four steps for Q, giving t.p1.t2 (cl (forall ((x S)) Q)) …
-(step t.p1.t3 (cl B (not (forall ((x S)) P)) (not (forall ((x S)) Q))) :rule and_neg)
-(step t.p1.t4 (cl B)                        :rule resolution :premises (t.p1.t3 t.p1.t1 t.p1.t2))
-(step t.p1 (cl (not A) B) :rule subproof :discharge (t.p1.h))
+(step t.p1.t1.t1 (cl (not (forall ((x S)) (and P Q))) (and P Q))
+    :rule forall_inst :args (x))
+(step t.p1.t1.t2 (cl (and P Q)) :rule resolution :premises (t.p1.h t.p1.t1.t1))
+(step t.p1.t1.t3 (cl P) :rule and :premises (t.p1.t1.t2) :args (0))
+(step t.p1.t1 (cl (forall ((x S)) P)) :rule bind)            ; unit closure over {x}
+(anchor :step t.p1.t2 :args ((x S)))
+(step t.p1.t2.t1 (cl (not (forall ((x S)) (and P Q))) (and P Q))
+    :rule forall_inst :args (x))
+(step t.p1.t2.t2 (cl (and P Q)) :rule resolution :premises (t.p1.h t.p1.t2.t1))
+(step t.p1.t2.t3 (cl Q) :rule and :premises (t.p1.t2.t2) :args (1))
+(step t.p1.t2 (cl (forall ((x S)) Q)) :rule bind)            ; unit closure over {x}
+(step t.p1.t3 (cl (and (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule and_intro :premises (t.p1.t1 t.p1.t2))
+(step t.p1 (cl (not (forall ((x S)) (and P Q)))
+               (and (forall ((x S)) P) (forall ((x S)) Q)))
+    :rule subproof :discharge (t.p1.h))
 
-; direction B → A: assume B; A's quantifier by unit closure
+; direction ←: assume the right-hand side; rebuild the body under one anchor
 (anchor :step t.p2)
-(assume t.p2.h B)
+(assume t.p2.h (and (forall ((x S)) P) (forall ((x S)) Q)))
 (anchor :step t.p2.t1 :args ((x S)))
-(step t.p2.t1.t1 (cl (not B) (forall ((x S)) P))    :rule and_pos :args (0))
-(step t.p2.t1.t2 (cl (not (forall ((x S)) P)) P)    :rule forall_inst :args (x))
-(step t.p2.t1.t3 (cl P)                             :rule resolution
-                                                    :premises (t.p2.t1.t1 t.p2.h t.p2.t1.t2))
-   … same for Q, giving t.p2.t1.t4 (cl Q) …
-(step t.p2.t1.t5 (cl (and P Q) (not P) (not Q))     :rule and_neg)
-(step t.p2.t1.t6 (cl (and P Q))                     :rule resolution
-                                                    :premises (t.p2.t1.t5 t.p2.t1.t3 t.p2.t1.t4))
-(step t.p2.t1 (cl (forall ((x S)) (and P Q)))       :rule bind)   ; unit closure — this is (cl A)
-(step t.p2 (cl (not B) A) :rule subproof :discharge (t.p2.h))
+(step t.p2.t1.t1 (cl (forall ((x S)) P)) :rule and :premises (t.p2.h) :args (0))
+(step t.p2.t1.t2 (cl (not (forall ((x S)) P)) P) :rule forall_inst :args (x))
+(step t.p2.t1.t3 (cl P) :rule resolution :premises (t.p2.t1.t1 t.p2.t1.t2))
+(step t.p2.t1.t4 (cl (forall ((x S)) Q)) :rule and :premises (t.p2.h) :args (1))
+(step t.p2.t1.t5 (cl (not (forall ((x S)) Q)) Q) :rule forall_inst :args (x))
+(step t.p2.t1.t6 (cl Q) :rule resolution :premises (t.p2.t1.t4 t.p2.t1.t5))
+(step t.p2.t1.t7 (cl (and P Q)) :rule and_intro :premises (t.p2.t1.t3 t.p2.t1.t6))
+(step t.p2.t1 (cl (forall ((x S)) (and P Q))) :rule bind)    ; unit closure over {x}
+(step t.p2 (cl (not (and (forall ((x S)) P) (forall ((x S)) Q)))
+               (forall ((x S)) (and P Q)))
+    :rule subproof :discharge (t.p2.h))
 
-; close with the proposed convenience rule (itself reducible to
-; equiv_neg1/2 + resolutions + contractions)
-(step t (cl (= A B)) :rule equiv_intro :premises (t.p1 t.p2))
+; close with the proposed convenience rule
+(step t (cl (= (forall ((x S)) (and P Q))
+               (and (forall ((x S)) P) (forall ((x S)) Q))))
+    :rule equiv_intro :premises (t.p1 t.p2))
 ```
 
-About a dozen steps, all unit-clause reasoning under the hypotheses, linear in the original step —
+Twenty steps, all unit-clause reasoning under the hypotheses, linear in the original step —
 the anchors carry all the binding structure, `forall_inst :args (x)` at the anchor's own variable
-does the elimination, and each closure is the single-literal case of the generalized `bind`, so
-its checking is exactly the positional shape comparison of the previous subsection. Note how the
-unit-closure discipline is what the templates produce naturally: the inner clauses are packed to
-units (`and_neg` + resolution here; `or_intro` in the general case) *before* closing. Without the
-generalization, the same derivation runs through the Skolemization fallback: each variables-only
-anchor is replaced by explicit reasoning at the counterexample witness of the quantifier being
-introduced (`sko_forall`'s equivalence at `c = εx.¬φ` via `refl` + `equiv_pos1`), which is what
-makes that route's proof text quadratic — the two directions need *different* witnesses, since
-`(forall x P) ≈ P[c3]` is not valid, so the clausal glue is intrinsic either way. The n-ary and
-multi-variable cases iterate the same shape.
+does the elimination (note that `P` and `Q` appear *unchanged* throughout: instantiating at the
+anchor variable is a no-op substitution), and each closure is the single-literal case of the
+generalized `bind`, so its checking is exactly the positional shape comparison of the previous
+subsection. Without the generalization, the same derivation runs through the Skolemization
+fallback: each variables-only anchor is replaced by explicit reasoning at the counterexample
+witness of the quantifier being introduced (`sko_forall`'s equivalence at `c = εx.¬φ` via `refl`
++ `equiv2`), which is what makes that route's proof text quadratic — the two directions need
+*different* witnesses, since `(forall ((x S)) P) ≈ P[c₃]` is not valid, so the clausal glue is
+intrinsic either way. The n-ary and multi-variable cases iterate the same shape.
+
+#### The same derivation in RESOLUTE
+
+For contrast, the same equivalence in SMTInterpol's RESOLUTE format. There are no subproofs and
+no anchors: the proof is a flat resolution DAG over clauses-as-*sets* (duplicate literals merge
+silently), hypothetical reasoning rides along as extra literals, and the quantifiers are handled
+by the `choose`-witness axioms. Write `P[c]` for `P` with `x` substituted by `c`, and abbreviate
+the three witnesses (RESOLUTE's `let` mechanism):
+
+```
+cP  = (choose ((x S)) (not P))
+cQ  = (choose ((x S)) (not Q))
+cPQ = (choose ((x S)) (not (and P Q)))
+```
+
+Each line binds a named proof (`let-proof`) of the clause shown in the comment (`+`/`-` mark
+literal polarity):
+
+```
+; direction →
+c1 = (forall+ (forall ((x S)) P))                 ; ( +(forall ((x S)) P)  -P[cP] )
+c2 = (forall- (cP) (forall ((x S)) (and P Q)))    ; ( -(forall ((x S)) (and P Q))  +(and P[cP] Q[cP]) )
+c3 = (and- 0 (and P[cP] Q[cP]))                   ; ( -(and P[cP] Q[cP])  +P[cP] )
+d1 = (res P[cP] (res (and P[cP] Q[cP]) c2 c3) c1) ; ( -(forall ((x S)) (and P Q))  +(forall ((x S)) P) )
+c4 = (forall+ (forall ((x S)) Q))                 ; ( +(forall ((x S)) Q)  -Q[cQ] )
+c5 = (forall- (cQ) (forall ((x S)) (and P Q)))    ; ( -(forall ((x S)) (and P Q))  +(and P[cQ] Q[cQ]) )
+c6 = (and- 1 (and P[cQ] Q[cQ]))                   ; ( -(and P[cQ] Q[cQ])  +Q[cQ] )
+d2 = (res Q[cQ] (res (and P[cQ] Q[cQ]) c5 c6) c4) ; ( -(forall ((x S)) (and P Q))  +(forall ((x S)) Q) )
+c7 = (and+ (and (forall ((x S)) P) (forall ((x S)) Q)))
+                                                  ; ( +(and (forall ((x S)) P) (forall ((x S)) Q))
+                                                  ;   -(forall ((x S)) P)  -(forall ((x S)) Q) )
+d3 = (res (forall ((x S)) Q) (res (forall ((x S)) P) c7 d1) d2)
+                                                  ; ( -(forall ((x S)) (and P Q))
+                                                  ;   +(and (forall ((x S)) P) (forall ((x S)) Q)) )
+                                                  ; the duplicated negative literal merged: sets
+
+; direction ←
+c8  = (forall+ (forall ((x S)) (and P Q)))        ; ( +(forall ((x S)) (and P Q))  -(and P[cPQ] Q[cPQ]) )
+c9  = (and- 0 (and (forall ((x S)) P) (forall ((x S)) Q)))
+                                                  ; ( -(and (forall ((x S)) P) (forall ((x S)) Q))
+                                                  ;   +(forall ((x S)) P) )
+c10 = (forall- (cPQ) (forall ((x S)) P))          ; ( -(forall ((x S)) P)  +P[cPQ] )
+c11 = (and- 1 (and (forall ((x S)) P) (forall ((x S)) Q)))
+                                                  ; ( -(and (forall ((x S)) P) (forall ((x S)) Q))
+                                                  ;   +(forall ((x S)) Q) )
+c12 = (forall- (cPQ) (forall ((x S)) Q))          ; ( -(forall ((x S)) Q)  +Q[cPQ] )
+c13 = (and+ (and P[cPQ] Q[cPQ]))                  ; ( +(and P[cPQ] Q[cPQ])  -P[cPQ]  -Q[cPQ] )
+d4  = (res Q[cPQ] (res P[cPQ] c13 (res (forall ((x S)) P) c9 c10))
+                  (res (forall ((x S)) Q) c11 c12))
+                                                  ; ( -(and (forall ((x S)) P) (forall ((x S)) Q))
+                                                  ;   +(and P[cPQ] Q[cPQ]) )
+d5  = (res (and P[cPQ] Q[cPQ]) d4 c8)             ; ( +(forall ((x S)) (and P Q))
+                                                  ;   -(and (forall ((x S)) P) (forall ((x S)) Q)) )
+
+; equivalence introduction
+e1 = (=+1 (= (forall ((x S)) (and P Q))
+             (and (forall ((x S)) P) (forall ((x S)) Q))))
+                                                  ; ( +(= …)  +(forall ((x S)) (and P Q))
+                                                  ;           +(and (forall ((x S)) P) (forall ((x S)) Q)) )
+e2 = (=+2 (= (forall ((x S)) (and P Q))
+             (and (forall ((x S)) P) (forall ((x S)) Q))))
+                                                  ; ( +(= …)  -(forall ((x S)) (and P Q))
+                                                  ;           -(and (forall ((x S)) P) (forall ((x S)) Q)) )
+s1 = (res (and (forall ((x S)) P) (forall ((x S)) Q)) e1 d5)
+                                                  ; ( +(= …)  +(forall ((x S)) (and P Q)) )
+s2 = (res (forall ((x S)) (and P Q)) e2 d3)       ; ( +(= …)  -(forall ((x S)) (and P Q)) )
+     (res (forall ((x S)) (and P Q)) s1 s2)       ; ( +(= (forall ((x S)) (and P Q))
+                                                  ;       (and (forall ((x S)) P) (forall ((x S)) Q))) )
+```
+
+The rule-by-rule correspondence is exact: `forall-` is `forall_inst`; `forall+` is the ∀-ε-clause
+(an *axiom* in RESOLUTE, a four-step `sko_forall` derivation in Alethe); `and- i`/`and+` are
+`and_pos`/`and_neg`; `or+ i`/`or-` are `or_neg`/`or_pos`; `=+1`/`=+2` are `equiv_neg2`/
+`equiv_neg1`, so the closing block is `equiv_intro`'s expansion written inline. The structural
+differences are equally visible: RESOLUTE's three `choose` witnesses each embed a copy of the
+bodies (the quadratic-text cost the generalized `bind` avoids entirely), its set-clauses merge
+duplicate literals silently where Alethe's chain reading demands explicit `contraction`, and the
+absence of subproofs means the two hypotheses survive as carried literals through every
+resolution instead of being discharged once at an anchor boundary.
 
 ### Instantiation is not Skolemization
 

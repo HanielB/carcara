@@ -22,89 +22,89 @@ digraph core_alethe {
 
   subgraph cluster_structural {
     label="structural"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    assume    [color="#2a78d6", penwidth=2.4];
-    subproof  [color="#2a78d6", penwidth=2.4];
-    hole      [color="#2a78d6", penwidth=2.4];
+    assume    [URL="classification.html#structural", target="_self", tooltip="core", color="#2a78d6", penwidth=2.4];
+    subproof  [URL="classification.html#structural", target="_self", tooltip="core — the discharge vehicle", color="#2a78d6", penwidth=2.4];
+    hole      [URL="classification.html#structural", target="_self", tooltip="core — terminal, taints validity", color="#2a78d6", penwidth=2.4];
   }
 
   subgraph cluster_clausal {
     label="clausal"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    resolution [label="resolution\n(chain + RUP)", color="#2a78d6", penwidth=2.4];
-    true_r     [label="true",  color="#2a78d6", penwidth=2.4];
-    false_r    [label="false", color="#2a78d6", penwidth=2.4];
-    not_not    [color="#2a78d6", penwidth=2.4];
-    andor_ax   [label="and/or axioms (4)", color="#2a78d6", penwidth=2.4];
-    equiv_ax   [label="equiv axioms (4)\n(bootstrap)", color="#2a78d6", penwidth=2.4];
-    th_resolution [color="#1baf7a", penwidth=1.6];
-    tautology     [color="#1baf7a", penwidth=1.6];
-    reordering    [color="#1baf7a", penwidth=1.6];
-    clausif    [label="clausification\nrules (19)", color="#1baf7a", penwidth=1.6];
-    xorite_ax  [label="xor/ite axioms (8)", color="#1baf7a", penwidth=1.6];
-    implies_ax [label="implies axioms (3)", color="#1baf7a", penwidth=1.6];
-    equiv_intro [label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
-    or_intro    [label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
-    weakening   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    contraction [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    resolution [URL="classification.html#clausal", target="_self", tooltip="core — dual semantics: chain with pivots, and RUP", label="resolution\n(chain + RUP)", color="#2a78d6", penwidth=2.4];
+    true_r     [URL="classification.html#clausal", target="_self", tooltip="core", label="true",  color="#2a78d6", penwidth=2.4];
+    false_r    [URL="classification.html#clausal", target="_self", tooltip="core", label="false", color="#2a78d6", penwidth=2.4];
+    not_not    [URL="classification.html#clausal", target="_self", tooltip="core — explicit double-negation merging", color="#2a78d6", penwidth=2.4];
+    andor_ax   [URL="classification.html#clausal", target="_self", tooltip="core — Tseitin base", label="and/or axioms (4)", color="#2a78d6", penwidth=2.4];
+    equiv_ax   [URL="classification.html#clausal", target="_self", tooltip="core — bootstrap for connective_def unpacking", label="equiv axioms (4)\n(bootstrap)", color="#2a78d6", penwidth=2.4];
+    th_resolution [URL="classification.html#clausal", target="_self", tooltip="reduces to resolution (rename)", color="#1baf7a", penwidth=1.6];
+    tautology     [URL="classification.html#clausal", target="_self", tooltip="reduces to true (conclusion is literally T)", color="#1baf7a", penwidth=1.6];
+    reordering    [URL="classification.html#clausal", target="_self", tooltip="eliminated by the reordering pass (recomputation)", color="#1baf7a", penwidth=1.6];
+    clausif    [URL="classification.html#ex-clausification", target="_self", tooltip="each rule = its CNF axiom + one resolution — click for example", label="clausification\nrules (19)", color="#1baf7a", penwidth=1.6];
+    xorite_ax  [URL="classification.html#ex-xor-axioms", target="_self", tooltip="unpack connective_def via equiv1/2 and re-clausify — click for example", label="xor/ite axioms (8)", color="#1baf7a", penwidth=1.6];
+    implies_ax [URL="classification.html#ex-implies-axioms", target="_self", tooltip="via the proposed connective_def -> extension — click for example", label="implies axioms (3)", color="#1baf7a", penwidth=1.6];
+    equiv_intro [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="proposed; equiv_neg1/2 + resolutions — click for example", label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+    or_intro    [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="proposed; or_neg xN + resolutions + contraction — click for example", label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+    weakening   [URL="classification.html#clausal", target="_self", tooltip="expensive: rename to resolution under the RUP reading", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    contraction [URL="classification.html#clausal", target="_self", tooltip="expensive: rename to resolution under the RUP reading", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
   }
 
   subgraph cluster_binder {
     label="binder"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    bind        [label="bind\n(binder congruence;\ngeneralization proposed, div. 8)", color="#2a78d6", penwidth=2.4];
-    let_r       [label="let", color="#2a78d6", penwidth=2.4];
-    bind_let    [color="#2a78d6", penwidth=2.4];
-    sko_forall  [color="#2a78d6", penwidth=2.4];
-    forall_inst [color="#2a78d6", penwidth=2.4];
-    sko_ex   [color="#1baf7a", penwidth=1.6];
-    onepoint [color="#1baf7a", penwidth=1.6];
-    qnt_rw   [label="quantifier\nrewrites (6)", color="#1baf7a", penwidth=1.6];
+    bind        [URL="classification.html#binder", target="_self", tooltip="core — binder congruence; generalization proposed (divergence 8)", label="bind\n(binder congruence;\ngeneralization proposed, div. 8)", color="#2a78d6", penwidth=2.4];
+    let_r       [URL="classification.html#binder", target="_self", tooltip="core", label="let", color="#2a78d6", penwidth=2.4];
+    bind_let    [URL="classification.html#binder", target="_self", tooltip="core", color="#2a78d6", penwidth=2.4];
+    sko_forall  [URL="classification.html#binder", target="_self", tooltip="core — designated Skolemization primitive", color="#2a78d6", penwidth=2.4];
+    forall_inst [URL="classification.html#binder", target="_self", tooltip="core — instantiation, independent of Skolemization", color="#2a78d6", penwidth=2.4];
+    sko_ex   [URL="classification.html#ex-sko-ex", target="_self", tooltip="duality + sko_forall, 6 steps — click for example", color="#1baf7a", penwidth=1.6];
+    onepoint [URL="classification.html#ex-onepoint", target="_self", tooltip="guarded case-split template — click for example", color="#1baf7a", penwidth=1.6];
+    qnt_rw   [URL="classification.html#ex-qnt-simplify", target="_self", tooltip="unit closures + forall_inst + equiv_intro — click for examples", label="quantifier\nrewrites (6)", color="#1baf7a", penwidth=1.6];
   }
 
   subgraph cluster_eqrw {
     label="equality & rewriting"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    refl  [color="#2a78d6", penwidth=2.4];
-    trans [color="#2a78d6", penwidth=2.4];
-    cong  [color="#2a78d6", penwidth=2.4];
-    symm  [color="#2a78d6", penwidth=2.4];
-    connective_def [color="#2a78d6", penwidth=2.4];
-    rare_rewrite   [color="#2a78d6", penwidth=2.4];
-    eq_clausal [label="clausal eq_* (6)", color="#1baf7a", penwidth=1.6];
-    multi_rare_rewrite [color="#1baf7a", penwidth=1.6];
-    shuffle   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    nary_elim [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    bool_simp [label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
+    refl  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core — the only rule applying the context", color="#2a78d6", penwidth=2.4];
+    trans [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core", color="#2a78d6", penwidth=2.4];
+    cong  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core", color="#2a78d6", penwidth=2.4];
+    symm  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core — explicit symmetry", color="#2a78d6", penwidth=2.4];
+    connective_def [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core — definitional axioms; duality is the exists-bootstrap", color="#2a78d6", penwidth=2.4];
+    rare_rewrite   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="core — the rewrite primitive", color="#2a78d6", penwidth=2.4];
+    eq_clausal [URL="classification.html#ex-eq-transitive", target="_self", tooltip="subproof-discharge to trans/cong/symm — click for examples", label="clausal eq_* (6)", color="#1baf7a", penwidth=1.6];
+    multi_rare_rewrite [URL="classification.html#ex-multi-rare-rewrite", target="_self", tooltip="rare_rewrite chain + trans/cong — click for example", color="#1baf7a", penwidth=1.6];
+    shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="expensive: rename to aci_simp (check coarsens)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="binary-associativity RARE chain — click for example", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="aggressive: replay rewrite traces as rare_rewrite chains", label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
                style="rounded,filled,dotted"];
-    aci_simp  [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
-    distinct_elim [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="aggressive: elementary ACI rewrites, O(n^2)", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    distinct_elim [URL="classification.html#equality-and-rewriting", target="_self", tooltip="aggressive: needs a Eunoia program", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
   }
 
   subgraph cluster_arith {
     label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    la_generic [color="#2a78d6", penwidth=2.4];
-    poly_simp  [label="poly_simp (extra)", color="#2a78d6", penwidth=2.4];
-    la_mult_pos_pos [label="la_mult_pos_pos\n(proposed)", color="#2a78d6", penwidth=2.4,
+    la_generic [URL="classification.html#arithmetic", target="_self", tooltip="core — Farkas certificates", color="#2a78d6", penwidth=2.4];
+    poly_simp  [URL="classification.html#arithmetic", target="_self", tooltip="core (extra) — ring normalization", label="poly_simp (extra)", color="#2a78d6", penwidth=2.4];
+    la_mult_pos_pos [URL="classification.html#arithmetic", target="_self", tooltip="proposed axiom — positive cone closed under multiplication", label="la_mult_pos_pos\n(proposed)", color="#2a78d6", penwidth=2.4,
                      style="rounded,filled,dashed"];
-    la_totality  [color="#1baf7a", penwidth=1.6];
-    la_tautology [color="#1baf7a", penwidth=1.6];
-    la_mult    [label="la_mult_pos/neg", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    la_disequality [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    la_rw_eq   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    arith_simp [label="arith simplify (4)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    div_simplify [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    comp_simplify [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    la_totality  [URL="classification.html#ex-la-totality", target="_self", tooltip="la_generic + or_intro — click for example", color="#1baf7a", penwidth=1.6];
+    la_tautology [URL="classification.html#ex-la-totality", target="_self", tooltip="la_generic (+ or_intro for the binary form) — click for example", color="#1baf7a", penwidth=1.6];
+    la_mult    [URL="classification.html#ex-la-mult-pos", target="_self", tooltip="la_mult_pos_pos + poly_simp + la_generic — click for example", label="la_mult_pos/neg", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    la_disequality [URL="classification.html#ex-la-disequality", target="_self", tooltip="order antisymmetry via la_rw_eq — click for example", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    la_rw_eq   [URL="classification.html#arithmetic", target="_self", tooltip="expensive: single RARE rule", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    arith_simp [URL="classification.html#arithmetic", target="_self", tooltip="expensive: rename to poly_simp, or RARE trace", label="arith simplify (4)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    div_simplify [URL="classification.html#arithmetic", target="_self", tooltip="expensive: poly_simp + evaluation for int div/mod", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    comp_simplify [URL="classification.html#arithmetic", target="_self", tooltip="aggressive: RARE trace with evaluation", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
   }
 
   subgraph cluster_bv {
     label="bitvector"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    bitblast [label="bitblast_* (14)", color="#2a78d6", penwidth=2.4];
+    bitblast [URL="classification.html#bitvector", target="_self", tooltip="core — definitional computational schemas", label="bitblast_* (14)", color="#2a78d6", penwidth=2.4];
   }
 
   subgraph cluster_legacy {
     label="legacy (removal)"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    lia_generic [label="lia_generic\n(oracle)", color="#e34948", penwidth=1.4, peripheries=2];
-    qnt_cnf     [color="#e34948", penwidth=1.4, peripheries=2];
-    ite_intro   [color="#e34948", penwidth=1.4, peripheries=2];
-    bfun_elim   [color="#e34948", penwidth=1.4, peripheries=2];
-    ac_simp     [color="#e34948", penwidth=1.4, peripheries=2];
+    lia_generic [URL="classification.html#legacy", target="_self", tooltip="removal; oracle-reducible via the hole pass", label="lia_generic\n(oracle)", color="#e34948", penwidth=1.4, peripheries=2];
+    qnt_cnf     [URL="classification.html#legacy", target="_self", tooltip="removal; placeholder, no semantics to reduce", color="#e34948", penwidth=1.4, peripheries=2];
+    ite_intro   [URL="classification.html#legacy", target="_self", tooltip="removal; veriT artifact", color="#e34948", penwidth=1.4, peripheries=2];
+    bfun_elim   [URL="classification.html#legacy", target="_self", tooltip="removal; exponential case expansion", color="#e34948", penwidth=1.4, peripheries=2];
+    ac_simp     [URL="classification.html#legacy", target="_self", tooltip="removal; superseded by aci_simp", color="#e34948", penwidth=1.4, peripheries=2];
   }
 
   // ---- reducible edges (solid: meets R1–R4) ----
