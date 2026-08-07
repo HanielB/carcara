@@ -11,6 +11,7 @@
   - [Reordering elimination](./elaboration/reordering.md)
 - [The core Alethe fragment](./core.md)
   - [Rule classification](./core/classification.md)
+  - [Reduction graph](./core/reduction-graph.md)
   - [RARE rules for the rewrite routes](./core/rare-rules.md)
 - [Other features](./etc.md)
   - [Proof parsing/printing](./etc/parse.md)

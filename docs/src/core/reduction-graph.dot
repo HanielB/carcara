@@ -1,0 +1,164 @@
+// Reduction graph of the core Alethe classification.
+// Nodes = rules (families collapsed); border color+style = ladder level;
+// edges = "reduces to" (ubiquitous glue targets — resolution/subproof/iff-intro — omitted
+// except where they are the distinctive target).
+// Levels: core #2a78d6 bold / reducible #1baf7a / expensive #eda100 dashed /
+//         aggressive #4a3aa7 dotted / removal #e34948 double. Proposed = dashed + "(proposed)".
+digraph core_alethe {
+  rankdir=LR;
+  splines=true;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled",
+        fillcolor="#ffffff", color="#2a78d6", fontcolor="#0b0b0b", margin="0.14,0.08"];
+  edge [fontname="Helvetica", fontsize=9, color="#8a887f", fontcolor="#52514e",
+        arrowsize=0.6];
+
+  // ---- level node classes (applied per node below) ----
+  // core:       color="#2a78d6", penwidth=2.4
+  // reducible:  color="#1baf7a", penwidth=1.6
+  // expensive:  color="#eda100", penwidth=1.8, style="rounded,filled,dashed"
+  // aggressive: color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"
+  // removal:    color="#e34948", penwidth=1.4, peripheries=2
+
+  subgraph cluster_structural {
+    label="structural"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    assume    [color="#2a78d6", penwidth=2.4];
+    subproof  [color="#2a78d6", penwidth=2.4];
+    hole      [color="#2a78d6", penwidth=2.4];
+  }
+
+  subgraph cluster_clausal {
+    label="clausal"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    resolution [label="resolution\n(chain + RUP)", color="#2a78d6", penwidth=2.4];
+    true_r     [label="true",  color="#2a78d6", penwidth=2.4];
+    false_r    [label="false", color="#2a78d6", penwidth=2.4];
+    not_not    [color="#2a78d6", penwidth=2.4];
+    andor_ax   [label="and/or axioms (4)", color="#2a78d6", penwidth=2.4];
+    equiv_ax   [label="equiv axioms (4)\n(bootstrap)", color="#2a78d6", penwidth=2.4];
+    th_resolution [color="#1baf7a", penwidth=1.6];
+    tautology     [color="#1baf7a", penwidth=1.6];
+    reordering    [color="#1baf7a", penwidth=1.6];
+    clausif    [label="clausification\nrules (19)", color="#1baf7a", penwidth=1.6];
+    xorite_ax  [label="xor/ite axioms (8)", color="#1baf7a", penwidth=1.6];
+    implies_ax [label="implies axioms (3)", color="#1baf7a", penwidth=1.6];
+    equiv_intro [label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+    or_intro    [label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+    weakening   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    contraction [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+  }
+
+  subgraph cluster_binder {
+    label="binder"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    bind        [label="bind\n(binder congruence;\ngeneralization proposed, div. 8)", color="#2a78d6", penwidth=2.4];
+    let_r       [label="let", color="#2a78d6", penwidth=2.4];
+    bind_let    [color="#2a78d6", penwidth=2.4];
+    sko_forall  [color="#2a78d6", penwidth=2.4];
+    forall_inst [color="#2a78d6", penwidth=2.4];
+    sko_ex   [color="#1baf7a", penwidth=1.6];
+    onepoint [color="#1baf7a", penwidth=1.6];
+    qnt_rw   [label="quantifier\nrewrites (6)", color="#1baf7a", penwidth=1.6];
+  }
+
+  subgraph cluster_eqrw {
+    label="equality & rewriting"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    refl  [color="#2a78d6", penwidth=2.4];
+    trans [color="#2a78d6", penwidth=2.4];
+    cong  [color="#2a78d6", penwidth=2.4];
+    symm  [color="#2a78d6", penwidth=2.4];
+    connective_def [color="#2a78d6", penwidth=2.4];
+    rare_rewrite   [color="#2a78d6", penwidth=2.4];
+    eq_clausal [label="clausal eq_* (6)", color="#1baf7a", penwidth=1.6];
+    multi_rare_rewrite [color="#1baf7a", penwidth=1.6];
+    shuffle   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    nary_elim [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    bool_simp [label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
+               style="rounded,filled,dotted"];
+    aci_simp  [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    distinct_elim [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+  }
+
+  subgraph cluster_arith {
+    label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    la_generic [color="#2a78d6", penwidth=2.4];
+    poly_simp  [label="poly_simp (extra)", color="#2a78d6", penwidth=2.4];
+    la_mult_pos_pos [label="la_mult_pos_pos\n(proposed)", color="#2a78d6", penwidth=2.4,
+                     style="rounded,filled,dashed"];
+    la_totality  [color="#1baf7a", penwidth=1.6];
+    la_tautology [color="#1baf7a", penwidth=1.6];
+    la_mult    [label="la_mult_pos/neg", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    la_disequality [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    la_rw_eq   [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    arith_simp [label="arith simplify (4)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    div_simplify [color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    comp_simplify [color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+  }
+
+  subgraph cluster_bv {
+    label="bitvector"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    bitblast [label="bitblast_* (14)", color="#2a78d6", penwidth=2.4];
+  }
+
+  subgraph cluster_legacy {
+    label="legacy (removal)"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+    lia_generic [label="lia_generic\n(oracle)", color="#e34948", penwidth=1.4, peripheries=2];
+    qnt_cnf     [color="#e34948", penwidth=1.4, peripheries=2];
+    ite_intro   [color="#e34948", penwidth=1.4, peripheries=2];
+    bfun_elim   [color="#e34948", penwidth=1.4, peripheries=2];
+    ac_simp     [color="#e34948", penwidth=1.4, peripheries=2];
+  }
+
+  // ---- reducible edges (solid: meets R1–R4) ----
+  th_resolution -> resolution;
+  equiv_intro -> equiv_ax;
+  or_intro -> andor_ax;
+  tautology -> true_r;
+  reordering -> resolution [style=dotted, label="recomputed\naway"];
+  clausif -> andor_ax; clausif -> equiv_ax; clausif -> xorite_ax; clausif -> implies_ax;
+  xorite_ax -> connective_def; xorite_ax -> equiv_ax; xorite_ax -> andor_ax;
+  implies_ax -> connective_def [label="&rarr; ext\n(div. 6)"];
+  xorite_ax -> implies_ax;
+  implies_ax -> equiv_ax; implies_ax -> andor_ax;
+  sko_ex -> sko_forall;
+  sko_ex -> connective_def [label="duality"];
+  onepoint -> forall_inst; onepoint -> bind;
+  qnt_rw -> bind [label="closure"]; qnt_rw -> forall_inst;
+  qnt_rw -> sko_forall [style=dotted, label="fallback"];
+  eq_clausal -> trans; eq_clausal -> cong; eq_clausal -> symm; eq_clausal -> subproof;
+  multi_rare_rewrite -> rare_rewrite;
+  la_totality -> la_generic; la_tautology -> la_generic;
+
+  // ---- expensive edges (dashed: check-power upgrade or proposed dependency) ----
+  weakening -> resolution [style=dashed, label="RUP"];
+  contraction -> resolution [style=dashed, label="RUP"];
+  shuffle -> aci_simp [style=dashed];
+  nary_elim -> rare_rewrite [style=dashed];
+  la_mult -> la_mult_pos_pos [style=dashed];
+  la_mult -> poly_simp [style=dashed]; la_mult -> la_generic [style=dashed];
+  la_disequality -> la_rw_eq [style=dashed];
+  la_rw_eq -> rare_rewrite [style=dashed];
+  arith_simp -> poly_simp [style=dashed];
+  arith_simp -> rare_rewrite [style=dotted, label="alt: trace"];
+  div_simplify -> poly_simp [style=dashed];
+
+  // ---- aggressive edges (dotted: trace/program/trust-reduction) ----
+  bool_simp -> rare_rewrite [style=dotted, label="trace"];
+  aci_simp -> rare_rewrite [style=dotted];
+  distinct_elim -> rare_rewrite [style=dotted, label="program"];
+  comp_simplify -> rare_rewrite [style=dotted];
+  poly_simp -> rare_rewrite [style=dotted, label="trust-\nreduction"];
+  ac_simp -> aci_simp [style=dotted, label="fallback"];
+
+  // ---- legend ----
+  subgraph cluster_legend {
+    label="legend"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#ffffff";
+    l_core [label="core", color="#2a78d6", penwidth=2.4];
+    l_red  [label="reducible", color="#1baf7a", penwidth=1.6];
+    l_exp  [label="expensive", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    l_agg  [label="aggressive", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    l_rem  [label="removal", color="#e34948", penwidth=1.4, peripheries=2];
+    l_core -> l_red  [label="reduces to (R1–R4)"];
+    l_red  -> l_exp  [style=dashed, label="expensive scheme"];
+    l_exp  -> l_agg  [style=dotted, label="aggressive scheme /\nfallback"];
+    l_agg -> l_rem [style=invis];
+  }
+}
