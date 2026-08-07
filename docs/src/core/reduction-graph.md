@@ -13,15 +13,27 @@ Ubiquitous glue targets are omitted to keep the graph readable: nearly every red
 `resolution`, `subproof`, and iff-introduction (`equiv_intro`, or its `equiv_neg1/2` derivation),
 so those edges are drawn only where they are the distinctive target.
 
-The graph is **interactive**: click a node to jump to its reduction row or worked example in the
-[classification](./classification.md) (collapsible examples open automatically when targeted),
-and hover a node for a one-line summary of its reduction.
+The graph is **interactive**: drag nodes to rearrange, scroll to zoom (horizontal scroll — or
+shift+scroll — pans sideways), drag the background to pan; click a node to jump to its reduction row or worked example in the
+[classification](./classification.md) (collapsible examples open automatically when targeted);
+hover a node to see the rule as phrased in the Alethe specification.
 
-{{#include reduction-graph.svg}}
+<style>
+#redgraph { width: 100%; height: 78vh; border: 1px solid var(--table-border-color, #ccc); border-radius: 6px; position: relative; }
+#redgraph-tip { display: none; position: absolute; z-index: 20; max-width: 460px; padding: 6px 9px; font-size: 0.78em; line-height: 1.4; white-space: pre-line; background: var(--bg); color: var(--fg); border: 1px solid var(--table-border-color, #ccc); border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); pointer-events: none; }
+#redgraph-controls { margin-bottom: 6px; }
+#redgraph-controls button { font-size: 0.85em; padding: 3px 10px; margin-right: 6px; cursor: pointer; background: var(--bg); color: var(--fg); border: 1px solid var(--table-border-color, #ccc); border-radius: 4px; }
+</style>
 
-The source is [`reduction-graph.dot`](./reduction-graph.dot) — node `URL`/`tooltip` attributes
-carry the links. Regenerate with `dot -Tsvg reduction-graph.dot -o reduction-graph.svg`, then
-strip the XML prolog and replace the fixed `width`/`height` with
-`style="width:100%;height:auto"` and join the opening `<svg …>` tag onto a single line (a multi-line tag is not a CommonMark HTML block) so the SVG can be inlined responsively (the
-`{{#include}}` above inlines it, which is what makes the links clickable — an `<img>` embed would
-swallow them).
+<div id="redgraph-controls"><button id="redgraph-fit">Fit</button><button id="redgraph-reset">Reset layout</button></div>
+<div id="redgraph"></div>
+<script src="cytoscape.min.js"></script>
+<script src="reduction-graph-data.js"></script>
+<script src="reduction-graph-init.js"></script>
+
+The source of truth is [`reduction-graph.dot`](./reduction-graph.dot) — clusters, levels, node
+`URL`/`tooltip` attributes (the tooltips carry the abstract rule statements), and edges. After
+editing it, regenerate the data with `python3 gen-graph-data.py` (in `docs/src/core/`), which
+parses the attributes and takes the initial node positions from `dot -Tplain`. The rendering is
+[Cytoscape.js](https://js.cytoscape.org/), vendored at `cytoscape.min.js` so the book stays
+self-contained.

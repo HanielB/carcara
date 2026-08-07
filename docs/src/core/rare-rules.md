@@ -1,11 +1,8 @@
 # RARE rules for the rewrite routes
 
 Several reduction schemes in the [classification](./classification.md) go through `rare_rewrite`:
-the Boolean `*_simplify` bundles, the RARE alternative for the arithmetic simplifications, the
-optional elaboration of `poly_simp` itself, and the binder-level rewrites (for the latter, a
-documented design alternative — the classification reduces them through the generalized `bind` /
-Skolemization routes instead).
-This chapter catalogues the RARE 2.0 rules those routes require, in Carcara's
+the Boolean `*_simplify` bundles, the RARE alternative for the arithmetic simplifications, and
+the optional elaboration of `poly_simp` itself. This chapter catalogues the RARE 2.0 rules those routes require, in Carcara's
 `declare-rare-rule` syntax (the concrete implementation of RARE 2.0's `declare-rule`; see the
 [Checking Rare rewrites](../checking/rare.md) chapter). The rewrite sets are taken from the
 fixpoint systems the Alethe specification gives for each `*_simplify` rule.
@@ -19,10 +16,6 @@ Conventions used below:
   operators (`eo::add`, `eo::mul`, ...) and apply only when the matched parameters are literal
   values; they are marked **[eval]**. This is the one place the route leans on Eunoia beyond
   pattern matching.
-- Rules that today's RARE 2.0 *cannot* express — those needing bound-variable-list parameters or
-  arity-dependent output — are written in a hypothetical extended syntax and marked **[binder]**
-  or **[program]**. These marks are exactly the "missing prerequisite" column of the
-  classification, made concrete.
 
 Where a rule coincides with an existing rule of cvc5's RARE database, an implementation should
 reuse the established name rather than the systematic names used here.
@@ -328,7 +321,9 @@ the elaboration replays the checker's order.
   :conclusion (= (abs t) (ite (>= t 0) t (- t))))
 ```
 
-`la-rw-eq` discharges the `la_rw_eq` rule outright; `abs-def` is the prerequisite the
+`la-rw-eq` can discharge the `la_rw_eq` rule in one `rare_rewrite` step, though with
+`la_disequality` in the core the preferred reduction derives it instead (see the
+classification's arithmetic section) and the RARE rule is a lemma; `abs-def` is the prerequisite the
 `la_mult_abs_comparison` scheme names. Note that the proposed `la_mult_pos_pos` axiom is *not* a
 RARE rule: its conclusion is an implication, not an equality, so it stays a proper Alethe rule.
 
@@ -359,66 +354,72 @@ Since the specification itself notes there is no canonical ACI normal form, an `
 expansion must replay a *particular* normalization order; `op-comm` applications encode the
 chosen adjacent transpositions (the O(n²) bound of the classification).
 
-## Blocked rules: what the missing prerequisites look like
+## Lemmas, not axioms
 
-### `distinct_elim` — **[program]**
+A natural question: are these RARE rules *axioms* (trust extensions) or *lemmas* (derivable from
+the core)? For the rules catalogued here — i.e., exactly the rewrites the reduction routes need —
+the answer is: **all lemmas** — granted one deliberate choice in the core itself, keeping
+`la_disequality` as the order-antisymmetry axiom [antisym].
 
-The two Boolean cases are ordinary rules:
+- **Boolean rules, ACI/n-ary rules for `∧`/`∨`, `eq-refl`**: each instance is a propositional
+  equivalence; both implications fall to resolution over the CNF axioms (the Tseitin defining
+  clauses, so propositional completeness applies), closed by `equiv_intro`.
+- **Ring rules**: each instance is a polynomial identity — literally one `poly_simp` step. This
+  is the exact converse of the `poly_simp`-into-RARE trust-reduction; the two directions are
+  interderivable, as a trust anchor should be.
+- **Comparison rules and constant folds, `eq-const-diff`**: Farkas consequences — `la_generic` +
+  `equiv_intro`. The `div` rules follow from the toolkit's `div_intro` characterization (below)
+  plus `la_generic` for the constant cases.
+- **ACI instances for the bitvector operators** (`bvand`, `bvadd`, …, at *symbolic* arguments):
+  derivable by bitblasting both sides — the `bitblast_*` rules apply to arbitrary terms (their
+  right-hand sides use `bitOf i x` on symbolic `x`), so e.g. `bvand a b ≈ bvand b a` follows from
+  two `bitblast_and` steps, per-bit propositional commutativity (clausal core), `cong` over
+  `bbterm`, and `trans`/`symm`. O(width) core steps.
+- **`abs-def`**: derivable once `abs` has a *characterization axiom* in the `alethe-toolkit`
+  branch's `*_intro` family — the established home for definitional axioms of interpreted
+  operators (`div_intro`: the division bound pair; `log2_intro`; `to_int_intro`). An `abs_intro`
+  in that style yields `abs-def` by a case split + the `ite` axioms + `equiv_intro`.
+- **`la-rw-eq` — a lemma via the core's [antisym] axiom.** Its → direction is Farkas-derivable,
+  but the ← direction —
+  `t ≤ u ∧ u ≤ t` entails `t ≈ u` — is *order antisymmetry*: refuting the negated conclusion (a
+  disequality) against inequality premises needs **two** independent Farkas combinations, one per
+  bound, which `la_generic`'s single coefficient vector cannot express. The
+  [`la_generic` extension of spec issue #72](https://github.com/alethe-proofs/specification/issues/72)
+  does not reach it either (two independent Carcara implementations agree: the issue's reference
+  branch `la-generic-extension`, and the leaner one on `ext-phpp` reusing `Operator::Distinct`,
+  which errors on any disequality × inequality combination): its combination lattice lets
+  equations combine with anything, but a disequality combines only with equations — covering
+  affine consequences (equality conclusions from equality premises), not antisymmetry. Nor do
+  *two* `la_generic` steps help: they derive both bounds, but no core rule can then conjoin them
+  into the equality literal — a positive arithmetic equality cannot appear in a `la_generic`
+  conclusion (only negated ones can, since their negations are equations the combination can
+  use), `refl`/`trans`/`cong`/`symm` need an equality to start from, and the `equiv` axioms are
+  Boolean-sorted. The bounds-to-equality crossing is a genuine axiom (cf. cvc5's dedicated
+  `ARITH_TRICHOTOMY` rule) — which is exactly why the classification keeps **`la_disequality` in
+  the core** as [antisym]: with it, `la-rw-eq` derives in ~13 core steps (← from
+  `la_disequality` + `and_pos` + resolution; → by two `la_generic` steps under a discharge
+  subproof; `equiv_intro` closing — worked example in the classification), and the axiom lives
+  in the core proper, where axioms belong, rather than in the rewrite database. RESOLUTE
+  corroborates the architecture: its `farkas` certificate rule stays minimal and its
+  `trichotomy` axiom — literally `la_disequality` modulo the `¬≤`/`<` atom flip — is the
+  designated positive-equality introducer (see the parent chapter's comparison). The only way to
+  make `la_disequality` itself derivable would be to generalize `la_generic` once more, and the
+  generalization is well-defined: designate
+  one disequality `L ≠ 0` and supply **two** coefficient vectors `u`, `v` over the remaining
+  rows, checked by running the linear fold twice — `Σuᵢ·rowᵢ = L` and `Σvᵢ·rowᵢ = −L` — forcing
+  `L = 0` against `L ≠ 0`. By convexity this is complete (a convex set inside a finite union of
+  hyperplanes lies in one of them, so one designated disequality suffices), and both existing
+  forms are degenerations: no equality literal ⇒ `v` absent (today's rule); the issue-72 /
+  `ext-phpp` case ⇒ `v = −u` over equation rows. Antisymmetry itself is `u = [1,0]`,
+  `v = [0,1]` on the two `≤` rows. Two folds instead of one — same checking class.
 
-```lisp
-(declare-rare-rule distinct-bool-binary ((p Bool) (q Bool))
-  :args (p q)
-  :conclusion (= (distinct p q) (not (= p q))))
-(declare-rare-rule distinct-bool-many ((p Bool) (q Bool) (r Bool) (ps Bool :list))
-  :args (p q r ps)
-  :conclusion (= (distinct p q r ps) false))
-```
-
-The general case — the conjunction of all `n(n−1)/2` pairwise disequalities — has
-arity-dependent *output structure*, which no static pattern can produce. It needs either a
-per-arity rule family or a recursive Eunoia program (a `program` definition computing the
-pairwise conjunction), which is beyond the RARE 2.0 fragment as specified.
-
-### Binder-level rules — **[binder]**
-
-Rewriting strictly *below* a binder needs none of this — `bind` + `rare_rewrite` already covers
-it. The six binder-level rules (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, `miniscope_*`) have
-a redex that includes the quantifier itself, so *as RARE rules* they need parameters standing for
-*bound-variable lists*, plus freshness/free-variable side conditions. Note, however, that the
-classification no longer depends on this extension: these rules reduce through the generalized
-`bind` (divergence 8) or, proposal-free, the Skolemization route (the derived ∀-ε-clause
-template; see the parent chapter), so this section documents what the RARE route *would* need, as
-a design alternative. In a hypothetical
-extension (with `@VarList` parameters and a `:fresh-in` premise), the rules would read:
-
-```lisp
-(declare-rare-rule qnt-simplify-true ((xs @VarList))
-  :args (xs)
-  :conclusion (= (forall xs true) true))
-(declare-rare-rule connective-def-forall ((xs @VarList) (phi Bool))
-  :args (xs phi)
-  :conclusion (= (forall xs phi) (not (exists xs (not phi)))))
-(declare-rare-rule miniscope-distribute-forall ((xs @VarList) (ps Bool :list))
-  :args (xs ps)
-  :conclusion (= (forall xs (and ps)) (and (forall xs ps))))   ; (forall xs ·) mapped over the list
-(declare-rare-rule miniscope-ite-forall ((xs @VarList) (c Bool) (p Bool) (q Bool))
-  :premises ((fresh-in c xs))
-  :args (xs c p q)
-  :conclusion (= (forall xs (ite c p q)) (ite c (forall xs p) (forall xs q))))
-(declare-rare-rule qnt-rm-unused ((xs @VarList) (x @Var) (ys @VarList) (phi Bool))
-  :premises ((fresh-in phi x))
-  :args (xs x ys phi)
-  :conclusion (= (forall (xs x ys) phi) (forall (xs ys) phi)))
-```
-
-Three extensions over RARE 2.0 as specified are visible here, and together they constitute the
-binder-pattern RARE extension (no longer a prerequisite of the classification): (a)
-variable-list parameters that can
-appear in binding position, (b) a freshness side condition, and (c) for
-`miniscope_distribute`/`miniscope_split`, mapping a binder over a `:list` parameter
-(`qnt_join`'s variable-list merge has the same list-computation flavor). `miniscope_split`
-additionally needs to *partition* the variable list among the disjuncts, which is again
-program-like rather than pattern-like.
+The consequence: for these routes, `rare_rewrite`'s effective trust contribution is its
+substitution-matching machinery *only* — every catalogued rule is derivable from the core, whose
+axioms (the CNF axioms, `la_disequality`, the `bitblast_*` and `*_intro` definitional schemas)
+carry all of the trust. A general RARE database should be
+partitioned the same way — *lemma rules* (shipped with a core derivation, checkable once) versus
+*axiom rules* (genuine extensions) — with the system's trust base being the core plus the axiom
+partition only.
 
 ## Summary
 
@@ -428,7 +429,5 @@ program-like rather than pattern-like.
 | `eq_simplify` | 2 | yes, with one **[eval]** value-disequality guard |
 | ring rules (`poly_simp` route, `prod/sum/minus/unary_minus_simplify`) | 14 per sort | yes, with **[eval]** constant folding |
 | `div_simplify`, `comp_simplify` | 9 | mostly; integer `div`/`mod` folding needs more evaluation operators |
-| `la_rw_eq`, `abs` | 2 | yes |
+| `la_rw_eq` (alternative route), `abs` | 2 | yes; `la_rw_eq`'s preferred reduction now goes through the core's `la_disequality` instead |
 | ACI / `nary_elim` | 5 per operator | yes; normalization order must be replayed, not searched |
-| `distinct_elim` | 2 + general case | Boolean cases yes; general case needs **[program]** |
-| binder rules | 6+ | no — needs **[binder]** extensions (variable-list parameters, freshness premises, binder mapping); superseded as a prerequisite by the generalized `bind` / Skolemization routes |

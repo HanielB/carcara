@@ -42,8 +42,8 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **41 core**, **50 reducible**,
-**13 expensive**, **11 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **42 core**, **51 reducible**,
+**11 expensive**, **11 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
@@ -51,7 +51,7 @@ Of the 120 specification rules, this classification yields **41 core**, **50 red
 | clausal | 47 | 12 | 33 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
 | equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
-| arithmetic | 13 (+1) | 1 (+1) | 2 | 9 | 1 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
 
@@ -305,9 +305,14 @@ Two LA rules reduce to `la_generic` alone:
   still O(1), and exactly one application of the proposed `or_intro` (see the convenience rules
   below).
 
-`la_disequality` is expensive: the negation of its positive equality literal is a *disequality*,
-which a Farkas combination cannot consume — its scheme goes through `la_rw_eq` as the
-order-antisymmetry axiom instead (see the classification). `lia_generic` is
+`la_disequality` stays **core**, as the category's one non-computational axiom: the negation of
+its positive equality literal is a *disequality*, which a Farkas combination cannot consume, and
+no other core rule can introduce a positive arithmetic equality at all — the rule *is* order
+antisymmetry ([antisym]), the exact counterpart of cvc5's dedicated `ARITH_TRICHOTOMY` rule (see
+"Lemmas, not axioms" in the [RARE chapter](./core/rare-rules.md), which also records the
+two-coefficient-vector generalization of `la_generic` that would make it derivable).
+`la_rw_eq` then reduces to it: the ← direction from `la_disequality`, the → direction by two
+Farkas steps, closed by `equiv_intro` (worked example in the classification). `lia_generic` is
 special: it is not checkable at all without an external solver, and is classified as
 *oracle-reducible* — the existing hole elaboration pass replaces it with a full sub-proof produced
 by an external solver.
@@ -351,6 +356,94 @@ The reductions, all using subproof-discharge plus the implication-term repackagi
 The trade is the usual one: elaborated proofs get O(n) scaffolding where solvers emitted one macro
 step, and the checker must trust ring normalization (`poly_simp`) as a second computational
 primitive alongside Farkas checking.
+
+### Comparison with RESOLUTE's `farkas`
+
+The [RESOLUTE format](https://ultimate.informatik.uni-freiburg.de/smtinterpol/proof-format.html)
+concentrates its linear arithmetic in one axiom,
+`(farkas c1 (<=? a1 b1) … cn (<=? an bn))`, proving the clause of *negated* atoms
+`(cl ¬(a1 <=? b1) … ¬(an <=? bn))` when the positive integer combination
+`Σ ci·(ai − bi)` is a constant `c ≥ 0` (strict somewhere if `c = 0`). Since `<=?` ranges over
+`<`, `≤`, *and* `=`, the comparison with `la_generic` splits cleanly:
+
+- **On the shared fragment they are the same rule.** Both are "one positive Farkas combination
+  refutes the negated clause literals," equation rows included: a `farkas` `=`-row appears in
+  the conclusion as a negated equality, exactly `la_generic`'s equation rows. `la_generic`
+  allows signed rational coefficients on equations where `farkas` requires positive integers,
+  but the sign is recovered by swapping the equation's arguments and the rationals by clearing
+  denominators. Alethe keeps all four order operators in both polarities; RESOLUTE normalizes a
+  positive `(≤ a b)` literal to `¬(< b a)` — a representational flip over the total order, not
+  a power difference.
+- **Positive equality literals are the delta — and RESOLUTE's answer is `trichotomy`, not a
+  stronger `farkas`.** A `farkas` conclusion contains only negated atoms, so a clause with a
+  positive equality literal is not even expressible by it: the extension of
+  [spec issue #72](https://github.com/alethe-proofs/specification/issues/72) is strictly
+  stronger *as a single rule*. But RESOLUTE never needed that strength in the certificate rule,
+  because `(trichotomy a b) ▷ (< a b), (= a b), (< b a)` is its designated positive-equality
+  introducer, and `farkas` + `trichotomy` + resolution is complete for clause validity in the
+  convex linear fragment: `trichotomy` introduces the equality and one `farkas` step cuts each
+  strict branch against the available bounds. That composition covers both the issue-72 case
+  (~3 glue steps) *and* antisymmetry — which the extended `la_generic` cannot reach. As single
+  rules: `farkas` ≈ base `la_generic` < issue-72 `la_generic`; as systems:
+  `farkas`+`trichotomy` ≡ `la_generic`+`la_disequality` ≡ the two-vector generalization (see
+  the [RARE chapter](./core/rare-rules.md)), all strictly above issue-72 alone.
+- **`la_disequality` *is* `trichotomy`**, literally, modulo the atom flip
+  `¬(t1 ≤ t2) ↔ (t2 < t1)`. RESOLUTE independently arrived at the architecture chosen here:
+  keep the Farkas engine minimal and put the bounds-to-equality crossing in a dedicated
+  premise-free axiom — corroborating [antisym] as a core axiom.
+- **Integer packaging is inverted.** `la_generic` tightens strict integer bounds inside the
+  rule; `farkas` carries *zero* integrality (mixed Int/Real rows convert to Real) and all of it
+  lives in the separate axiom `(total-int a c) ▷ (a ≤ c), (c+1 ≤ a)` — notably applicable to an
+  arbitrary integer *term* `a`, making it the split form of a cutting plane (next section).
+  Net single-cut power is the same.
+
+The surrounding ecosystems mirror each other too: RESOLUTE's `poly+`/`poly*` play `poly_simp`'s
+ring-normalization role, and its `div-low`/`div-high`/`mod-def`/`to_int-low`/`to_int-high`
+axioms are exactly the `alethe-toolkit` `*_intro` definitional characterizations (see the
+extras table below).
+
+### Completeness for linear arithmetic
+
+Measured against clause validity, the core's arithmetic —
+`la_generic` (with integer tightening) + `la_disequality` + `resolution` — is **refutation-complete
+for pure-integer LIA**, and the gaps that remain are of a different nature than missing axioms.
+
+Farkas combinations alone are incomplete over the integers — for
+`3x + 3y ≥ 1 ∧ 3x + 3y ≤ 2` the LP relaxation is satisfiable, so no single combination refutes
+it. Completeness requires Gomory–Chvátal rounding: from derived `t ≥ b` (integer term `t`,
+fractional `b`) conclude `t ≥ ⌈b⌉`. `la_generic` derives exactly that, one cut per step, because
+a cut is just a clause whose literals the rule already accepts:
+`(cl ¬row₁ … ¬rowₘ (>= t ⌈b⌉))` checks by negating the cut literal to `t < ⌈b⌉`,
+*integer-tightening* it to `t ≤ ⌈b⌉ − 1 = ⌊b⌋`, and combining against the rows implying
+`t ≥ b > ⌊b⌋`. The per-row strict-to-nonstrict tightening `la_generic` already performs is
+precisely one rounding application, and emitting the cut as a conclusion literal lets
+`resolution` chain rounds. The instance above falls in two steps:
+
+```
+(step t1 (cl (not (>= (+ (* 3 x) (* 3 y)) 1)) (>= (+ x y) 1)) :rule la_generic :args ...)
+(step t2 (cl (not (<= (+ (* 3 x) (* 3 y)) 2)) (not (>= (+ x y) 1))) :rule la_generic :args ...)
+```
+
+plus resolutions. Since every rational polyhedron reaches its integer hull in finitely many
+Chvátal rounds (Schrijver), every infeasible pure-LIA system has a *finite* refutation in this
+vocabulary. RESOLUTE composes the same power differently: `total-int` on the integer term is
+the split form of the cut — branch `t ≤ k ∨ t ≥ k+1`, refute the far branch by `farkas`.
+
+What is genuinely missing:
+
+1. **Efficiency and proof production, not expressiveness.** Chvátal rank can be exponential in
+   the encoding (knapsack-style instances), and solvers do not proof-log their
+   branch-and-bound/cut reasoning as cut steps. This is the honest status of `lia_generic`: a
+   *practicality* hole — nobody produces the cut proofs — not an expressiveness hole in the
+   core, which sharpens its classification as removal/oracle.
+2. **The mixed Int/Real fragment.** Rounding is sound only when every variable in the row is
+   integer-sorted (`la_generic`'s tightening and `total-int` both correctly require this). For
+   genuinely mixed constraints one needs splits on the integer subterms only, and there finite
+   convergence breaks down (Cook–Kannan–Schrijver: split closures need not converge finitely on
+   mixed sets). LIRA is where a real completeness frontier lies, for both formats equally.
+3. **`div`/`mod`/`to_int`.** Completeness over full SMT-LIB LIA requires their definitional
+   characterizations to reduce to pure inequalities — the toolkit's `*_intro` family, mirrored
+   by RESOLUTE's `div`/`mod`/`to_int` axioms.
 
 ## Other reductions
 
@@ -564,8 +657,36 @@ about unbound variables would inherit that obligation in the rule checker.
 
 #### What the generalization buys
 
-Since the rule is admissible, *nothing new is provable* with it — its value is proof-theoretic,
-and sharper than "shorter proofs":
+First, what it does *not* buy: proving power. Apart from choice congruence (divergence 5),
+**every instance of the generalized `bind` is derivable from the core** — the rule is
+*admissible*, with `sko_forall` and `forall_inst` carrying exactly the two directions of its
+closure. Per instance — anchor variables `x̄` with substitution entries, inner subproof deriving
+`φ ≈ ψ`, closure `(∀x̄_φ. φ) ≈ (∀x̄_ψ. ψ)`:
+
+- **→** Skolemize the target `∀x̄_ψ. ψ` by the ∀-ε-clause template (`refl` under the witness
+  context + `sko_forall` + `equiv2`), reducing it to `ψ` at the sequential ε-witnesses; obtain
+  `φ` at the corresponding points by `forall_inst` on the premise quantifier (the witness images
+  under the anchor's substitution); *replay* the inner derivation with the witnesses substituted
+  for `x̄`; cross with `eq_mp`. Substitution entries `x ↦ t` are transported by the
+  `extract_points`-style `symm`/`cong`/`eq_mp` steps of the `onepoint` elaboration;
+  declared-but-vanished variables take dummy `choose` witnesses.
+- **←** Symmetric, and `equiv_intro` closes the equivalence; existential instances route through
+  the `sko_ex`-via-duality reduction first.
+
+The one load-bearing assumption is that the inner derivation *can* be replayed: every core rule
+is schematic, so its instances remain valid under uniform substitution of closed terms (the
+ε-witnesses) for the fresh anchor variables, including under nested binders since the witnesses
+are closed — the same stability fact the worked example below exercises. The residue is exactly
+divergence 5: `sko_forall` speaks only about `∀` (and `∃` through duality), so a context used to
+rewrite under a `choice` binder has no Skolemization to route through, and choice congruence
+stays a genuine primitive outside both the generalization's closing step and this fallback.
+
+Admissibility settles the proposal's status in the strongest possible way: divergence 8 is a
+pure *proof-engineering* proposal — the safest kind to adopt, since a checker can always fall
+back to expansion — and the binder category's core is closed as it stands, with nothing in the
+reducible tier secretly depending on the generalization being accepted.
+
+The value is therefore proof-theoretic, and sharper than "shorter proofs":
 
 1. **It closes a symbolic derivation instead of replaying it.** The generalization adds *one
    step* on top of a derivation carried out at a symbolic variable; the Skolemization fallback
@@ -892,15 +1013,14 @@ The quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the 
 rules) are *not* in this tier: although they rewrite the binder itself — which `bind` +
 `rare_rewrite` cannot express — they reduce through the generalized `bind` (divergence 8) or, proposal-free, the Skolemization
 route (the derived ∀-ε-clause template; see "Deriving the quantifier rewrites from
-Skolemization"), so the binder-pattern RARE extension documented in the RARE chapter is no longer
-a prerequisite for any rule.
+Skolemization"), so no binder-aware RARE extension is a prerequisite for any rule.
 
 The expensive level collects the schemes that are cheap in steps but upgrade the required
 checking power: the `la_mult_*` family and the arithmetic `*_simplify` members through
 `poly_simp` (the purely arithmetic simplifications — `prod_simplify`, `sum_simplify`,
 `minus_simplify`, `unary_minus_simplify` — have both routes: rename to `poly_simp` with a ring
 check and zero new steps, or a RARE trace with syntactic checks at trace-length cost),
-`shuffle` and `la_disequality` through `aci_simp`/`la_rw_eq`, and `nary_elim` (a promotion
+`shuffle` through `aci_simp`, and `nary_elim` (a promotion
 candidate instead: the polyequality elaboration itself emits it).
 
 ## Extra rules beyond the specification

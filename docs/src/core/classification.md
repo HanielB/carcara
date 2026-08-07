@@ -38,10 +38,10 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | clausal | 47 | 12 | 33 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
 | equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
-| arithmetic | 13 (+1) | 1 (+1) | 2 | 9 | 1 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **41** | **50** | **13** | **11** | **5** |
+| **total** | **120** | **42** | **51** | **11** | **11** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -897,37 +897,42 @@ at the root and `not-not-elim` below it — unfolds into single rewrites glued b
 
 ## Arithmetic
 
-**Proof system.** Abstractly, certificate checking for ordered-ring reasoning, along three axes:
+**Proof system.** Abstractly, certificate checking for ordered-ring reasoning, along four axes:
 
 - **[farkas]** — *linear order*: a clause of linear constraints is valid if a positive
   combination of the negated constraints (given by the certificate coefficients) is
   contradictory;
 - **[ring]** — *equational*: `t ≈ u` whenever `t` and `u` normalize to the same polynomial;
 - **[pos-cone]** — *nonlinear order*: the positive cone is closed under multiplication,
-  `x > 0 ∧ y > 0 → x·y > 0`.
+  `x > 0 ∧ y > 0 → x·y > 0`;
+- **[antisym]** — *order antisymmetry*: `t ≤ u ∧ u ≤ t → t ≈ u` — the one crossing from bounds
+  back to an equality.
 
 Concretely: `la_generic` is [farkas], `poly_simp` (the extra rule promoted into the core) is
-[ring], and the proposed axiom `la_mult_pos_pos` is [pos-cone]. Everything else in the category
-reduces to combinations of these three plus the clausal and equational cores.
+[ring], the proposed axiom `la_mult_pos_pos` is [pos-cone], and `la_disequality` is [antisym].
+Everything else in the category reduces to combinations of these four plus the clausal and
+equational cores.
 
-13 specification rules (1 core, 2 reducible, 9 expensive, 1 aggressive) plus the extra rule
+13 specification rules (2 core, 3 reducible, 7 expensive, 1 aggressive) plus the extra rule
 `poly_simp` in the core. See the
 [arithmetic section](../core.md#arithmetic-la_generic-and-poly_simp-as-the-computational-core) of
 the parent chapter for the recipes.
 
-### Core (1 + 1 extra)
+### Core (2 + 1 extra)
 
 | rule | notes |
 |---|---|
 | `la_generic` | the linear computational primitive (Farkas certificates) |
+| `la_disequality` | the [antisym] axiom, `▷ (t1 ≈ t2), ¬(t1 ≤ t2), ¬(t2 ≤ t1)`: premise-free clause, O(1) syntactic check. Kept core because no combination of the other axes can introduce a positive arithmetic equality (see "Lemmas, not axioms" in the RARE chapter); the exact counterpart of cvc5's dedicated `ARITH_TRICHOTOMY` rule, and literally RESOLUTE's `trichotomy` axiom modulo the `¬≤`/`<` atom flip (see the parent chapter's RESOLUTE comparison). Would become reducible only under the two-coefficient-vector generalization of `la_generic` recorded there |
 | `poly_simp` (extra) | the nonlinear computational primitive: unit polynomial equality, checked by ring-normalizing both sides. Its own elaboration into `rare_rewrite` chains is the *aggressive* exemplar — see the parent chapter |
 
-### Reducible (2)
+### Reducible (3)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | planned; unit-clause-with-`or` quirk |
 | `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
+| `la_rw_eq` | ← from `la_disequality` + `and_pos` ×2 + `resolution` + `contraction`; → by subproof + `la_generic` ×2 + `and_intro`; closed by `equiv_intro` | ~13 (O(1)) | Farkas + syntactic | planned; *alternative*: a single `rare_rewrite` instance of the `la-rw-eq` RARE rule — itself a lemma by this same derivation |
 
 <details id="ex-la-totality">
 <summary>Example: <code>la_totality</code></summary>
@@ -949,14 +954,49 @@ coefficient `[1]`.
 
 </details>
 
-### Expensive (9)
+<details id="ex-la-rw-eq">
+<summary>Example: <code>la_rw_eq</code></summary>
+
+```
+(step t (cl (= (= t1 t2) (and (<= t1 t2) (<= t2 t1)))) :rule la_rw_eq)
+```
+
+becomes — the → direction by two Farkas steps under a discharge subproof, the ← direction from
+the `la_disequality` axiom, glued by `equiv_intro`:
+
+```
+(anchor :step t.p)
+(assume t.p.h (= t1 t2))
+(step t.p.t1 (cl (not (= t1 t2)) (<= t1 t2)) :rule la_generic :args ((- 1) 1))
+(step t.p.t2 (cl (not (= t1 t2)) (<= t2 t1)) :rule la_generic :args (1 1))
+(step t.p.t3 (cl (<= t1 t2)) :rule resolution :premises (t.p.t1 t.p.h))
+(step t.p.t4 (cl (<= t2 t1)) :rule resolution :premises (t.p.t2 t.p.h))
+(step t.p.t5 (cl (and (<= t1 t2) (<= t2 t1))) :rule and_intro :premises (t.p.t3 t.p.t4))
+(step t.p (cl (not (= t1 t2)) (and (<= t1 t2) (<= t2 t1))) :rule subproof
+    :discharge (t.p.h))
+(step t.t1 (cl (= t1 t2) (not (<= t1 t2)) (not (<= t2 t1))) :rule la_disequality)
+(step t.t2 (cl (not (and (<= t1 t2) (<= t2 t1))) (<= t1 t2)) :rule and_pos)
+(step t.t3 (cl (not (and (<= t1 t2) (<= t2 t1))) (<= t2 t1)) :rule and_pos)
+(step t.t4 (cl (= t1 t2) (not (and (<= t1 t2) (<= t2 t1)))
+               (not (and (<= t1 t2) (<= t2 t1))))
+    :rule resolution :premises (t.t1 t.t2 t.t3))
+(step t.t5 (cl (= t1 t2) (not (and (<= t1 t2) (<= t2 t1)))) :rule contraction
+    :premises (t.t4))
+(step t (cl (= (= t1 t2) (and (<= t1 t2) (<= t2 t1)))) :rule equiv_intro
+    :premises (t.p t.t5))
+```
+
+(In `t.p.t1`/`t.p.t2` the negated equality is an equation row of the Farkas combination, so it
+may carry a coefficient of either sign.)
+
+</details>
+
+### Expensive (7)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
 | `la_mult_pos` | `la_mult_pos_pos` + `poly_simp` + `la_generic` (+ `cong`, case splits for non-strict forms) | O(1) template | a syntactic schema becomes ring + Farkas checking; needs the proposed `la_mult_pos_pos` axiom |
 | `la_mult_neg` | same, with `la_generic` sign-flip preprocessing | O(1) template | ditto |
-| `la_disequality` | subproof + `la_rw_eq` + `and_intro` + `equiv_pos1` + `resolution` (order antisymmetry via `la_rw_eq`) | ~6 (O(1)) | relies on `la_rw_eq` staying in the vocabulary |
-| `la_rw_eq` | single `rare_rewrite` instance | 1 | needs the `(t ≈ u) ≈ (t ≤ u ∧ u ≤ t)` RARE rule adopted |
 | `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` | rename to `poly_simp`; *alternative*: `rare_rewrite` chain over the RARE arithmetic rules | 0, or O(trace) via RARE | per-schema syntactic checking becomes the ring check (the RARE path keeps checks syntactic at trace-length cost) |
 | `div_simplify` | `poly_simp` for real division by constants; `evaluate`/RARE for the integer `div`/`mod` cases | O(1) | integer division semantics are outside the ring primitive |
 
@@ -1009,27 +1049,6 @@ becomes
 The `≈` form needs only `cong`; the `≤`/`≥` and disequality forms add one case split each;
 `la_mult_neg` prepends the `la_generic` sign-flip `t1 < 0 → -t1 > 0` and uses `poly_simp` for
 `(* (- t1) t2) ≈ (- (* t1 t2))`.
-
-</details>
-
-<details id="ex-la-disequality">
-<summary>Example: <code>la_disequality</code></summary>
-
-Target `(cl (= t1 t2) (not (<= t1 t2)) (not (<= t2 t1)))` (modulo literal order):
-
-```
-(anchor :step t)
-(assume t.a0 (<= t1 t2))
-(assume t.a1 (<= t2 t1))
-(step t.t1 (cl (= (= t1 t2) (and (<= t1 t2) (<= t2 t1)))) :rule rare_rewrite
-    :args ("la-rw-eq" t1 t2))                                 ; the la_rw_eq schema
-(step t.t3 (cl (and (<= t1 t2) (<= t2 t1))) :rule and_intro :premises (t.a0 t.a1))
-(step t.t4 (cl (not (= (= t1 t2) (and (<= t1 t2) (<= t2 t1))))
-               (= t1 t2) (not (and (<= t1 t2) (<= t2 t1)))) :rule equiv_pos1)
-(step t.t5 (cl (= t1 t2)) :rule resolution :premises (t.t4 t.t1 t.t3))
-(step t (cl (not (<= t1 t2)) (not (<= t2 t1)) (= t1 t2)) :rule subproof
-    :discharge (t.a0 t.a1))
-```
 
 </details>
 
@@ -1086,6 +1105,7 @@ way, with their concern category noted:
 | `poly_simp` | arithmetic | **core** (computational) | ring-normalization primitive; listed in the arithmetic core table above |
 | `la_mult_pos_pos` | arithmetic | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` schemes |
 | `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
+| `div_intro`, `log2_intro`, `to_int_intro` (`alethe-toolkit` branch) | arithmetic | core (definitional) | characterization axioms of interpreted operators (division bound pair, `pow2` bounds, floor bounds) — the natural home for an `abs_intro`, which would make the `abs` RARE rule a lemma |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
 | `evaluate`, `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | aggressive | `sat_refutation` oracle-reducible via its dedicated pass |
