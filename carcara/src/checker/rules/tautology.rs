@@ -1,6 +1,6 @@
 use super::{
-    assert_all_eq, assert_clause_len, assert_eq, assert_num_args, assert_num_premises,
-    assert_polyeq, get_premise_term, CheckerError, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, assert_polyeq,
+    get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
 
@@ -320,16 +320,14 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
 pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let (b3, a3, b4, a4, a5, b5, a6, b6, c) = match_term_err!(
+    let (b, _, c) = match_term_err!(
           (and
             (<= (* b (div a b)) a)
             (< a (* b (+ (div a b) c)))) = &conclusion[0])?;
-    assert_all_eq(&[a3, a4, a5, a6])?;
-    assert_all_eq(&[b3, b4, b5, b6])?;
 
     let c = c.as_number_err()?;
 
-    let expected = if b3.as_number_err()? > 0 { 1 } else { -1 };
+    let expected = if b.as_number_err()? > 0 { 1 } else { -1 };
     if c != expected {
         unreachable!();
     }
@@ -339,11 +337,10 @@ pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 pub fn log2_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let (x3, x4, x5, x6, x7, x8, x9) = match_term_err!(
+    match_term_err!(
           (and
             (=> (< 0 x) (and (<= (pow2 (log2 x)) x) (< x (pow2 (+ (log2 x) 1)))))
             (=> (not (< 0 x)) (= (log2 x) 0))) = &conclusion[0])?;
-    assert_all_eq(&[x3, x4, x5, x6, x7, x8, x9])?;
 
     Ok(())
 }
@@ -351,11 +348,10 @@ pub fn log2_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
 pub fn to_int_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
-    let (x3, x4, x5, x6) = match_term_err!(
+    match_term_err!(
           (and
             (<= 0.0 (- x (to_real (to_int x))))
             (< (- x (to_real (to_int x))) 1.0)) = &conclusion[0])?;
-    assert_all_eq(&[x3, x4, x5, x6])?;
 
     Ok(())
 }

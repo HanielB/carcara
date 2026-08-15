@@ -227,8 +227,8 @@ fn parse_pat(tt: TokenTree, ctx: &mut ParseCtx) -> Pat {
                     "application pattern must be (@ <func> <args>...), got {} tokens",
                     tokens.len()
                 );
-                let func = parse_pat(tokens[1].clone(), ctr);
-                let args = parse_args(&tokens[2..], ctr);
+                let func = parse_pat(tokens[1].clone(), ctx);
+                let args = parse_args(&tokens[2..], ctx);
                 return Pat::App { func: Box::new(func), args };
             }
 
