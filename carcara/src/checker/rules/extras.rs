@@ -71,9 +71,20 @@ pub fn not_symm(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
 
 pub fn eq_symmetric(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
-    let (t_1, u_1, u_2, t_2) = match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
-    assert_eq(t_1, t_2)?;
-    assert_eq(u_1, u_2)
+    match_term_err!((= (= t u) (= u t)) = &conclusion[0])?;
+    Ok(())
+}
+
+pub fn eq_mp(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+    assert_num_premises(premises, 2)?;
+    assert_clause_len(conclusion, 1)?;
+
+    let phi_1 = get_premise_term(&premises[0])?;
+    let equivalence = get_premise_term(&premises[1])?;
+    let (left, right) = match_term_err!((= phi_1 phi_2) = equivalence)?;
+
+    assert_eq(left, phi_1)?;
+    assert_eq(right, &conclusion[0])
 }
 
 pub fn weakening(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
