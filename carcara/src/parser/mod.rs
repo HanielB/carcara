@@ -542,11 +542,12 @@ impl<'p, 's> Parser<'p, 's> {
         // then it should be interpreted as a rational literal. The only exception to this is the
         // term '(/ 1 1)', which is still interpreted as a division term.
 
+        // Integer-valued real literals also count as integer constants here — this is how the
+        // printer writes rational literals (`(/ 1.0 999.0)`), so they must fold back into the
+        // same constant when an elaborated proof is re-parsed
         let [a, b] = [a, b].map(|t| match t.as_ref() {
             Term::Const(Constant::Integer(i)) => Some(i),
-            Term::Const(Constant::Real(r)) if self.interpret_ints_as_reals() && r.is_integer() => {
-                Some(r.numer())
-            }
+            Term::Const(Constant::Real(r)) if r.is_integer() => Some(r.numer()),
             _ => None,
         });
         let [a, b] = [a?, b?];
