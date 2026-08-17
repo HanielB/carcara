@@ -11,14 +11,18 @@ use crate::{ast::*, elaborator::error::ElaborationError};
 use indexmap::IndexMap;
 
 /// Deconstructs a `forall` term into its bindings and body.
-fn forall_parts(term: &Rc<Term>) -> Option<(Vec<SortedVar>, Rc<Term>)> {
+pub(super) fn forall_parts(term: &Rc<Term>) -> Option<(Vec<SortedVar>, Rc<Term>)> {
     match term.as_ref() {
         Term::Binder(Binder::Forall, bindings, body) => Some((bindings.0.clone(), body.clone())),
         _ => None,
     }
 }
 
-fn forall(pool: &mut PrimitivePool, bindings: Vec<SortedVar>, body: Rc<Term>) -> Rc<Term> {
+pub(super) fn forall(
+    pool: &mut PrimitivePool,
+    bindings: Vec<SortedVar>,
+    body: Rc<Term>,
+) -> Rc<Term> {
     if bindings.is_empty() {
         body
     } else {
@@ -26,13 +30,13 @@ fn forall(pool: &mut PrimitivePool, bindings: Vec<SortedVar>, body: Rc<Term>) ->
     }
 }
 
-fn var_term(pool: &mut PrimitivePool, var: &SortedVar) -> Rc<Term> {
+pub(super) fn var_term(pool: &mut PrimitivePool, var: &SortedVar) -> Rc<Term> {
     pool.add(var.clone().into())
 }
 
 /// A canonical inhabitant of the variable's sort, for instantiating a quantifier over a variable
 /// that does not occur in its body: `(choice ((x S)) true)`.
-fn dummy_choice(pool: &mut PrimitivePool, var: &SortedVar) -> Rc<Term> {
+pub(super) fn dummy_choice(pool: &mut PrimitivePool, var: &SortedVar) -> Rc<Term> {
     let body = pool.bool_true();
     pool.add(Term::Binder(
         Binder::Choice,
@@ -45,7 +49,7 @@ fn dummy_choice(pool: &mut PrimitivePool, var: &SortedVar) -> Rc<Term> {
 /// (aligned with the bindings): a `forall_inst` step followed by its `or_pos` unpacking,
 /// concluding `(cl (not quant) body[args])`. Returns the concluding node and the instantiated
 /// body.
-fn instantiate(
+pub(super) fn instantiate(
     b: &mut Builder,
     quant: &Rc<Term>,
     args: Vec<Rc<Term>>,
@@ -89,7 +93,7 @@ fn instantiate(
 
 /// Closes the current anchor with a generalized `bind` step: the literal at `closure_index` of
 /// `last_inner`'s clause is wrapped as `(forall closure_vars. l)`, the others pass through.
-fn close_bind(
+pub(super) fn close_bind(
     b: &mut Builder,
     anchor_vars: &[SortedVar],
     closure_vars: &[SortedVar],
@@ -105,13 +109,16 @@ fn close_bind(
     b.close_with(anchor_args, "bind", clause, Vec::new(), last_inner)
 }
 
-fn has_duplicate_names(bindings: &[SortedVar]) -> bool {
+pub(super) fn has_duplicate_names(bindings: &[SortedVar]) -> bool {
     let mut seen = std::collections::HashSet::new();
     bindings.iter().any(|(name, _)| !seen.insert(name))
 }
 
 /// Emits the excluded-middle clause `(cl (not phi) phi)`, via `refl` and `equiv_pos2`.
-fn excluded_middle(b: &mut Builder, phi: &Rc<Term>) -> Result<Rc<ProofNode>, ElaborationError> {
+pub(super) fn excluded_middle(
+    b: &mut Builder,
+    phi: &Rc<Term>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
     let eq = build_term!(b.pool, (= {phi.clone()} {phi.clone()}));
     let refl = b.step(vec![eq.clone()], "refl", Vec::new(), Vec::new());
     let (not_eq, not_phi) = (b.not(&eq), b.not(phi));

@@ -107,7 +107,7 @@ pub fn qnt_rm_unused(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult 
 }
 
 /// Converts a term into negation normal form, expanding all connectives.
-fn negation_normal_form(
+pub fn negation_normal_form(
     pool: &mut dyn TermPool,
     term: &Rc<Term>,
     polarity: bool,
@@ -177,7 +177,7 @@ fn negation_normal_form(
 
 /// This represents a formula in conjunctive normal form, that is, it is a conjunction of clauses,
 /// which are disjunctions of literals
-type CnfFormula = Vec<Vec<Rc<Term>>>;
+pub type CnfFormula = Vec<Vec<Rc<Term>>>;
 
 /// Applies the distribution rules into a disjunction of formulas in conjunctive normal form. More
 /// precisely, this takes the disjunction `P v Q v R v ...`, where
@@ -217,7 +217,7 @@ fn distribute(formulas: &[CnfFormula]) -> CnfFormula {
 
 /// Prenex all universal quantifiers in a term. This doesn't prenex existential quantifiers. This
 /// assumes the term is in negation normal form.
-fn prenex_forall<C>(pool: &mut dyn TermPool, acc: &mut C, term: &Rc<Term>) -> Rc<Term>
+pub fn prenex_forall<C>(pool: &mut dyn TermPool, acc: &mut C, term: &Rc<Term>) -> Rc<Term>
 where
     C: Extend<SortedVar>,
 {
@@ -238,7 +238,7 @@ where
 
 /// Converts a term into a formula in conjunctive normal form. This assumes the term is already in
 /// negation normal form.
-fn conjunctive_normal_form(term: &Rc<Term>) -> CnfFormula {
+pub fn conjunctive_normal_form(term: &Rc<Term>) -> CnfFormula {
     match term.as_ref() {
         Term::Op(Operator::And, args) => {
             // If the term is a conjunction, we just convert every argument into conjunctive normal

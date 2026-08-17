@@ -20,6 +20,10 @@ pub mod clausification;
 #[allow(clippy::unnecessary_wraps)]
 pub mod equality;
 #[allow(clippy::unnecessary_wraps)]
+pub mod legacy;
+#[allow(clippy::unnecessary_wraps)]
+pub mod onepoint;
+#[allow(clippy::unnecessary_wraps)]
 pub mod simplification;
 
 use crate::{ast::*, elaborator::error::ElaborationError};
@@ -402,7 +406,19 @@ impl<'a> Builder<'a> {
         );
         let s1 = self.resolve(vec![neg2, right], vec![(a.clone(), true)])?;
         let s2 = self.resolve(vec![neg1, left], vec![(a, false)])?;
-        self.resolve(vec![s1, s2], vec![(b, true)])
+        // The final resolution always merges the two copies of the equivalence; emit the
+        // crowding explicitly (resolution + `contraction`), so that the uncrowding pass does not
+        // need to rewrite the step — which matters when the caller gives this step the identity
+        // of a subproof-closing step, whose fresh uncrowding ids could collide with the
+        // subproof's inner ids
+        let args = self.pivot_args(&[(b, true)]);
+        let crowded = self.step(
+            vec![equiv.clone(), equiv.clone()],
+            "resolution",
+            vec![s1, s2],
+            args,
+        );
+        Ok(self.step(vec![equiv], "contraction", vec![crowded], Vec::new()))
     }
 }
 
@@ -448,6 +464,9 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "miniscope_distribute" => binder::miniscope_distribute,
         "miniscope_split" => binder::miniscope_split,
         "miniscope_ite" => binder::miniscope_ite,
+        "onepoint" => onepoint::onepoint,
+        "qnt_cnf" => legacy::qnt_cnf,
+        "bfun_elim" => legacy::bfun_elim,
 
         _ => return None,
     })

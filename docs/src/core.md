@@ -66,8 +66,9 @@ that category's core rules.
 The core property is defined *post-pipeline*: intermediate passes may emit non-core rules (e.g.
 `reordering` steps, which the final pass of the default pipeline removes); only the output of the
 full pipeline must be within core ∪ (unapplied expensive/aggressive rules). Proofs containing
-`hole`, `lia_generic` (without an external solver), or `qnt_cnf` can only ever be "core modulo
-holes".
+`hole` or `lia_generic` (without an external solver) can only ever be "core modulo holes".
+(`qnt_cnf` was in this class as long as only its spec-side reading — which has no semantics —
+was considered; the `core` pass now reduces it against Carcara's implemented semantics.)
 
 ## The cost criterion
 

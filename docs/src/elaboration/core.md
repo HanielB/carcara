@@ -75,6 +75,26 @@ declaring only fresh variables, the previous step may conclude an arbitrary clau
 conclusion closes exactly one literal as a `forall` over a subset of the anchor variables (in
 anchor order), the remaining literals passing through unchanged.
 
+`onepoint` reduces by the classification's case-split template, in both `forall` and (through
+the `connective_def` duality) `exists` forms: the guard equalities are extracted from the body
+(from the antecedent's `and`-spine, or from a negated consequent), oriented toward the point
+values, and *transported* through the body by deep `cong` — with an `eq_symmetry` bridge when
+veriT wrote a guard equality in the flipped orientation — while the reverse direction re-derives
+the body from the substituted formula by refuting the trivialized guards (`refl` on `(= t t)`).
+The whole equivalence lives inside the now-vacuous anchor and closes with the generalized
+`bind`.
+
+**Legacy quantifier rules.** `qnt_cnf` reduces by a guided clausal descent: the conclusion
+`(cl (or ¬(∀x̄.φ) (∀x̄ₖ.C)))` is derived by instantiating the left quantifier under an anchor
+over `x̄ₖ` (dropped variables at dummy `choice` witnesses) and then decomposing `φ` one
+connective at a time with the CNF axioms (`and_pos`/`or_neg`/`implies_neg1/2`/`equiv_*`/
+`ite_*`/`not_not`, plus the `connective_def` duality for `¬∃`), each branch choice guided by an
+oracle that mirrors the checker's NNF/prenexing/CNF computation; the derivation is a linear
+resolution chain, subproof-free except for the closing `bind`. `bfun_elim`, in its top-level
+form, expands the Boolean-quantified premise into the conjunction of its `2^k` instances
+(`forall_inst` per assignment, in the checker's enumeration order, `and_neg` to repack, a
+closing `bind` over the non-Boolean variables).
+
 Since the convenience rules `equiv_intro` and `or_intro` are proposals not yet checked by
 Carcara, the pass emits their *expansions* (`equiv_neg1/2` + resolutions, `or_neg` × n +
 resolutions + `contraction`) rather than the named rules.
@@ -82,18 +102,22 @@ resolutions + `contraction`) rather than the named rules.
 ## Behavior on uncovered shapes
 
 The pass is best-effort and never rejects a proof: a step whose shape a recipe does not cover
-(e.g. an `exists`-form quantifier rewrite, a `nary_elim` over a chainable operator), or whose
-reduction fails, is kept unchanged and a warning is logged. In particular the following stay
-untouched, by design:
+(e.g. an `exists`-form quantifier rewrite, a `nary_elim` over a chainable operator, a
+`bfun_elim` whose Boolean arguments sit below uninterpreted functions), or whose reduction
+fails, is kept unchanged and a warning is logged. In particular the following stay untouched,
+by design:
 
-- `onepoint` and `sko_ex` (reducible, but their elaborations need the `onepoint` grammar
-  template and choice-binder congruence respectively — planned);
+- `sko_ex`: reducible on paper via the `sko_forall` duality, but elaborating *existing* steps
+  is blocked on choice-binder congruence (divergence 5): the duality route produces the witness
+  `(choice ((x S)) ¬¬φ)` where the step's conclusion uses `(choice ((x S)) φ)`, and no core
+  rule can rewrite under a `choice` binder today;
 - the *expensive* tier (`weakening`, `contraction`, the `la_mult_*` family, the arithmetic
   `*_simplify` renames) and the *aggressive* tier (Boolean `*_simplify`, `aci_simp` itself,
   `distinct_elim`, `comp_simplify`);
-- the legacy rules other than `ac_simp` and the ones other passes already handle (`lia_generic`
-  is the `hole` pass's job and is deliberately excluded here; `qnt_cnf` has no defined semantics
-  to reduce; `ite_intro` and `bfun_elim` await removal).
+- `lia_generic` (the `hole` pass's job, deliberately excluded here) and `ite_intro` (awaits
+  veriT-side removal: its conclusion nests the term-level ite constants inside the very formula
+  being defined, and reducing it needs a term-level ite selection axiom the core does not
+  have).
 
 ## Step ids
 
