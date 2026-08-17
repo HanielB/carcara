@@ -54,7 +54,12 @@ iff-introduction pattern).
 
 **ACI.** `shuffle` (rename to `aci_simp`), `nary_elim` for the associative-commutative operators
 (also a rename to `aci_simp` — both sides flatten to the same argument multiset), and the legacy
-`ac_simp` (decomposed into one `aci_simp` step per connective layer, glued by `cong`/`trans`).
+`ac_simp` (decomposed into one `aci_simp` step per connective layer, glued by `cong`/`trans`,
+memoized over the term DAG so shared subterms are derived once). The decomposition covers the
+binder-free fragment of `ac_simp`: instances whose rewrite reaches *under a binder* (the
+checker's normalization descends into binders and `let`s) would additionally need a
+binder-congruence (`bind`) wrapper around the recursive derivation, and are kept unchanged for
+now — in practice a handful of premise-carrying `ac_simp` steps in quantified-logic proofs.
 
 **Binder.** The six quantifier rewrites `qnt_simplify`, `qnt_rm_unused`, `qnt_join`,
 `miniscope_distribute`, `miniscope_split`, `miniscope_ite`, in their `forall` forms, via the
@@ -84,7 +89,8 @@ untouched, by design:
   `distinct_elim`, `comp_simplify`);
 - the legacy rules other than `ac_simp` and the ones other passes already handle (`lia_generic`
   is the `hole` pass's job and is deliberately excluded here; `qnt_cnf` has no defined semantics
-  to reduce; `ite_intro` and `bfun_elim` await removal).
+  to reduce; `ite_intro` and `bfun_elim` await removal), plus the `ac_simp` instances that
+  rewrite under a binder (see above).
 
 ## Step ids
 

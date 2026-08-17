@@ -69,8 +69,13 @@ pub fn nary_elim(
     })))
 }
 
-/// Computes the `ac_simp` normal form of a term, mirroring the checker: `and`/`or` layers are
-/// flattened and consecutive duplicates are removed, recursively through all subterms.
+/// Computes the `ac_simp` normal form of a term, mirroring the checker for the binder-free
+/// fragment: `and`/`or` layers are flattened and consecutive duplicates are removed, recursively
+/// through all applications. Unlike the checker's normalization, this does *not* descend into
+/// binders or `let`s — deriving those rewrites needs a binder-congruence (`bind`) wrapper around
+/// the recursive derivation, which is not implemented yet. Instances rewriting under a binder
+/// therefore compute a normal form that differs from the conclusion's right-hand side, and
+/// `ac_simp` keeps the original step for them.
 fn ac_normal_form(
     pool: &mut PrimitivePool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
