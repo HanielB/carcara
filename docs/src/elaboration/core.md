@@ -55,11 +55,15 @@ iff-introduction pattern).
 **ACI.** `shuffle` (rename to `aci_simp`), `nary_elim` for the associative-commutative operators
 (also a rename to `aci_simp` — both sides flatten to the same argument multiset), and the legacy
 `ac_simp` (decomposed into one `aci_simp` step per connective layer, glued by `cong`/`trans`,
-memoized over the term DAG so shared subterms are derived once). The decomposition covers the
-binder-free fragment of `ac_simp`: instances whose rewrite reaches *under a binder* (the
-checker's normalization descends into binders and `let`s) would additionally need a
-binder-congruence (`bind`) wrapper around the recursive derivation, and are kept unchanged for
-now — in practice a handful of premise-carrying `ac_simp` steps in quantified-logic proofs.
+memoized over the term DAG so shared subterms are derived once). veriT emits `ac_simp` in two
+forms: the specification's premise-free flattening, and a premise-carrying form — congruence
+over previously derived flattenings of subterms, which is how rewrites *under a binder* reach
+the conclusion (packaged as `bind` subproofs among the premises; note that the premises are
+outside the specification's premise-free rule statement, and that Carcara's checker implements
+a strictly stronger reading that ignores them and normalizes through binders). The
+decomposition consumes the premises as ready-made equalities for those subterms — `cong` over
+the premise equalities plus `aci_simp` on the binder-free layers — so no binder congruence
+needs to be derived, and both forms reduce completely.
 
 **Binder.** The six quantifier rewrites `qnt_simplify`, `qnt_rm_unused`, `qnt_join`,
 `miniscope_distribute`, `miniscope_split`, `miniscope_ite`, in their `forall` forms, via the
@@ -89,8 +93,7 @@ untouched, by design:
   `distinct_elim`, `comp_simplify`);
 - the legacy rules other than `ac_simp` and the ones other passes already handle (`lia_generic`
   is the `hole` pass's job and is deliberately excluded here; `qnt_cnf` has no defined semantics
-  to reduce; `ite_intro` and `bfun_elim` await removal), plus the `ac_simp` instances that
-  rewrite under a binder (see above).
+  to reduce; `ite_intro` and `bfun_elim` await removal).
 
 ## Step ids
 

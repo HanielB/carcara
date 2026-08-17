@@ -69,28 +69,39 @@ pub fn nary_elim(
     })))
 }
 
+/// The sub-rewrites given by an `ac_simp` step's premises: maps each premise's left-hand side to
+/// its right-hand side, the premise node, and whether the premise equality is flipped relative to
+/// that orientation.
+type PremiseRewrites = IndexMap<Rc<Term>, (Rc<Term>, Rc<ProofNode>, bool)>;
+
 /// Computes the `ac_simp` normal form of a term, mirroring the checker for the binder-free
 /// fragment: `and`/`or` layers are flattened and consecutive duplicates are removed, recursively
-/// through all applications. Unlike the checker's normalization, this does *not* descend into
-/// binders or `let`s — deriving those rewrites needs a binder-congruence (`bind`) wrapper around
-/// the recursive derivation, which is not implemented yet. Instances rewriting under a binder
-/// therefore compute a normal form that differs from the conclusion's right-hand side, and
-/// `ac_simp` keeps the original step for them.
+/// through all applications. Subterms rewritten by a premise of the step (veriT's
+/// premise-carrying form of the rule — congruence over previously derived flattenings, notably
+/// the under-binder ones packaged as `bind` subproofs) are replaced by the premise's right-hand
+/// side. Beyond the premises this does *not* descend into binders or `let`s, so a premise-free
+/// instance rewriting under a binder computes a normal form that differs from the conclusion's
+/// right-hand side, and `ac_simp` keeps the original step for it.
 fn ac_normal_form(
     pool: &mut PrimitivePool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
+    rewrites: &PremiseRewrites,
     term: &Rc<Term>,
 ) -> Rc<Term> {
     use crate::utils::DedupIterator;
     if let Some(t) = cache.get(term) {
         return t.clone();
     }
+    if let Some((rhs, _, _)) = rewrites.get(term) {
+        cache.insert(term.clone(), rhs.clone());
+        return rhs.clone();
+    }
     let result = match term.as_ref() {
         Term::Op(op @ (Operator::And | Operator::Or), args) => {
             let args: Vec<_> = args
                 .iter()
                 .flat_map(|arg| {
-                    let arg = ac_normal_form(pool, cache, arg);
+                    let arg = ac_normal_form(pool, cache, rewrites, arg);
                     match arg.as_ref() {
                         Term::Op(inner_op, inner_args) if inner_op == op => inner_args.clone(),
                         _ => vec![arg.clone()],
@@ -107,14 +118,14 @@ fn ac_normal_form(
         Term::Op(op, args) => {
             let args = args
                 .iter()
-                .map(|arg| ac_normal_form(pool, cache, arg))
+                .map(|arg| ac_normal_form(pool, cache, rewrites, arg))
                 .collect();
             pool.add(Term::Op(*op, args))
         }
         Term::App(func, args) => {
             let args = args
                 .iter()
-                .map(|arg| ac_normal_form(pool, cache, arg))
+                .map(|arg| ac_normal_form(pool, cache, rewrites, arg))
                 .collect();
             pool.add(Term::App(func.clone(), args))
         }
@@ -131,6 +142,7 @@ fn derive_normalization(
     b: &mut Builder,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
     proofs: &mut IndexMap<Rc<Term>, Option<Rc<ProofNode>>>,
+    rewrites: &PremiseRewrites,
     term: &Rc<Term>,
 ) -> Option<Rc<ProofNode>> {
     enum Head {
@@ -143,7 +155,15 @@ fn derive_normalization(
         return hit.clone();
     }
 
-    let normal = ac_normal_form(b.pool, cache, term);
+    // A subterm rewritten by one of the step's premises is derived by the premise itself
+    if let Some((_, node, flipped)) = rewrites.get(term) {
+        let node = node.clone();
+        let node = if *flipped { b.symm(&node) } else { node };
+        proofs.insert(term.clone(), Some(node.clone()));
+        return Some(node);
+    }
+
+    let normal = ac_normal_form(b.pool, cache, rewrites, term);
     if *term == normal {
         proofs.insert(term.clone(), None);
         return None;
@@ -163,7 +183,7 @@ fn derive_normalization(
     let new_children: Vec<_> = children
         .iter()
         .map(|child| {
-            if let Some(proof) = derive_normalization(b, cache, proofs, child) {
+            if let Some(proof) = derive_normalization(b, cache, proofs, rewrites, child) {
                 let normal_child = match_term!((= a b) = proof.clause()[0]).unwrap().1.clone();
                 cong_premises.push(proof);
                 normal_child
@@ -214,6 +234,12 @@ fn normal_of(node: &Rc<ProofNode>) -> Rc<Term> {
 }
 
 /// The legacy `ac_simp` decomposes into per-layer `aci_simp` steps glued by `cong`/`trans`.
+///
+/// veriT emits the rule in two forms: premise-free (a pure flattening) and premise-carrying —
+/// congruence over previously derived flattenings of subterms, which is how rewrites under a
+/// binder reach the conclusion (as `bind` subproofs among the premises). The decomposition
+/// consumes the premises as ready-made equalities for those subterms, so no binder congruence
+/// needs to be derived here.
 pub fn ac_simp(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -222,16 +248,43 @@ pub fn ac_simp(
     let (original, flattened) = match_term_err!((= psi phis) = &step.clause[0])?;
     let (original, flattened) = (original.clone(), flattened.clone());
 
+    // The premises' equalities, indexed by their left-hand side (in both orientations)
+    let mut rewrites = PremiseRewrites::new();
+    for premise in &step.premises {
+        let [equality] = premise.clause() else {
+            return Ok(Rc::new(ProofNode::Step(step.clone())));
+        };
+        let Some((lhs, rhs)) = match_term!((= l r) = equality) else {
+            return Ok(Rc::new(ProofNode::Step(step.clone())));
+        };
+        rewrites
+            .entry(lhs.clone())
+            .or_insert_with(|| (rhs.clone(), premise.clone(), false));
+        rewrites
+            .entry(rhs.clone())
+            .or_insert_with(|| (lhs.clone(), premise.clone(), true));
+    }
+
     let mut b = Builder::new(pool, step);
     let mut cache = IndexMap::new();
 
     // The conclusion's right-hand side must be the normal form for the decomposition to reach it
-    if ac_normal_form(b.pool, &mut cache, &original) != flattened {
+    if ac_normal_form(b.pool, &mut cache, &rewrites, &original) != flattened {
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
     let mut proofs = IndexMap::new();
-    match derive_normalization(&mut b, &mut cache, &mut proofs, &original) {
-        Some(node) => Ok(b.relabel(step, node)),
+    match derive_normalization(&mut b, &mut cache, &mut proofs, &rewrites, &original) {
+        Some(node) => {
+            // If the whole derivation is one of the premises (the step merely repeats it), we
+            // cannot give that node the step's identity; a double `symm` re-derives the equality
+            // as a fresh step instead
+            if step.premises.contains(&node) {
+                let once = b.symm(&node);
+                let twice = b.symm(&once);
+                return Ok(b.relabel(step, twice));
+            }
+            Ok(b.relabel(step, node))
+        }
         // Degenerate instance concluding `(= t t)`
         None if original == flattened => Ok(b.finish(step, "refl", Vec::new(), Vec::new())),
         // The decomposition bailed out (an emitted `aci_simp` layer would not check)
