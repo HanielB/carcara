@@ -42,6 +42,7 @@ pub enum ElaborationPass {
     Polyeq,
     Hole,
     Core,
+    CoreKeepEqCl,
     Local,
     Uncrowd,
     Reordering,
@@ -88,7 +89,8 @@ impl<'e> Elaborator<'e> {
             current = match pass {
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
-                ElaborationPass::Core => self.elaborate_core(current)?,
+                ElaborationPass::Core => self.elaborate_core(current, false)?,
+                ElaborationPass::CoreKeepEqCl => self.elaborate_core(current, true)?,
                 ElaborationPass::Local => self.elaborate_local(current)?,
                 ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
                     ProofNode::Step(s)
@@ -176,11 +178,17 @@ impl<'e> Elaborator<'e> {
     /// a derivation over the core fragment. Reductions are best-effort: if a step has a shape a
     /// recipe does not cover (or a reduction fails), the step is kept unchanged and a warning is
     /// logged, so the pass never rejects a proof.
-    fn elaborate_core(&mut self, proof: ProofNodeForest) -> Result<ProofNodeForest, Error> {
+    /// With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are left
+    /// unchanged — the vocabulary evaluated as the `eq_cl` configuration.
+    fn elaborate_core(
+        &mut self,
+        proof: ProofNodeForest,
+        keep_equality: bool,
+    ) -> Result<ProofNodeForest, Error> {
         proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
-                    if let Some(func) = core::get_elaboration_function(&s.rule) {
+                    if let Some(func) = core::get_elaboration_function(&s.rule, keep_equality) {
                         match func(self.pool, context, s) {
                             Ok(new_node) => return Ok(new_node),
                             Err(e) => {

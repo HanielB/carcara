@@ -24,6 +24,7 @@ fn run_job<T: CollectResults + Default + Send>(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> Result<bool, carcara::Error> {
     let proof_file_name = job.proof_file.to_str().unwrap();
     let mut checker_stats = checker::CheckerStatistics {
@@ -40,7 +41,7 @@ fn run_job<T: CollectResults + Default + Send>(
     let (problem, proof, rules, mut pool) = parser::parse_instance(
         &std::fs::read_to_string(job.problem_file)?,
         &std::fs::read_to_string(job.proof_file)?,
-        None,
+        rare_rules,
         parser_config,
     )?;
     let parsing = parsing.elapsed();
@@ -89,6 +90,7 @@ fn worker_thread<T: CollectResults + Default + Send>(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> T {
     let mut results = T::default();
 
@@ -99,6 +101,7 @@ fn worker_thread<T: CollectResults + Default + Send>(
             parser_config,
             checker_config.clone(),
             elaborator_config.clone(),
+            rare_rules,
         );
         match result {
             Ok(true) => results.register_holey(),
@@ -120,6 +123,7 @@ pub fn run_benchmark<T: CollectResults + Default + Send>(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> T {
     const STACK_SIZE: usize = 128 * 1024 * 1024;
 
@@ -148,7 +152,13 @@ pub fn run_benchmark<T: CollectResults + Default + Send>(
                 thread::Builder::new()
                     .stack_size(STACK_SIZE)
                     .spawn_scoped(s, move || {
-                        worker_thread(jobs_queue, parser_config, checker_config, elaborator_config)
+                        worker_thread(
+                            jobs_queue,
+                            parser_config,
+                            checker_config,
+                            elaborator_config,
+                            rare_rules,
+                        )
                     })
                     .unwrap()
             })
@@ -170,6 +180,7 @@ pub fn run_csv_benchmark(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
     runs_dest: &mut dyn io::Write,
     steps_dest: &mut dyn io::Write,
 ) -> io::Result<()> {
@@ -180,6 +191,7 @@ pub fn run_csv_benchmark(
         parser_config,
         checker_config,
         elaborator_config,
+        rare_rules,
     );
     println!(
         "{} errors encountered during benchmark",

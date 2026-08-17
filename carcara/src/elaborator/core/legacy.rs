@@ -568,3 +568,200 @@ pub fn bfun_elim(
     let node = b.resolve(vec![closed, premise], vec![(premise_term, false)])?;
     Ok(b.relabel(step, node))
 }
+
+/// Derives the selection tautology `(cl u)` for `u = (ite c e₁ e₂)`, where `e₁`/`e₂` are the
+/// equalities `(= s r₁)`/`(= s r₂)` (either possibly flipped) for `s = (ite c r₁ r₂)`: a
+/// discharge subproof per branch — under `c`, the condition rewrites to `true` (`equiv_neg2` +
+/// the `true` axiom), `cong` lifts it into `s`, and the `rare_rewrite` rule `ite-true-cond`
+/// selects the branch (dually with `equiv_neg1`/`false`/`ite-false-cond` under `¬c`) — the two
+/// branches crossed with the `ite_neg1`/`ite_neg2` axioms and resolved.
+#[allow(clippy::too_many_arguments)]
+fn ite_selection_tautology(
+    b: &mut Builder,
+    u: &Rc<Term>,
+    cond: &Rc<Term>,
+    s: &Rc<Term>,
+    r1: &Rc<Term>,
+    r2: &Rc<Term>,
+    e1: &Rc<Term>,
+    e2: &Rc<Term>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    let bool_true = b.pool.bool_true();
+    let bool_false = b.pool.bool_false();
+    let not_cond = b.not(cond);
+
+    // Branch `c`: `(cl ¬c e₁)`
+    b.open();
+    let assumption = b.assume(cond.clone());
+    let cond_true = build_term!(b.pool, (= {cond.clone()} {bool_true.clone()}));
+    let not_true = b.not(&bool_true);
+    let neg1 = b.step(
+        vec![cond_true.clone(), not_cond.clone(), not_true],
+        "equiv_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let true_step = b.step(vec![bool_true.clone()], "true", Vec::new(), Vec::new());
+    let s1 = b.resolve(vec![neg1, true_step], vec![(bool_true.clone(), false)])?;
+    let s2 = b.resolve(vec![s1, assumption.clone()], vec![(cond.clone(), false)])?;
+    let ite_true = build_term!(b.pool, (ite {bool_true.clone()} {r1.clone()} {r2.clone()}));
+    let clause = vec![build_term!(b.pool, (= {s.clone()} {ite_true.clone()}))];
+    let cong = b.step(clause, "cong", vec![s2], Vec::new());
+    let rule_name = b
+        .pool
+        .add(Term::Const(Constant::String("ite-true-cond".to_owned())));
+    let clause = vec![build_term!(b.pool, (= {ite_true} {r1.clone()}))];
+    let rw = b.step(
+        clause,
+        "rare_rewrite",
+        Vec::new(),
+        vec![rule_name, r1.clone(), r2.clone()],
+    );
+    let clause = vec![build_term!(b.pool, (= {s.clone()} {r1.clone()}))];
+    let mut selection = b.step(clause, "trans", vec![cong, rw], Vec::new());
+    if selection.clause()[0] != *e1 {
+        selection = b.symm(&selection);
+    }
+    let branch_true = b.close_subproof(vec![assumption], selection);
+    let not_e1 = b.not(e1);
+    let ite_neg2 = b.step(
+        vec![u.clone(), not_cond.clone(), not_e1],
+        "ite_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
+    let true_side = b.resolve(vec![ite_neg2, branch_true], vec![(e1.clone(), false)])?;
+
+    // Branch `¬c`: `(cl c e₂)`
+    b.open();
+    let assumption = b.assume(not_cond.clone());
+    let cond_false = build_term!(b.pool, (= {cond.clone()} {bool_false.clone()}));
+    let not_false = b.not(&bool_false);
+    let neg2 = b.step(
+        vec![cond_false.clone(), cond.clone(), bool_false.clone()],
+        "equiv_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
+    let false_step = b.step(vec![not_false], "false", Vec::new(), Vec::new());
+    let s1 = b.resolve(vec![neg2, false_step], vec![(bool_false.clone(), true)])?;
+    let s2 = b.resolve(vec![s1, assumption.clone()], vec![(cond.clone(), true)])?;
+    let ite_false = build_term!(b.pool, (ite {bool_false} {r1.clone()} {r2.clone()}));
+    let clause = vec![build_term!(b.pool, (= {s.clone()} {ite_false.clone()}))];
+    let cong = b.step(clause, "cong", vec![s2], Vec::new());
+    let rule_name = b
+        .pool
+        .add(Term::Const(Constant::String("ite-false-cond".to_owned())));
+    let clause = vec![build_term!(b.pool, (= {ite_false} {r2.clone()}))];
+    let rw = b.step(
+        clause,
+        "rare_rewrite",
+        Vec::new(),
+        vec![rule_name, r1.clone(), r2.clone()],
+    );
+    let clause = vec![build_term!(b.pool, (= {s.clone()} {r2.clone()}))];
+    let mut selection = b.step(clause, "trans", vec![cong, rw], Vec::new());
+    if selection.clause()[0] != *e2 {
+        selection = b.symm(&selection);
+    }
+    let branch_false = b.close_subproof(vec![assumption], selection);
+    let nn_cond = b.not(&not_cond);
+    let nnn_cond = b.not(&nn_cond);
+    let not_not = b.step(
+        vec![nnn_cond, cond.clone()],
+        "not_not",
+        Vec::new(),
+        Vec::new(),
+    );
+    let unwrapped = b.resolve(vec![branch_false, not_not], vec![(nn_cond, true)])?;
+    let not_e2 = b.not(e2);
+    let ite_neg1 = b.step(
+        vec![u.clone(), cond.clone(), not_e2],
+        "ite_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let false_side = b.resolve(vec![ite_neg1, unwrapped], vec![(e2.clone(), false)])?;
+
+    b.resolve(vec![true_side, false_side], vec![(cond.clone(), false)])
+}
+
+/// The legacy `ite_intro` rule: `(= t (and t u_1 … u_n))`, each `u_i` the selection tautology
+/// `(ite c (= s r₁) (= s r₂))` (equalities possibly flipped) for an `ite` subterm
+/// `s = (ite c r₁ r₂)` of `t`. Each `u_i` is derived by [`ite_selection_tautology`] — with the
+/// term-level branch selections provided by the `rare_rewrite` rules `ite-true-cond` /
+/// `ite-false-cond` of the alethe-toolkit rule set — and the equivalence is packed by
+/// `and_neg`/`and_pos` and the iff-introduction pattern.
+pub fn ite_intro(
+    pool: &mut PrimitivePool,
+    _: &mut ContextStack,
+    step: &StepNode,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    let keep = || Ok(Rc::new(ProofNode::Step(step.clone())));
+
+    let Some((t, rhs)) = match_term!((= l r) = &step.clause[0]) else {
+        return keep();
+    };
+    let (t, rhs) = (t.clone(), rhs.clone());
+    // Degenerate instance concluding `(= t t)`
+    if t == rhs {
+        let b = Builder::new(pool, step);
+        return Ok(b.finish(step, "refl", Vec::new(), Vec::new()));
+    }
+    let Some(us) = match_term!((and ...) = rhs) else {
+        return keep();
+    };
+    let us = us.to_vec();
+    if us[0] != t {
+        return keep();
+    }
+
+    let mut b = Builder::new(pool, step);
+    let mut units = Vec::new();
+    for u in &us[1..] {
+        let Some((cond, a1, a2, b1, b2)) = match_term!((ite cond (= a1 a2) (= b1 b2)) = u) else {
+            return keep();
+        };
+        let (cond, a1, a2, b1, b2) = (cond.clone(), a1.clone(), a2.clone(), b1.clone(), b2.clone());
+        // Find the shared `ite` term among the four sides
+        let mut found = None;
+        for (s, r1) in [(&a1, &a2), (&a2, &a1)] {
+            for (other_s, r2) in [(&b1, &b2), (&b2, &b1)] {
+                let expected: Rc<Term> =
+                    build_term!(b.pool, (ite {cond.clone()} {(*r1).clone()} {(*r2).clone()}));
+                if s == other_s && **s == *expected {
+                    found = Some(((*s).clone(), (*r1).clone(), (*r2).clone()));
+                }
+            }
+        }
+        let Some((s, r1, r2)) = found else {
+            return keep();
+        };
+        let e1 = build_term!(b.pool, (= {a1.clone()} {a2.clone()}));
+        let e2 = build_term!(b.pool, (= {b1.clone()} {b2.clone()}));
+        units.push(ite_selection_tautology(
+            &mut b, u, &cond, &s, &r1, &r2, &e1, &e2,
+        )?);
+    }
+
+    // `(cl rhs ¬t)` by `and_neg` + one resolution per tautology, then the iff-introduction
+    let mut clause = vec![rhs.clone()];
+    let mut pivots = Vec::new();
+    for l in &us {
+        let negated = b.not(l);
+        clause.push(negated);
+    }
+    for u in &us[1..] {
+        pivots.push((u.clone(), false));
+    }
+    let and_neg = b.step(clause, "and_neg", Vec::new(), Vec::new());
+    let mut premises = vec![and_neg];
+    premises.extend(units);
+    let right = b.resolve(premises, pivots)?;
+
+    let not_rhs = b.not(&rhs);
+    let index = b.pool.add(Term::new_int(0));
+    let left = b.step(vec![not_rhs, t.clone()], "and_pos", Vec::new(), vec![index]);
+    let equivalence = b.equiv_intro(t, rhs, right, left)?;
+    Ok(b.relabel(step, equivalence))
+}

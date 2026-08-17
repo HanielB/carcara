@@ -191,6 +191,10 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
 
     let checker_config = (options.checking, options.tools.clone()).into_config();
     let (elab_config, pipeline) = (options.elaboration, options.tools).into_config();
+    let rare_file = match &options.rare_file {
+        Some(path) => Some(std::fs::read_to_string(path).map_err(CliError::from)?),
+        None => None,
+    };
 
     if options.dump_to_csv {
         benchmarking::run_csv_benchmark(
@@ -200,6 +204,7 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
             options.parsing.into_config(),
             checker_config,
             options.elaborate.then_some((elab_config, pipeline)),
+            rare_file.as_deref(),
             &mut File::create("runs.csv")?,
             &mut File::create("steps.csv")?,
         )?;
@@ -213,6 +218,7 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         options.parsing.into_config(),
         checker_config,
         options.elaborate.then_some((elab_config, pipeline)),
+        rare_file.as_deref(),
     );
     if results.is_empty() {
         println!("no benchmark data collected");

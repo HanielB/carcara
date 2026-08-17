@@ -25,6 +25,8 @@ pub mod legacy;
 pub mod onepoint;
 #[allow(clippy::unnecessary_wraps)]
 pub mod simplification;
+#[allow(clippy::unnecessary_wraps)]
+pub mod skolem;
 
 use crate::{ast::*, elaborator::error::ElaborationError};
 use indexmap::IndexSet;
@@ -422,8 +424,23 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Returns the elaboration function for the given rule, if the `core` pass knows how to reduce it.
-pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
+/// Returns the elaboration function for the given rule, if the `core` pass knows how to reduce
+/// it. With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are kept.
+pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super::ElaborationFunc> {
+    if keep_equality
+        && matches!(
+            rule,
+            "eq_reflexive"
+                | "eq_transitive"
+                | "eq_congruent"
+                | "eq_congruent_pred"
+                | "eq_symmetric"
+                | "not_symm"
+                | "eq_mp"
+        )
+    {
+        return None;
+    }
     Some(match rule {
         // Clausal
         "th_resolution" => clausification::th_resolution,
@@ -465,8 +482,10 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "miniscope_split" => binder::miniscope_split,
         "miniscope_ite" => binder::miniscope_ite,
         "onepoint" => onepoint::onepoint,
+        "sko_ex" => skolem::sko_ex,
         "qnt_cnf" => legacy::qnt_cnf,
         "bfun_elim" => legacy::bfun_elim,
+        "ite_intro" => legacy::ite_intro,
 
         _ => return None,
     })

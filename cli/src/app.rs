@@ -210,6 +210,7 @@ pub enum ElaborationPass {
     Polyeq,
     Hole,
     Core,
+    CoreKeepEqCl,
     Local,
     Uncrowd,
     Reordering,
@@ -309,6 +310,10 @@ pub struct BenchCommandOptions {
     /// Also elaborate each proof in addition to parsing and checking.
     #[clap(long)]
     pub elaborate: bool,
+
+    /// A file of `declare-rare-rule` definitions for checking `rare_rewrite` steps.
+    #[clap(long)]
+    pub rare_file: Option<String>,
 
     #[clap(flatten)]
     pub elaboration: ElaborationOptions,
@@ -475,6 +480,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions) {
                 ElaborationPass::Polyeq => elaborator::ElaborationPass::Polyeq,
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
                 ElaborationPass::Core => elaborator::ElaborationPass::Core,
+                ElaborationPass::CoreKeepEqCl => elaborator::ElaborationPass::CoreKeepEqCl,
                 ElaborationPass::Local => elaborator::ElaborationPass::Local,
                 ElaborationPass::Uncrowd => elaborator::ElaborationPass::Uncrowd,
                 ElaborationPass::Reordering => elaborator::ElaborationPass::Reordering,

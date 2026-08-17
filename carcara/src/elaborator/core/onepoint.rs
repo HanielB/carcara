@@ -27,7 +27,7 @@ use indexmap::IndexMap;
 /// `t` (or the reverse, when `reversed`), given unit facts for the (possibly reversed) point
 /// equalities. Returns `None` when `from == to` (no step needed); bails with `Err(())` when the
 /// substitution reaches under a binder.
-fn transport(
+pub(super) fn transport(
     b: &mut Builder,
     facts: &IndexMap<Rc<Term>, Rc<ProofNode>>,
     from: &Rc<Term>,
@@ -63,7 +63,7 @@ fn transport(
 
 /// Derives the equivalence `(= (= x y) (= y x))` — equality symmetry as a formula — by two
 /// `symm` discharge subproofs closed with the iff-introduction pattern.
-fn eq_symmetry(
+pub(super) fn eq_symmetry(
     b: &mut Builder,
     x: &Rc<Term>,
     y: &Rc<Term>,
@@ -185,7 +185,9 @@ fn eq_mp(
 }
 
 /// The points of the anchor: pairs `(x, t)` from its `:=` arguments, plus the kept variables.
-fn anchor_points(context: &ContextStack) -> Option<(Vec<(SortedVar, Rc<Term>)>, Vec<SortedVar>)> {
+pub(super) fn anchor_points(
+    context: &ContextStack,
+) -> Option<(Vec<(SortedVar, Rc<Term>)>, Vec<SortedVar>)> {
     let context = context.last()?;
     let context = context.as_ref()?;
     let mut points = Vec::new();
@@ -732,7 +734,7 @@ fn derive_body_from_substituted(
 /// Gives the derivation's last node the step's identity, like [`Builder::relabel`], but sets the
 /// implicit previous step to one of the derivation's own nodes: the step closes its (now vacuous)
 /// subproof, and the subproof's original inner derivation is no longer referenced by it.
-fn relabel_dropping_previous(step: &StepNode, node: &Rc<ProofNode>) -> Rc<ProofNode> {
+pub(super) fn relabel_dropping_previous(step: &StepNode, node: &Rc<ProofNode>) -> Rc<ProofNode> {
     let last = node
         .as_step()
         .expect("last node of a reduction must be a step");
