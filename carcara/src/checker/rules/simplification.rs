@@ -820,7 +820,7 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 
 /// The body of the `aci_simp` check, exposed so that the `core` elaboration pass can verify a
 /// candidate `aci_simp` step before emitting it.
-pub(crate) fn aci_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
+pub fn aci_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
     let mut cache = IndexMap::new();
 
     let t11 = if let Term::Op(op, _) = t1.as_ref() {
@@ -879,7 +879,11 @@ fn apply_aci_simp(
                 .dedup()
                 .filter(|t| identity.is_none() || *t.as_ref() != identity.clone().unwrap())
                 .collect();
-            if args.len() == 1 {
+            if args.is_empty() {
+                // An identity-only operation (e.g. `(and true true)`) normalizes to the identity
+                // element itself, rather than to an ill-formed zero-argument operation
+                pool.add(identity.clone().unwrap())
+            } else if args.len() == 1 {
                 args[0].clone()
             } else {
                 pool.add(Term::Op(op, args))

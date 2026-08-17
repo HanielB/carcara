@@ -739,6 +739,12 @@ fn aci_simp() {
             // flattened and the two sides do not match.
             "(step t1 (cl (= (or p (and (and q r) s)) (or p (and q r s)))) :rule aci_simp)": false,
         }
+        "Identity-only layers collapse to the identity" {
+            "(step t1 (cl (= (and true true) true)) :rule aci_simp)": true,
+            "(step t1 (cl (= (or false false) false)) :rule aci_simp)": true,
+            "(step t1 (cl (= (and p true true) p)) :rule aci_simp)": true,
+            "(step t1 (cl (= (and true true) false)) :rule aci_simp)": false,
+        }
         "Commutativity" {
             "(step t1 (cl (= (and p q) (and q p))) :rule aci_simp)": true,
             "(step t1 (cl (= (or p q r) (or r q p))) :rule aci_simp)": true,
