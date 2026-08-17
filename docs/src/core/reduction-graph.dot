@@ -39,8 +39,8 @@ digraph core_alethe {
     tautology     [URL="classification.html#clausal", target="_self", tooltip="i ▷ l1, …, ln  with lk = ¬^o φ, lm = ¬^p φ, o/p of opposite parity\n⟹  ▷ ⊤", color="#1baf7a", penwidth=1.6];
     reordering    [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ a permutation of C", color="#1baf7a", penwidth=1.6];
     clausif    [URL="classification.html#ex-clausification", target="_self", tooltip="e.g.  and:  i ▷ φ0 ∧ … ∧ φn  ⟹  ▷ φk\nor:  i ▷ φ1 ∨ … ∨ φn  ⟹  ▷ φ1, …, φn\nimplies:  i ▷ φ1 → φ2  ⟹  ▷ ¬φ1, φ2\n(19 rules deconstructing a premise connective)", label="clausification\nrules (19)", color="#1baf7a", penwidth=1.6];
-    xorite_ax  [URL="classification.html#ex-xor-axioms", target="_self", tooltip="xor_pos1:  ▷ ¬(xor φ1 φ2), φ1, φ2\nxor_neg1:  ▷ (xor φ1 φ2), φ1, ¬φ2\nite_pos1:  ▷ ¬(ite φ1 φ2 φ3), φ1, φ3\nite_neg1:  ▷ (ite φ1 φ2 φ3), φ1, ¬φ3\n(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)", label="xor/ite axioms (8)", color="#1baf7a", penwidth=1.6];
-    implies_ax [URL="classification.html#ex-implies-axioms", target="_self", tooltip="implies_pos:   ▷ ¬(φ1 → φ2), ¬φ1, φ2\nimplies_neg1:  ▷ (φ1 → φ2), φ1\nimplies_neg2:  ▷ (φ1 → φ2), ¬φ2", label="implies axioms (3)", color="#1baf7a", penwidth=1.6];
+    xorite_ax  [URL="classification.html#clausal", target="_self", tooltip="xor_pos1:  ▷ ¬(xor φ1 φ2), φ1, φ2\nxor_neg1:  ▷ (xor φ1 φ2), φ1, ¬φ2\nite_pos1:  ▷ ¬(ite φ1 φ2 φ3), φ1, φ3\nite_neg1:  ▷ (ite φ1 φ2 φ3), φ1, ¬φ3\n(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)", label="xor/ite axioms (8)", color="#2a78d6", penwidth=2.4];
+    implies_ax [URL="classification.html#clausal", target="_self", tooltip="implies_pos:   ▷ ¬(φ1 → φ2), ¬φ1, φ2\nimplies_neg1:  ▷ (φ1 → φ2), φ1\nimplies_neg2:  ▷ (φ1 → φ2), ¬φ2", label="implies axioms (3)", color="#2a78d6", penwidth=2.4];
     equiv_intro [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ ¬A, B;   j ▷ A, ¬B\n⟹  ▷ A ≈ B", label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
     or_intro    [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ l1, …, ln\n⟹  ▷ (l1 ∨ … ∨ ln)", label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
     weakening   [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
@@ -69,8 +69,8 @@ digraph core_alethe {
     rare_rewrite   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t ≈ u\nan instance of a declared RARE rule (:args name + substitution)", color="#2a78d6", penwidth=2.4];
     eq_clausal [URL="classification.html#ex-eq-transitive", target="_self", tooltip="eq_reflexive:  ▷ t ≈ t\neq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\neq_congruent_pred:  likewise for Bool codomain\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)", label="clausal eq_* (6)", color="#1baf7a", penwidth=1.6];
     multi_rare_rewrite [URL="classification.html#ex-multi-rare-rewrite", target="_self", tooltip="Γ ▷ t ≈ u\nby several RARE rules applied at given positions", color="#1baf7a", penwidth=1.6];
-    shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}", color="#1baf7a", penwidth=1.6];
+    nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#1baf7a", penwidth=1.6];
     bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(and/or/not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
                style="rounded,filled,dotted"];
     aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
@@ -114,10 +114,8 @@ digraph core_alethe {
   tautology -> true_r;
   reordering -> resolution [style=dotted, label="recomputed\naway"];
   clausif -> andor_ax; clausif -> equiv_ax; clausif -> xorite_ax; clausif -> implies_ax;
-  xorite_ax -> connective_def; xorite_ax -> equiv_ax; xorite_ax -> andor_ax;
-  implies_ax -> connective_def [label="&rarr; ext\n(div. 6)"];
-  xorite_ax -> implies_ax;
-  implies_ax -> equiv_ax; implies_ax -> andor_ax;
+  xorite_ax -> connective_def [style=dotted, label="agreement\nlemma"];
+  implies_ax -> connective_def [style=dotted, label="lemma, &rarr; ext\n(div. 6)"];
   sko_ex -> sko_forall;
   sko_ex -> connective_def [label="duality"];
   onepoint -> forall_inst; onepoint -> bind;
@@ -130,8 +128,9 @@ digraph core_alethe {
   // ---- expensive edges (dashed: check-power upgrade or proposed dependency) ----
   weakening -> resolution [style=dashed, label="RUP"];
   contraction -> resolution [style=dashed, label="RUP"];
-  shuffle -> aci_simp [style=dashed];
-  nary_elim -> rare_rewrite [style=dashed];
+  shuffle -> aci_simp;
+  nary_elim -> aci_simp;
+  nary_elim -> rare_rewrite [style=dotted, label="non-comm.\ncases"];
   la_mult -> la_mult_pos_pos [style=dashed];
   la_mult -> poly_simp [style=dashed]; la_mult -> la_generic [style=dashed];
   la_rw_eq -> la_disequality;

@@ -35,13 +35,13 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 12 | 33 | 2 | 0 | 0 |
+| clausal | 47 | 23 | 22 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
-| equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
+| equality & rewriting | 25 | 6 | 9 | 0 | 10 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **42** | **51** | **11** | **11** | **5** |
+| **total** | **120** | **53** | **42** | **9** | **11** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -101,15 +101,16 @@ readings:
 Concretely: `resolution` carries both [res] (the chain reading, explicit pivots, syntactic check
 — what elaboration produces and strict mode checks) and [rup] (`rup_resolution`, unit
 propagation); `true`/`false` are the polarity units and `not_not` normalizes literals with
-stacked negations; the 8 retained CNF axioms are [def] for `and`, `or`, and Boolean `=`.
-[fact]/[weak] are `contraction`/`weakening` — bookkeeping absorbed by the [rup] reading (hence
-expensive, below); the [def] clauses for `xor`, `ite`, and `implies` are derived through
-`connective_def` (the `implies` case via its proposed extension with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`,
-divergence item 6).
+stacked negations; the 19 CNF axioms are [def] for all six connectives (`and`, `or`, Boolean
+`=`, `xor`, `ite`, `implies`). [fact]/[weak] are `contraction`/`weakening` — bookkeeping
+absorbed by the [rup] reading (hence expensive, below). The `xor`/`ite`/`implies` axioms also
+admit `connective_def` derivations (the `implies` case via the proposed extension with
+`(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`, divergence item 6), recorded as agreement lemmas in the parent chapter
+— the axioms stay primitive.
 
-47 rules: 12 core, 33 reducible, 2 expensive.
+47 rules: 23 core, 22 reducible, 2 expensive.
 
-### Core (12)
+### Core (23)
 
 | rule | notes |
 |---|---|
@@ -117,18 +118,16 @@ divergence item 6).
 | `true` | |
 | `false` | |
 | `not_not` | primitive for explicit double-negation merging; deriving it would pull in the rewrite tier |
-| `and_pos` (k), `and_neg`, `or_pos`, `or_neg` (k), `equiv_pos1/2`, `equiv_neg1/2` | the 8 retained CNF axioms. One side of each axiom/premise-rule pair must be primitive (R4); the `equiv` family is the bootstrap for unpacking `connective_def` equivalences; `and`/`or` are the Tseitin base every derivation re-clausifies into |
+| `and_pos` (k), `and_neg`, `or_pos`, `or_neg` (k), `equiv_pos1/2`, `equiv_neg1/2`, `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2`, `implies_pos`, `implies_neg1/2` | the 19 CNF axioms — the whole [def] base is primitive. One side of each axiom/premise-rule pair must be primitive (R4); the `equiv` family is the bootstrap for unpacking `connective_def` equivalences; `and`/`or` are the Tseitin base every derivation re-clausifies into; the `xor`/`ite`/`implies` families are kept even though `connective_def` derivations exist (see the parent chapter) |
 
-### Reducible (33)
+### Reducible (22)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `th_resolution` | `resolution` | 0 | syntactic | planned; same rule per the spec, normalize the name |
-| `tautology` | `true` | 1 | syntactic | planned; conclusion is literally `⊤`; drops the premise from the DAG |
+| `th_resolution` | `resolution` | 0 | syntactic | **done** (`core` pass); same rule per the spec, normalize the name |
+| `tautology` | `true` | 1 | syntactic | **done** (`core` pass); conclusion is literally `⊤`; drops the premise from the DAG |
 | `reordering` | (eliminated) | 0 | — | done — reordering pass recomputes downstream conclusions |
-| `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2` | `connective_def` + `equiv1`/`equiv2` + `and`/`or`/`implies` axioms (+ `not_not`) + `resolution` | ≤ ~9 each | syntactic | planned; unpack the connective's definition and re-clausify (worked example in the parent chapter) |
-| `implies_pos`, `implies_neg1`, `implies_neg2` | `connective_def` (proposed `→` extension) + `equiv1`/`equiv2` + `or_pos`/`or_neg` (+ `not_not`) + `resolution` | 3–5 each | syntactic | planned; requires divergence item 6 (extend `connective_def` with `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`) |
-| 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | planned; pivot = the premise formula. The `xor`/`ite` targets are themselves reducible — reductions compose |
+| 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | **done** (`core` pass); pivot = the premise formula |
 
 ### Expensive (2)
 
@@ -167,69 +166,8 @@ becomes
 ```
 
 The other 18 premise clausification rules follow the identical two-step shape with their paired
-axiom from the table above.
-
-</details>
-
-<details id="ex-xor-axioms">
-<summary>Example: the <code>xor</code> axioms (<code>xor_pos1</code>, <code>xor_neg1</code>) via <code>connective_def</code></summary>
-
-With `X = (xor φ₁ φ₂)` and the definition `X ≈ D`, `D = (or (and (not φ₁) φ₂) (and φ₁ (not φ₂)))`.
-For `xor_pos1` (`¬X ∨ φ₁ ∨ φ₂`):
-
-```
-t1. (cl (= X D))                 connective_def
-t2. (cl ¬X D)                    equiv1 t1
-t3. (cl ¬D (¬φ₁∧φ₂) (φ₁∧¬φ₂))    or_pos
-t4. (cl ¬(¬φ₁∧φ₂) φ₂)            and_pos (index 1)
-t5. (cl ¬(φ₁∧¬φ₂) φ₁)            and_pos (index 0)
-t6. (cl ¬X φ₂ φ₁)                resolution t2 t3 t4 t5      ; = xor_pos1
-```
-
-For `xor_neg1` (`X ∨ φ₁ ∨ ¬φ₂`), through the other direction of the definition and the first
-disjunct `(¬φ₁∧φ₂)`:
-
-```
-u1. (cl (= X D))                 connective_def
-u2. (cl X ¬D)                    equiv2 u1
-u3. (cl D ¬(¬φ₁∧φ₂))             or_neg (index 0)
-u4. (cl (¬φ₁∧φ₂) ¬¬φ₁ ¬φ₂)       and_neg
-u5. (cl ¬¬¬φ₁ φ₁)                not_not
-u6. (cl D ¬¬φ₁ ¬φ₂)              resolution u3 u4
-u7. (cl D φ₁ ¬φ₂)                resolution u6 u5
-u8. (cl X φ₁ ¬φ₂)                resolution u2 u7             ; = xor_neg1
-```
-
-The other two `xor` axioms and the four `ite` axioms (through
-`(ite φ₁ φ₂ φ₃) ≈ (φ₁→φ₂) ∧ (¬φ₁→φ₃)` and the `implies` axioms) follow the same two patterns.
-
-</details>
-
-<details id="ex-implies-axioms">
-<summary>Example: the <code>implies</code> axioms (<code>implies_pos</code>, <code>implies_neg1</code>) via the proposed <code>→</code> extension</summary>
-
-With `I = (=> p q)` and the proposed definition `I ≈ D`, `D = (or (not p) q)`. For `implies_pos`
-(`¬I ∨ ¬p ∨ q`):
-
-```
-t1. (cl (= I D))                 connective_def (→ extension, divergence 6)
-t2. (cl ¬I D)                    equiv1 t1
-t3. (cl ¬D (not p) q)            or_pos
-t4. (cl ¬I (not p) q)            resolution t2 t3            ; = implies_pos
-```
-
-For `implies_neg1` (`I ∨ p`):
-
-```
-u1. (cl (= I D))                 connective_def (→ extension)
-u2. (cl I ¬D)                    equiv2 u1
-u3. (cl D ¬¬p)                   or_neg (index 0)
-u4. (cl ¬¬¬p p)                  not_not
-u5. (cl D p)                     resolution u3 u4
-u6. (cl I p)                     resolution u2 u5            ; = implies_neg1
-```
-
-`implies_neg2` (`I ∨ ¬q`) is `u2` + `or_neg` (index 1) + one resolution — no `not_not` needed.
+axiom from the table above — all 19 axioms are core, so every reduction lands directly in the
+core fragment.
 
 </details>
 
@@ -283,12 +221,12 @@ own variable and reintroduced by generalization.
 |---|---|---|---|---|
 | `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans` | 6 (any n) | syntactic | planned; mutually dual with `sko_forall` — either could be the primitive (R4 picks one). Elaborating *existing* steps additionally needs binder congruence for `choice` to bridge the `∃`-shaped vs `¬∀¬`-shaped witnesses |
 | `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by `equiv_intro` (or its derivation) and `bind` | O(points·\|φ\|) | syntactic | planned; requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
-| `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | planned; witness-free with divergence 8, else ∀-ε-clause template |
-| `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | planned; ditto |
-| `qnt_join` | same, nested for the merged prefix | O(1) | syntactic | planned; ditto |
-| `miniscope_distribute` | `forall_inst` at the anchor variable + `and_pos`/`and_neg` + generalized `bind` + iff-intro (worked example in the parent chapter) | O(conjuncts) | syntactic | planned; ditto. ∃/∨ form via the axiomatic duality instance of `connective_def` |
-| `miniscope_split` | same, per disjunct | O(disjuncts) | syntactic | planned; ditto |
-| `miniscope_ite` | same, through the `ite` axioms | O(1) | syntactic | planned; ditto |
+| `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | **done** (`core` pass, ∀ forms); witness-free with divergence 8, else ∀-ε-clause template |
+| `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | **done** (`core` pass, ∀ forms); ditto |
+| `qnt_join` | same, nested for the merged prefix | O(1) | syntactic | **done** (`core` pass, ∀ forms); ditto |
+| `miniscope_distribute` | `forall_inst` at the anchor variable + `and_pos`/`and_neg` + generalized `bind` + iff-intro (worked example in the parent chapter) | O(conjuncts) | syntactic | **done** (`core` pass, ∀ forms); ∃/∨ form via the axiomatic duality instance of `connective_def` |
+| `miniscope_split` | same, per disjunct | O(disjuncts) | syntactic | **done** (`core` pass, ∀ forms) |
+| `miniscope_ite` | same, through the `ite` axioms | O(1) | syntactic | **done** (`core` pass, ∀ forms) |
 
 All six quantifier rewrites have two routes: witness-free and linear via the proposed
 generalization of `bind` (divergence 8), or the proposal-free Skolemization fallback (∀-ε-clause
@@ -724,7 +662,7 @@ the context mechanism — `refl` is the one rule that applies the context substi
 system. The clausal `eq_*` forms are the same system repackaged as premise-free clauses through
 `subproof` discharge.
 
-25 rules: 6 core, 7 reducible, 2 expensive, 10 aggressive.
+25 rules: 6 core, 9 reducible, 0 expensive, 10 aggressive.
 
 ### Core (6)
 
@@ -741,12 +679,14 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | planned |
-| `eq_transitive` | subproof + `trans` (+ `symm`) | ≤ 2n | syntactic | planned; current local elaboration canonicalizes flips but keeps the rule |
-| `eq_congruent` | subproof + `cong` (+ `symm`) | ≤ 2n+2 | syntactic | planned; ditto |
-| `eq_congruent_pred` | subproof + `cong` + `eq_mp` | ≤ 2n+3 | syntactic | planned; see the spec-divergence note on its conclusion shape |
-| `eq_symmetric` | two `symm` subproofs (one per direction) + `equiv_intro` | ~9 | syntactic | planned; the conclusion is an *equivalence*, so both directions are needed |
-| `not_symm` | subproof + `symm` + `resolution` | 4 | syntactic | planned |
+| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass) |
+| `eq_transitive` | subproof + `trans` (+ `symm`) | ≤ 2n | syntactic | **done** (`core` pass); the older local elaboration canonicalizes flips but keeps the rule |
+| `eq_congruent` | subproof + `cong` (+ `symm`) | ≤ 2n+2 | syntactic | **done** (`core` pass); ditto |
+| `eq_congruent_pred` | subproof + `cong` + `eq_mp` | ≤ 2n+3 | syntactic | **done** (`core` pass); see the spec-divergence note on its conclusion shape |
+| `eq_symmetric` | two `symm` subproofs (one per direction) + `equiv_intro` | ~9 | syntactic | **done** (`core` pass); the conclusion is an *equivalence*, so both directions are needed |
+| `not_symm` | subproof + `symm` + `resolution` | 4 | syntactic | **done** (`core` pass) |
+| `shuffle` | `aci_simp` (rename) | 0 | ACI | **done** (`core` pass); the check coarsens from multiset comparison to full ACI normalization — sound, and `aci_simp` is the designated ACI primitive |
+| `nary_elim` | `aci_simp` (rename), for the assoc-comm operators | 0 | ACI | **done** (`core` pass); chainable (`=`) and non-commutative (`→`, `-`) cases keep the binary-associativity `rare_rewrite` chain (below) and are left unchanged |
 | `multi_rare_rewrite` | `rare_rewrite` chain + `trans`/`cong` | O(k·depth) | syntactic | planned; validate rule-position semantics first |
 
 <details id="ex-eq-transitive">
@@ -866,23 +806,19 @@ at the root and `not-not-elim` below it — unfolds into single rewrites glued b
 
 </details>
 
-### Expensive (2)
-
-| rule | reduction scheme | cost | what makes it expensive |
-|---|---|---|---|
-| `shuffle` | `aci_simp` (rename) | 0 | the check coarsens from multiset comparison to full ACI normalization |
-| `nary_elim` | chain of binary-associativity `rare_rewrite` steps | O(n) | the polyeq elaboration itself emits it (near-circular); promotion-to-core candidate instead |
-
 <details id="ex-nary-elim">
-<summary>Example: <code>nary_elim</code></summary>
+<summary>Example: <code>nary_elim</code> (non-commutative fallback)</summary>
+
+For the associative-commutative operators the reduction is a rename to `aci_simp`. The chainable
+and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 ```
-(step s1 (cl (= (or a b c) (or a (or b c))))
-    :rule rare_rewrite :args ("or-unfold-binary" a b c))
-(step s2 (cl (= (or b c) (or b (or c))))
-    :rule rare_rewrite :args ("or-unfold-binary" b c))
-(step s3 (cl (= (or a (or b c)) (or a (or b (or c))))) :rule cong :premises (s2))
-(step s  (cl (= (or a b c) (or a (or b (or c))))) :rule trans :premises (s1 s3))
+(step s1 (cl (= (=> a b c) (=> a (=> b c))))
+    :rule rare_rewrite :args ("implies-unfold-binary" a b c))
+(step s2 (cl (= (=> b c) (=> b (=> c))))
+    :rule rare_rewrite :args ("implies-unfold-binary" b c))
+(step s3 (cl (= (=> a (=> b c)) (=> a (=> b (=> c))))) :rule cong :premises (s2))
+(step s  (cl (= (=> a b c) (=> a (=> b (=> c))))) :rule trans :premises (s1 s3))
 ```
 
 </details>
@@ -930,9 +866,9 @@ the parent chapter for the recipes.
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | planned; unit-clause-with-`or` quirk |
-| `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | planned; the spec itself states the equivalence |
-| `la_rw_eq` | ← from `la_disequality` + `and_pos` ×2 + `resolution` + `contraction`; → by subproof + `la_generic` ×2 + `and_intro`; closed by `equiv_intro` | ~13 (O(1)) | Farkas + syntactic | planned; *alternative*: a single `rare_rewrite` instance of the `la-rw-eq` RARE rule — itself a lemma by this same derivation |
+| `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | **done** (`core` pass); unit-clause-with-`or` quirk |
+| `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | **done** (`core` pass); the spec itself states the equivalence |
+| `la_rw_eq` | ← from `la_disequality` + `and_pos` ×2 + `resolution` + `contraction`; → by subproof + `la_generic` ×2 + `and_intro`; closed by `equiv_intro` | ~13 (O(1)) | Farkas + syntactic | **done** (`core` pass); *alternative*: a single `rare_rewrite` instance of the `la-rw-eq` RARE rule — itself a lemma by this same derivation |
 
 <details id="ex-la-totality">
 <summary>Example: <code>la_totality</code></summary>
@@ -1087,7 +1023,7 @@ specification should replace them with principled counterparts. 5 rules, all at 
 | `qnt_cnf` | oracle only | spec-declared "placeholder rule" for the whole quantifier clausification — there is no defined semantics to reduce; treated as hole-like |
 | `ite_intro` | removal (veriT-side): with the internal ite constants gone, the step degenerates to `refl` | artifact of veriT's internal ite constants (the spec's own remark); source of the ite-reordering polyeq quirk |
 | `bfun_elim` | case expansion over Boolean arguments via ite/equiv tautologies | O(2^k) in the number of Boolean arguments — fails R1; removal preferred. veriT preprocessing artifact; polyeq elaboration normalizes but keeps it |
-| `ac_simp` | decompose into one `aci_simp` step per single-connective layer, glued by `cong`/`trans` (O(d), d = alternation depth) | superseded by the more general `aci_simp`, which however normalizes a single connective at a time where `ac_simp` handles `∧` and `∨` simultaneously; removal in favor of `aci_simp` preferred over reduction |
+| `ac_simp` | decompose into one `aci_simp` step per single-connective layer, glued by `cong`/`trans` (O(d), d = alternation depth) — **fallback implemented** (`core` pass) | superseded by the more general `aci_simp`, which however normalizes a single connective at a time where `ac_simp` handles `∧` and `∨` simultaneously; removal in favor of `aci_simp` preferred over reduction |
 
 ## Extra rules beyond the specification
 
@@ -1096,10 +1032,10 @@ way, with their concern category noted:
 
 | rule | category | level | reduction |
 |---|---|---|---|
-| `eq_mp` | clausal | reducible (**done**) | `equiv_pos2` + `resolution` (local elaboration) |
-| `equiv_intro` (proposed) | clausal | reducible | iff-introduction from the two implications; `equiv_neg1/2` + resolutions + contractions (~7 steps) — names the closing pattern of every two-implication template |
-| `or_intro` (proposed) | clausal | reducible | packs `(cl l₁ … lₙ)` into `(cl (or l₁ … lₙ))`; `or_neg` ×n + resolutions + `contraction` — the packaging step of the LA reductions and the generalized `bind`'s unit closure |
-| `and_intro` | clausal | reducible | `and_neg` + one `resolution` with explicit pivots |
+| `eq_mp` | clausal | reducible (**done**) | `equiv_pos2` + `resolution` (local and `core` passes) |
+| `equiv_intro` (proposed) | clausal | reducible | iff-introduction from the two implications; `equiv_neg1/2` + resolutions + contractions (~7 steps) — names the closing pattern of every two-implication template. The `core` pass emits the expansion directly |
+| `or_intro` (proposed) | clausal | reducible | packs `(cl l₁ … lₙ)` into `(cl (or l₁ … lₙ))`; `or_neg` ×n + resolutions + `contraction` — the packaging step of the LA reductions and the generalized `bind`'s unit closure. The `core` pass emits the expansion directly |
+| `and_intro` | clausal | reducible (**done**, `core` pass) | `and_neg` + one `resolution` with explicit pivots |
 | `strict_resolution` | clausal | core variant | strict form of `resolution` used after elaboration |
 | `bounded_farkas` | arithmetic | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
 | `poly_simp` | arithmetic | **core** (computational) | ring-normalization primitive; listed in the arithmetic core table above |

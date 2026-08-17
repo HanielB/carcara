@@ -21,9 +21,9 @@ core:
 - **Reducible**: rules with a reduction meeting the cost criterion R1–R4 below. Elaboration should
   eventually eliminate all of them from its output.
 - **Expensive**: rules with a concrete, small-step-count scheme that however *upgrades the checking
-  power* the step requires — a fixed syntactic schema becomes a `poly_simp` ring check or an
-  `aci_simp` ACI-normalization check (e.g. the `la_mult_*` family, `shuffle`, the arithmetic
-  `*_simplify` renames) — or that depends on a proposed-but-not-yet-adopted rule.
+  power* the step requires — a fixed syntactic schema becomes a `poly_simp` ring check (e.g. the
+  `la_mult_*` family, the arithmetic `*_simplify` renames) — or that depends on a
+  proposed-but-not-yet-adopted rule.
 - **Aggressive**: rules whose scheme is trace-replay or program-like, needs missing infrastructure
   (evaluation operators, checker instrumentation), or has severe worst-case size. The exemplar is
   elaborating `poly_simp` *itself* into `rare_rewrite` chains — at this level one is no longer
@@ -42,15 +42,15 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **42 core**, **51 reducible**,
-**11 expensive**, **11 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **53 core**, **42 reducible**,
+**9 expensive**, **11 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 12 | 33 | 2 | 0 | 0 |
+| clausal | 47 | 23 | 22 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
-| equality & rewriting | 25 | 6 | 7 | 2 | 10 | 0 |
+| equality & rewriting | 25 | 6 | 9 | 0 | 10 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
@@ -216,12 +216,17 @@ axiom is interderivable with its premise-taking twin via a subproof, but one sid
 The premise-free side is the right choice — it has an O(1) syntactic check, and it is usable inside
 resolution chains without subproof wrappers.
 
-## Reducing within the CNF axioms
+## The CNF axioms are kept whole
 
-Not all 19 CNF axioms need to be primitive: the `xor` and `ite` families are derivable, because
-`connective_def` provides definitions for exactly those connectives. The recipe unpacks the
-definition and re-clausifies. For `xor_pos1` (`¬X ∨ φ₁ ∨ φ₂`, with `X = (xor φ₁ φ₂)` and the
-definition `X ≈ D` where `D = (¬φ₁ ∧ φ₂) ∨ (φ₁ ∧ ¬φ₂)`):
+All 19 CNF axioms are core: they are the [def] clauses of the clausal proof system — one
+Tseitin-defining clause per connective — with O(1) syntactic checks, and the natural target of
+the premise clausification reductions above.
+
+The `xor`, `ite`, and (under a `connective_def` extension with `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)`)
+`implies` families *would* be derivable through `connective_def`: unpack the definition with
+`equiv1`/`equiv2` and re-clausify through the `and`/`or` axioms (+ `not_not`), a constant
+template of at most ~9 steps per axiom. For `xor_pos1` (`¬X ∨ φ₁ ∨ φ₂`, with `X = (xor φ₁ φ₂)`
+and the definition `X ≈ D` where `D = (¬φ₁ ∧ φ₂) ∨ (φ₁ ∧ ¬φ₂)`):
 
 ```
 t1. (cl (= X D))                 connective_def
@@ -232,24 +237,22 @@ t5. (cl ¬(φ₁∧¬φ₂) φ₁)            and_pos (index 0)
 t6. (cl ¬X φ₂ φ₁)                resolution t2 t3 t4 t5
 ```
 
-Six steps, all syntactic (`equiv1` is the reducible clausification rule — reductions compose).
-The `neg` variants use `equiv2` (the other direction of the definition), `and_neg`/`or_neg`, and
-`not_not` to strip the `¬¬φ` literals the definition introduces; the four `ite` axioms follow the
-same pattern through `ite`'s definition `(φ₁→φ₂) ∧ (¬φ₁→φ₃)` and the `implies` axioms. Every
-derivation is a constant template of at most ~9 steps.
+The classification nevertheless keeps the whole axiom base primitive, for three reasons. First,
+uniformity: the 19 axioms are one concept — the [def] clauses — and cutting the base at the
+`and`/`or`/`equiv` boundary trades a uniform O(1)-checkable family for derivations whose only
+yield is a smaller rule *count* (the checks were already syntactic; R1–R4 measure checking
+power, and none is gained). Second, the `implies` derivations would additionally depend on the
+proposed `connective_def` `→` extension (divergence item 6) — an adopted-rule dependency the
+core should not carry. Third, the elaboration targets these axioms directly: the premise
+clausification reductions emit them, so removing them from the core would force every emitted
+axiom to be expanded into its `connective_def` derivation, inflating exactly the proofs the core
+is meant to keep small.
 
-The `implies` family reduces the same way under the **proposed extension of `connective_def`**
-with the implication definition `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)` (divergence item 6), which this
-classification adopts: `implies_pos` unpacks the definition via `equiv1` and re-clausifies with
-`or_pos` (4 steps); `implies_neg2` uses `equiv2` + `or_neg` (3 steps); `implies_neg1`
-additionally needs `not_not` to strip the `¬¬φ₁` literal (5 steps). No circularity: `equiv1` and
-`equiv2` reduce through the `equiv` axioms, so the derivations bottom out in the `equiv`,
-`and`/`or`, and `not_not` primitives.
-
-The remaining 8 axioms are genuinely primitive: the `equiv` family is the *bootstrap* — unpacking
-any `connective_def` equivalence requires `equiv_pos1`/`equiv_pos2`, so R4 keeps all four `equiv`
-axioms — and the `and`/`or` families are the Tseitin base every derivation above re-clausifies
-into (they have no definitions to unpack that would not themselves need `and`/`or`).
+Within the base, the `equiv` family plays a special structural role: it is the *bootstrap* —
+unpacking any `connective_def` equivalence requires `equiv_pos1`/`equiv_pos2` — and the
+`and`/`or` families are the Tseitin base every clausification re-clausifies into. The
+derivability of the `xor`/`ite`/`implies` families through the definitions remains a useful
+*lemma* (the definitions and the axioms agree), not a reduction the elaboration performs.
 
 ## Resolution's dual semantics, `weakening`, and `contraction`
 
@@ -459,10 +462,16 @@ What is genuinely missing:
 - `shuffle` is subsumed by `aci_simp`: multiset equality of arguments under a commutative operator
   is a special case of ACI equivalence, `shuffle`'s operators (`+`, `*`, `and`, `or`) are all in
   `aci_simp`'s operator list, and the conclusion shape is identical — so the reduction is a pure
-  rename, zero new steps — though the check coarsens: `aci_simp` also collapses idempotent
-  duplicates and identity elements, so the renamed step admits conclusions the multiset check
-  would reject. That check-power upgrade is what places `shuffle` at the *expensive* level rather
-  than among the strictly reducible rules.
+  rename, zero new steps, and `shuffle` sits at the *reducible* level with `aci_simp` as its
+  target. The check does coarsen — `aci_simp` also collapses idempotent duplicates and identity
+  elements, so the renamed step admits conclusions the multiset check would reject — but the
+  admitted conclusions are all sound, and `aci_simp` is the designated ACI primitive the step
+  lands on anyway.
+- `nary_elim` also reduces to `aci_simp` by a rename, for the associative-commutative operators:
+  the n-ary application and its binary nesting flatten to the same argument multiset, so ACI
+  normalization proves the equality directly. Only the chainable (`=`, comparisons) and
+  non-commutative (`→`, `-`) cases stay outside this route — those keep the
+  binary-associativity `rare_rewrite` chain as their scheme.
 - `reordering` is already eliminated by the reordering elaboration pass, which recomputes downstream
   conclusions instead.
 - `multi_rare_rewrite` reduces to a chain of `rare_rewrite` steps glued with `trans`/`cong`
@@ -977,19 +986,19 @@ Two caveats initially kept `onepoint` in the core; both are resolved:
 - **`not_not`** — deriving it needs the rewrite `¬¬φ ≈ φ` (i.e. `not_simplify`) plus `equiv_pos2`
   and resolution, which pulls the rewrite tier into the propositional core. It is the primitive that
   makes the implicit merging of double negations in resolution explicit.
-- **The 8 retained CNF axioms** (the `and`/`or`/`equiv` families) — one side of the
-  axiom/premise-rule pairs must be primitive (R4); the `equiv` family additionally bootstraps
+- **The 19 CNF axioms** (the `and`/`or`/`equiv`/`xor`/`ite`/`implies` families) — one side of
+  the axiom/premise-rule pairs must be primitive (R4); the `equiv` family additionally bootstraps
   `connective_def` unpacking; and cross-reductions within a family (e.g. `equiv_pos1` from
-  `equiv_pos2` via symmetry of the equivalence) fail R2. The `xor`, `ite`, and (via the proposed
-  `connective_def` extension) `implies` families are *not* kept — see "Reducing within the CNF
-  axioms" above. (`weakening` and `contraction` are likewise no longer borderline keeps: under
-  resolution's RUP reading they are expensive-level renames — see "Resolution's dual semantics"
-  above.)
+  `equiv_pos2` via symmetry of the equivalence) fail R2. The `xor`/`ite`/`implies` families are
+  kept even though `connective_def` derivations exist — see "The CNF axioms are kept whole"
+  above. (`weakening` and `contraction` remain outside: under resolution's RUP reading they are
+  expensive-level renames — see "Resolution's dual semantics" above.)
 - **`connective_def`** — kept whole. Its propositional instances are derivable at O(1) via
   `equiv_neg1/2` and the branch tautologies, but the quantifier-duality instance
   (`¬∀x̄.φ ≈ ∃x̄.¬φ`) is the R4-chosen axiom side that bootstraps all ∃-reasoning (`sko_ex`'s
   reduction, the ∃-variants of the quantifier rewrites), and the definition list is where the
-  `xor`/`ite`/`implies` CNF-axiom reductions and the proposed `→` extension (divergence 6) live.
+  `xor`/`ite`/`implies` axiom-agreement lemmas and the proposed `→` extension (divergence 6)
+  live.
 - **`la_generic`** and **`rare_rewrite`** — the designated computational and rewrite primitives, as
   discussed above.
 - **The binder rules** `let` and `bind_let` — primitives with no reduction candidates.
@@ -1019,9 +1028,10 @@ The expensive level collects the schemes that are cheap in steps but upgrade the
 checking power: the `la_mult_*` family and the arithmetic `*_simplify` members through
 `poly_simp` (the purely arithmetic simplifications — `prod_simplify`, `sum_simplify`,
 `minus_simplify`, `unary_minus_simplify` — have both routes: rename to `poly_simp` with a ring
-check and zero new steps, or a RARE trace with syntactic checks at trace-length cost),
-`shuffle` through `aci_simp`, and `nary_elim` (a promotion
-candidate instead: the polyequality elaboration itself emits it).
+check and zero new steps, or a RARE trace with syntactic checks at trace-length cost).
+`shuffle` and `nary_elim` are *reducible*, both by renames to `aci_simp` (see "Other
+reductions"); `nary_elim`'s chainable and non-commutative cases keep the binary-associativity
+`rare_rewrite` chain.
 
 ## Extra rules beyond the specification
 
