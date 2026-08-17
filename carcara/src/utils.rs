@@ -101,14 +101,31 @@ impl<T> AsRef<T> for HashCache<T> {
     }
 }
 
+/// A map with scoped shadowing: pushing a scope starts a new layer of bindings, and popping it
+/// restores every binding the layer shadowed.
+///
+/// Lookups are O(1) regardless of how deep the scope stack is: every key indexes a single map
+/// whose values are stacks of `(scope, value)` bindings, and a per-scope undo log records which
+/// entries each scope introduced so that `pop_scope` can drop exactly those. (The previous
+/// implementation kept one map per scope and searched them innermost-first, which made every
+/// lookup linear in the nesting depth — pathological for proofs with deeply nested subproofs,
+/// e.g. the elaboration of `let`-heavy terms.)
 #[derive(Debug)]
 pub struct HashMapStack<K, V> {
-    scopes: Vec<IndexMap<K, V>>,
+    /// For each key, the stack of its active bindings, tagged with the scope that introduced
+    /// them. The vector may be left empty when all bindings of a key are popped.
+    map: IndexMap<K, Vec<(usize, V)>>,
+
+    /// For each scope, the indices (into `map`) of the keys it bound.
+    scopes: Vec<Vec<usize>>,
 }
 
 impl<K, V> HashMapStack<K, V> {
     pub fn new() -> Self {
-        Self { scopes: vec![IndexMap::new()] }
+        Self {
+            map: IndexMap::new(),
+            scopes: vec![Vec::new()],
+        }
     }
 
     pub fn height(&self) -> usize {
@@ -116,11 +133,11 @@ impl<K, V> HashMapStack<K, V> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.scopes.iter().all(IndexMap::is_empty)
+        self.map.values().all(Vec::is_empty)
     }
 
     pub fn push_scope(&mut self) {
-        self.scopes.push(IndexMap::new());
+        self.scopes.push(Vec::new());
     }
 
     pub fn pop_scope(&mut self) {
@@ -128,7 +145,9 @@ impl<K, V> HashMapStack<K, V> {
             0 => unreachable!(),
             1 => panic!("trying to pop last scope in `HashMapStack`"),
             _ => {
-                self.scopes.pop().unwrap();
+                for index in self.scopes.pop().unwrap() {
+                    self.map[index].pop();
+                }
             }
         }
     }
@@ -140,14 +159,7 @@ impl<K: Eq + Hash, V> HashMapStack<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        // Note: If there are a lot of scopes in the symbol table, this can be a big performance
-        // bottleneck. As currently implemented, this function needs to hash the key once for every
-        // scope. The ideal way of solving this would be to hash the key once, and reuse that hash
-        // to access the entry in each scope. To do that, we could use the `HashMap::raw_entry`
-        // method, but it is currently nightly-only. Another way to mitigate this issue is to use
-        // the `HashCache<T>` struct to wrap the key values in the symbol table. This allows the key
-        // to only be hashed once, and that value is stored and reused in the struct.
-        self.scopes.iter().rev().find_map(|scope| scope.get(key))
+        self.map.get(key)?.last().map(|(_, v)| v)
     }
 
     pub fn get_with_depth<Q>(&self, key: &Q) -> Option<(usize, &V)>
@@ -155,15 +167,22 @@ impl<K: Eq + Hash, V> HashMapStack<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        self.scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(depth, scope)| scope.get(key).map(|v| (depth, v)))
+        self.map.get(key)?.last().map(|(depth, v)| (*depth, v))
     }
 
     pub fn insert(&mut self, key: K, value: V) {
-        self.scopes.last_mut().unwrap().insert(key, value);
+        let scope = self.scopes.len() - 1;
+        let entry = self.map.entry(key);
+        let index = entry.index();
+        let bindings = entry.or_default();
+        match bindings.last_mut() {
+            // Inserting a key already bound in the current scope overwrites the binding
+            Some((s, v)) if *s == scope => *v = value,
+            _ => {
+                bindings.push((scope, value));
+                self.scopes.last_mut().unwrap().push(index);
+            }
+        }
     }
 }
 
