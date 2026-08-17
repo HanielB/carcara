@@ -1,3 +1,4 @@
+mod core;
 pub mod error;
 mod hole;
 mod local;
@@ -40,6 +41,7 @@ pub struct Config {
 pub enum ElaborationPass {
     Polyeq,
     Hole,
+    Core,
     Local,
     Uncrowd,
     Reordering,
@@ -86,6 +88,7 @@ impl<'e> Elaborator<'e> {
             current = match pass {
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
+                ElaborationPass::Core => self.elaborate_core(current)?,
                 ElaborationPass::Local => self.elaborate_local(current)?,
                 ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
                     ProofNode::Step(s)
@@ -166,6 +169,35 @@ impl<'e> Elaborator<'e> {
                 hole::lia_generic(self, s).map_err(|e| e.at(s))
             }
             _ => Ok(node.clone()),
+        })
+    }
+
+    /// The `core` pass: reduces every step in the *reducible* tier of the core classification to
+    /// a derivation over the core fragment. Reductions are best-effort: if a step has a shape a
+    /// recipe does not cover (or a reduction fails), the step is kept unchanged and a warning is
+    /// logged, so the pass never rejects a proof.
+    fn elaborate_core(&mut self, proof: ProofNodeForest) -> Result<ProofNodeForest, Error> {
+        proof.mutate(|context, node, _| {
+            match node.as_ref() {
+                ProofNode::Step(s) => {
+                    if let Some(func) = core::get_elaboration_function(&s.rule) {
+                        match func(self.pool, context, s) {
+                            Ok(new_node) => return Ok(new_node),
+                            Err(e) => {
+                                log::warn!(
+                                    "core elaboration of '{}' ({}) failed, keeping step: {}",
+                                    s.id,
+                                    s.rule,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+                ProofNode::Subproof(_) => unreachable!(),
+                ProofNode::Assume { .. } => (),
+            }
+            Ok(node.clone())
         })
     }
 

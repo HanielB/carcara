@@ -6,6 +6,7 @@
 - [Proof elaboration](./elaboration.md)
   - [Polyequality elaboration](./elaboration/polyeq.md)
   - [Hole elaboration]()
+  - [Core elaboration](./elaboration/core.md)
   - ["Local" elaboration](./elaboration/local.md)
   - [Resolution uncrowding](./elaboration/uncrowding.md)
   - [Reordering elimination](./elaboration/reordering.md)

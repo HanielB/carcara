@@ -18,12 +18,18 @@ This takes a series of _elaboration passes_, and will apply them in the given or
 elaboration passes are:
 - [`polyeq`](./elaboration/polyeq.md)
 - [`lia-generic`]()
+- [`core`](./elaboration/core.md)
 - [`local`](./elaboration/local.md)
 - [`uncrowd`](./elaboration/uncrowding.md)
 - [`reordering`](./elaboration/reordering.md)
 - [`hole`]()
 
-By default, Carcara will attempt to apply all of these in the listed order.
+By default, Carcara will attempt to apply all of these except `core` in the listed order. The
+`core` pass — which reduces every rule in the *reducible* tier of the
+[core classification](./core.md) to the core fragment — is opt-in; a typical invocation is:
+```
+carcara elaborate example.smt2.alethe --pipeline polyeq core local core uncrowd reordering
+```
 
 ### Example
 The following command will elaborate the given proof file with the `uncrowd` and `polyeq`

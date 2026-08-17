@@ -58,7 +58,20 @@ pub fn bind(
 ) -> RuleResult {
     let previous_command = previous_command.ok_or(CheckerError::MustBeLastStepInSubproof)?;
 
-    assert_clause_len(conclusion, 1)?;
+    // The generalized form (divergence 8 of the core-fragment proposal, in its no-substitutions
+    // instance): under an anchor declaring only fresh variables, the previous step may conclude an
+    // arbitrary clause, and the conclusion closes exactly one literal as a `forall` over a
+    // declared subset of the anchor variables, the remaining literals passing through untouched.
+    // We take this path whenever the vanilla shape (a unit equality between binder terms derived
+    // from a unit equality) does not apply.
+    let is_vanilla = conclusion.len() == 1
+        && previous_command.clause.len() == 1
+        && match_term!((= p q) = &previous_command.clause[0]).is_some()
+        && match_term!((= l r) = &conclusion[0])
+            .is_some_and(|(l, r)| l.as_binder().is_some() && r.as_binder().is_some());
+    if !is_vanilla {
+        return generalized_bind(conclusion, &previous_command, context);
+    }
 
     let (phi, phi_prime) = match_term_err!((= p q) = get_premise_term(&previous_command)?)?;
 
@@ -129,6 +142,67 @@ pub fn bind(
     if let Some(y) = r_bindings.iter().find(|&y| !ys.contains(y)) {
         let y = y.as_var().unwrap().to_owned();
         return Err(SubproofError::BindingIsNotInContext(y).into());
+    }
+    Ok(())
+}
+
+/// Checks the generalized (no-substitutions) instance of `bind`: the anchor declares only fresh
+/// variables, and the conclusion is the previous step's clause with exactly one literal `l`
+/// replaced by `(forall Ys. l)`, where `Ys` is a subset of the anchor variables in anchor order.
+///
+/// Checking is purely positional (no free-variable computation): pass-through literals that
+/// misuse an anchor variable are rejected by the parser's scoping discipline, since the
+/// conclusion lives outside the anchor.
+fn generalized_bind(
+    conclusion: &[Rc<Term>],
+    previous_command: &super::Premise,
+    context: &mut ContextStack,
+) -> RuleResult {
+    let context = context.last().unwrap();
+    let context = context.as_ref().unwrap();
+
+    let anchor_vars: Vec<&SortedVar> = context
+        .args
+        .iter()
+        .map(|arg| match arg {
+            AnchorArg::Variable(var) => Ok(var),
+            AnchorArg::Assign((name, _), _) => Err(
+                SubproofError::GeneralizedBindUnderSubstitution(name.clone()),
+            ),
+        })
+        .collect::<Result<_, _>>()?;
+
+    let previous_clause = previous_command.clause;
+    assert_clause_len(conclusion, previous_clause.len())?;
+
+    let mut closed = None;
+    for (i, (concluded, premised)) in conclusion.iter().zip(previous_clause).enumerate() {
+        if concluded == premised {
+            continue;
+        }
+        if closed.is_some() {
+            return Err(SubproofError::GeneralizedBindMultipleClosures.into());
+        }
+        closed = Some((i, concluded, premised));
+    }
+    let Some((_, concluded, premised)) = closed else {
+        return Err(SubproofError::GeneralizedBindNoClosure.into());
+    };
+
+    let Term::Binder(Binder::Forall, bindings, body) = concluded.as_ref() else {
+        return Err(CheckerError::TermOfWrongForm(
+            "(forall ...)",
+            concluded.clone(),
+        ));
+    };
+    assert_eq(body, premised)?;
+
+    // The closure's binder set must be a subset of the anchor variables, in anchor order
+    let mut anchor_vars = anchor_vars.into_iter();
+    for var in &bindings.0 {
+        if !anchor_vars.any(|anchor_var| anchor_var == var) {
+            return Err(SubproofError::GeneralizedBindClosureNotInAnchor(var.0.clone()).into());
+        }
     }
     Ok(())
 }

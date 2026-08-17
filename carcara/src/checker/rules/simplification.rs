@@ -815,6 +815,12 @@ fn identity_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Opt
 pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    aci_simp_equal(pool, t1, t2)
+}
+
+/// The body of the `aci_simp` check, exposed so that the `core` elaboration pass can verify a
+/// candidate `aci_simp` step before emitting it.
+pub(crate) fn aci_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
     let mut cache = IndexMap::new();
 
     let t11 = if let Term::Op(op, _) = t1.as_ref() {

@@ -135,6 +135,67 @@ fn bind() {
 }
 
 #[test]
+fn generalized_bind() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun q () Bool)
+            (declare-sort S 0)
+            (declare-fun f (S) Bool)
+            (declare-fun g (S S) Bool)
+        ",
+        "Unit closure" {
+            "(anchor :step t1 :args ((x S)))
+            (step t1.t1 (cl (f x)) :rule hole)
+            (step t1 (cl (forall ((x S)) (f x))) :rule bind)": true,
+
+            "(anchor :step t1 :args ((x S) (y S)))
+            (step t1.t1 (cl (g x y)) :rule hole)
+            (step t1 (cl (forall ((x S) (y S)) (g x y))) :rule bind)": true,
+        }
+        "Closure over a subset of the anchor variables" {
+            "(anchor :step t1 :args ((x S) (y S)))
+            (step t1.t1 (cl (f x)) :rule hole)
+            (step t1 (cl (forall ((x S)) (f x))) :rule bind)": true,
+        }
+        "Closure with pass-through literals" {
+            "(anchor :step t1 :args ((x S)))
+            (step t1.t1 (cl (not p) (f x) q) :rule hole)
+            (step t1 (cl (not p) (forall ((x S)) (f x)) q) :rule bind)": true,
+        }
+        "Vacuous closure variables are allowed" {
+            "(anchor :step t1 :args ((x S) (y S)))
+            (step t1.t1 (cl (f x)) :rule hole)
+            (step t1 (cl (forall ((x S) (y S)) (f x))) :rule bind)": true,
+        }
+        "Closing more than one literal is not allowed" {
+            "(anchor :step t1 :args ((x S)))
+            (step t1.t1 (cl (f x) (f x)) :rule hole)
+            (step t1 (cl (forall ((x S)) (f x)) (forall ((x S)) (f x))) :rule bind)": false,
+        }
+        "Pass-through literals must match the premise" {
+            "(anchor :step t1 :args ((x S)))
+            (step t1.t1 (cl (not p) (f x)) :rule hole)
+            (step t1 (cl (not q) (forall ((x S)) (f x))) :rule bind)": false,
+        }
+        "Closure variables must be anchor variables, in anchor order" {
+            "(anchor :step t1 :args ((x S)))
+            (step t1.t1 (cl (f x)) :rule hole)
+            (step t1 (cl (forall ((x S) (y S)) (f x))) :rule bind)": false,
+
+            "(anchor :step t1 :args ((x S) (y S)))
+            (step t1.t1 (cl (g x y)) :rule hole)
+            (step t1 (cl (forall ((y S) (x S)) (g x y))) :rule bind)": false,
+        }
+        "Generalized closure under a substitution context is not allowed" {
+            "(anchor :step t1 :args ((y S) (:= (x S) y)))
+            (step t1.t1 (cl (f y)) :rule hole)
+            (step t1 (cl (forall ((y S)) (f y))) :rule bind)": false,
+        }
+    }
+}
+
+#[test]
 fn r#let() {
     test_cases! {
         definitions = "

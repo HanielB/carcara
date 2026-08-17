@@ -209,6 +209,7 @@ pub struct CheckingOptions {
 pub enum ElaborationPass {
     Polyeq,
     Hole,
+    Core,
     Local,
     Uncrowd,
     Reordering,
@@ -473,6 +474,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions) {
             .map(|p| match p {
                 ElaborationPass::Polyeq => elaborator::ElaborationPass::Polyeq,
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
+                ElaborationPass::Core => elaborator::ElaborationPass::Core,
                 ElaborationPass::Local => elaborator::ElaborationPass::Local,
                 ElaborationPass::Uncrowd => elaborator::ElaborationPass::Uncrowd,
                 ElaborationPass::Reordering => elaborator::ElaborationPass::Reordering,
