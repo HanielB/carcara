@@ -73,7 +73,7 @@ digraph core_alethe {
     nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#1baf7a", penwidth=1.6];
     bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(and/or/not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
                style="rounded,filled,dotted"];
-    aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence\n(computational primitive)", color="#2a78d6", penwidth=2.4];
     distinct_elim [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ distinct(t1 … tn) ≈ pairwise disequalities\nBool, 2 args:  ≈ ¬(φ ≈ ψ);  Bool, ≥3 args:  ≈ ⊥", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
   }
 

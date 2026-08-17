@@ -37,7 +37,7 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 22 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
-| equality & rewriting | 25 | 6 | 9 | 0 | 10 | 0 |
+| equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
@@ -189,8 +189,9 @@ core fragment.
 
 Concretely: `bind` is [α/congr-bind], and its proposed generalization (divergence 8) also
 realizes [gen] — recasting [α/congr-bind], [ε], and [qe-point] as one anchor-closing scheme
-under three substitution disciplines, with binder congruence for `choice` as the one primitive
-residue (divergence 5, needed to reason under ε-witnesses); `forall_inst` is [inst], independent
+under three substitution disciplines, with binder congruence for `choice` folded into
+[α/congr-bind] itself (`bind` is binder-generic; needed to reason under ε-witnesses);
+`forall_inst` is [inst], independent
 of [ε] (see parent chapter); `sko_forall` is the designated [ε] axiom, with `sko_ex` derived
 through the quantifier duality; `let`/`bind_let` are [unfold]; and `onepoint` is [qe-point] —
 derived, see below.
@@ -209,7 +210,7 @@ own variable and reintroduced by generalization.
 
 | rule | notes |
 |---|---|
-| `bind` | binder congruence; divergence 8 proposes generalizing it so that anchors carry fresh variables and substitutions, and the closing step additionally concludes a single ∀-closure literal (unit in practice; miniscoping only on binder *sets*, clause structure untouched) — ∀-introduction becomes the no-substitutions instance, vanilla `bind` an instance with zero extra steps, `sko_*`/`onepoint` the same closing scheme under their substitution disciplines, and `qnt_rm_unused` is absorbed. Checking stays free-variable-free: declared binder subsets verified positionally, scoping enforced by the parser (see parent chapter). The `choice` instance (divergence 5) stays outside. Together with `rare_rewrite` it covers rewriting *below* a binder |
+| `bind` | binder congruence; divergence 8 proposes generalizing it so that anchors carry fresh variables and substitutions, and the closing step additionally concludes a single ∀-closure literal (unit in practice; miniscoping only on binder *sets*, clause structure untouched) — ∀-introduction becomes the no-substitutions instance, vanilla `bind` an instance with zero extra steps, `sko_*`/`onepoint` the same closing scheme under their substitution disciplines, and `qnt_rm_unused` is absorbed. Checking stays free-variable-free: declared binder subsets verified positionally, scoping enforced by the parser (see parent chapter). The `choice` instance (formerly divergence 5) is folded in: `bind` is read as *binder-generic* — Carcara's checker already implements it that way — which is what bridges the `sko_ex`/`sko_forall` witness shapes. Together with `rare_rewrite` it covers rewriting *below* a binder |
 | `let` | |
 | `bind_let` | emitted by the polyeq elaboration itself |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
@@ -219,7 +220,7 @@ own variable and reintroduced by generalization.
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans` | 6 (any n) | syntactic | **blocked** for existing steps: the duality route yields the witness `εx.¬¬φ` where the step concludes with `εx.φ`, and bridging them needs binder congruence for `choice` (divergence 5), which the core deliberately excludes. Mutually dual with `sko_forall` — either could be the primitive (R4 picks one); *fresh* proofs can simply emit the dual form |
+| `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans`; existing steps additionally bridge the ∃-shaped witnesses to the ¬∀¬-shaped ones by a `bind` over the `choice` binder (choice congruence — `bind` is binder-generic, see its row) plus deep-`cong` transport | O(n·\|φ\|) | syntactic | **done** (`core` pass, all corpus instances incl. n-ary progressive witnesses and veriT's reoriented equalities). Mutually dual with `sko_forall` — either could be the primitive (R4 picks one) |
 | `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by `equiv_intro` (or its derivation) and `bind` | O(points·\|φ\|) | syntactic | **done** (`core` pass, ∀ and — through the `connective_def` duality — ∃ forms; guards read off the antecedent's `and`-spine or a negated consequent, with an `eq_symmetry` bridge for flipped guard orientations); requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
 | `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | **done** (`core` pass, ∀ forms); witness-free with divergence 8, else ∀-ε-clause template |
 | `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | **done** (`core` pass, ∀ forms); ditto |
@@ -302,7 +303,9 @@ For a step `(step t (cl (= (exists ((x S)) φ) ψ)) :rule sko_ex)` whose subproo
 ```
 
 For already-produced steps, aligning the `∃`-shaped witness of the original context with the
-`¬∀¬`-shaped one `sko_forall` expects needs the choice-congruence rule (divergence 5).
+`¬∀¬`-shaped one `sko_forall` expects is a `bind` over the `choice` binder (choice congruence;
+`bind` is binder-generic) closing a `not-not` equivalence — this is what the `core` pass
+implements.
 
 </details>
 
@@ -664,7 +667,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 25 rules: 6 core, 9 reducible, 0 expensive, 10 aggressive.
 
-### Core (6)
+### Core (7)
 
 | rule | notes |
 |---|---|
@@ -674,6 +677,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `symm` | kept against the spec's "superfluous" note: explicit symmetry for elaborated output |
 | `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
+| `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition |
 
 ### Reducible (7)
 
@@ -823,12 +827,11 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Aggressive (10)
+### Aggressive (9)
 
 | rule | reduction scheme | cost | missing prerequisite / blocker |
 |---|---|---|---|
 | `and_simplify`, `or_simplify`, `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint | O(trace) | instrumenting the simplification checkers to record traces (or oracle via the hole pass); RARE coverage of each rewrite |
-| `aci_simp` | elementary assoc/comm/identity/idempotence rewrites | O(n²) worst case | fails R1; no canonical ACI normal form (spec's own remark) — kept as the designated ACI primitive |
 | `distinct_elim` | single `rare_rewrite` instance | 1 | an n-ary RARE rule for `distinct` needs a recursive Eunoia *program* (arity-dependent output), including the Bool special case (> 2 Bool arguments → ⊥) |
 
 ## Arithmetic
@@ -1021,7 +1024,7 @@ specification should replace them with principled counterparts. 5 rules, all at 
 |---|---|---|
 | `lia_generic` | full sub-proof from an external solver (oracle) | done — hole elaboration pass; not checkable at all without the oracle |
 | `qnt_cnf` | guided clausal descent against Carcara's checker semantics (NNF + ∀-prenexing + distribution): instantiate the left quantifier under the conclusion's anchor, then one CNF-axiom step per connective on the path from `φ` to the clause, branch choices guided by a CNF oracle — **fallback implemented** (`core` pass; linear resolution chain, subproof-free but for the closing `bind`) | spec-declared "placeholder rule" for the whole quantifier clausification — the *spec* gives it no semantics, so the reduction targets Carcara's implemented reading; removal still preferred |
-| `ite_intro` | removal (veriT-side): with the internal ite constants gone, the step degenerates to `refl` | artifact of veriT's internal ite constants (the spec's own remark); source of the ite-reordering polyeq quirk. Not reducible as emitted: the conclusion nests the ite definitions inside the very formula being defined, and unfolding them needs a term-level ite selection axiom the core lacks |
+| `ite_intro` | per ite-subterm, the selection tautology `(ite c (= s r₁) (= s r₂))` derives by a two-branch discharge over the condition — `equiv_neg1/2` + the `true`/`false` axioms turn the assumed (negated) condition into `(= c ⊤)`/`(= c ⊥)`, `cong` lifts it into `s`, and the term-level selection is the `rare_rewrite` rule `ite-true-cond`/`ite-false-cond` (alethe-toolkit rule set) — crossed with `ite_neg1/2` and packed by `and_neg`/`and_pos` + iff-introduction — **fallback implemented** (`core` pass; checking the output needs the RARE rules, e.g. `--rare-file rare-tests/rare/ite-intro.rare`) | artifact of veriT's internal ite constants (the spec's own remark); source of the ite-reordering polyeq quirk; removal still preferred |
 | `bfun_elim` | case expansion over Boolean arguments: `forall_inst` at each of the `2^k` Boolean assignments + `and_neg` repack + closing `bind` over the rest — **fallback implemented** (`core` pass, top-level form; the below-uninterpreted-functions ite form is kept) | O(2^k) in the number of Boolean arguments — fails R1; removal preferred. veriT preprocessing artifact; polyeq elaboration normalizes but keeps it |
 | `ac_simp` | decompose into one `aci_simp` step per single-connective layer, glued by `cong`/`trans` (O(d), d = alternation depth; linear in the term *DAG* via memoization) — **fallback implemented** (`core` pass). veriT's premise-carrying form (congruence over previously derived flattenings, incl. under-binder ones as `bind` subproofs — premises outside the spec's premise-free statement; Carcara's checker ignores them and normalizes through binders, a strictly stronger reading) is decomposed by consuming the premises as ready-made subterm equalities | superseded by the more general `aci_simp`, which however normalizes a single connective at a time where `ac_simp` handles `∧` and `∨` simultaneously; removal in favor of `aci_simp` preferred over reduction |
 
@@ -1043,7 +1046,8 @@ way, with their concern category noted:
 | `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
 | `div_intro`, `log2_intro`, `to_int_intro` (`alethe-toolkit` branch) | arithmetic | core (definitional) | characterization axioms of interpreted operators (division bound pair, `pow2` bounds, floor bounds) — the natural home for an `abs_intro`, which would make the `abs` RARE rule a lemma |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
-| `evaluate`, `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
+| `evaluate` | equality & rewriting | **core** (computational) | constant evaluation of interpreted operators — a computational primitive on the same footing as `aci_simp` and `poly_simp`: the check *is* the (terminating, deterministic) evaluation function, and no rule-based reduction could be cheaper than re-evaluating |
+| `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | aggressive | `sat_refutation` oracle-reducible via its dedicated pass |
 
 <details id="ex-eq-mp">

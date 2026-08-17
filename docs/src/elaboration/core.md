@@ -12,25 +12,33 @@ The pass is opt-in (it is not part of the default pipeline). The recommended pip
 *twice*, sandwiching the `local` pass:
 
 ```
-carcara elaborate example.smt2.alethe example.smt2 --pipeline polyeq core local core uncrowd reordering
+carcara elaborate example.smt2.alethe example.smt2 --pipeline polyeq core local core reordering
 ```
 
 The first `core` runs after `polyeq` (which normalizes the implicit reorderings the recipes rely
 on) and eliminates the reducible tier — in particular the `eq_*` family, before `local`'s
 canonicalize-but-keep handling of it would introduce `weakening` scaffolding. `local` then infers
 resolution pivots, and in canonicalizing `cong`/`trans` steps may itself emit a few
-`eq_symmetric`/`equiv2` steps — which the second `core` reduces. `uncrowd` finally splits the
-crowding resolutions the reductions emit, and `reordering` removes the reordering bookkeeping.
-With this pipeline the elaborated output of veriT proofs in the quantifier-free and quantified
-UF/LIA/LRA logics is entirely within the core vocabulary (plus `contraction`, which the chain
-pipeline deliberately uses), apart from the unreduced expensive/aggressive-tier steps present in
-the input.
+`eq_symmetric`/`equiv2` steps — which the second `core` reduces. `reordering` finally removes
+the reordering bookkeeping (the `uncrowd` pass, which splits crowding resolutions into
+resolution/`contraction` pairs, composes with this pipeline but is not needed for
+elaborated-granularity checking, whose resolution checker works set-wise). With this pipeline
+the elaborated output of veriT proofs in the quantifier-free and quantified UF/LIA/LRA logics
+is entirely within the core vocabulary (plus `contraction`, which the chain pipeline
+deliberately uses), apart from the unreduced expensive/aggressive-tier steps present in the
+input.
 
-The output can then be checked in elaborated (strict) mode:
+The output can then be checked in elaborated (strict) mode — with the RARE rule set when the
+input contained `ite_intro` steps, whose reduction emits `rare_rewrite` instances:
 
 ```
-carcara check --check-granularity elaborated example.elab.alethe example.smt2
+carcara check --check-granularity elaborated --rare-file rare-tests/rare/ite-intro.rare example.elab.alethe example.smt2
 ```
+
+A variant of the pass, `core-keep-eq-cl`, applies every reduction *except* those of the clausal
+equality rules (`eq_reflexive`, `eq_transitive`, `eq_congruent`, `eq_congruent_pred`,
+`eq_symmetric`, `not_symm`, `eq_mp`) — a vocabulary point between the original rule set and the
+full core that avoids the discharge-subproof blowup of the `eq_*` reductions.
 
 ## Covered rules
 
@@ -84,7 +92,19 @@ the body from the substituted formula by refuting the trivialized guards (`refl`
 The whole equivalence lives inside the now-vacuous anchor and closes with the generalized
 `bind`.
 
-**Legacy quantifier rules.** `qnt_cnf` reduces by a guided clausal descent: the conclusion
+`sko_ex` reduces through the quantifier duality — `sko_forall` is the core's designated
+ε-introduction axiom. In fresh variables (the step's own anchor substitution would poison
+nested context-sensitive checks): an α-renaming `bind`, a `sko_forall` subproof over the dual
+`(∀z̄.¬φ_z)` whose single inner step is a `refl` under the witness context, the
+`connective_def` duality and a double-negation equivalence, and — for existing steps — a
+per-binding *witness bridge* `(= wᵢ vᵢ)` between the ¬∀¬-shaped witnesses the dual produces and
+the ∃-shaped ones the step's anchor carries: a `bind` over the `choice` binder (choice
+congruence; Carcara's `bind` checker is binder-generic, so no new rule is involved) closing a
+double-negation equivalence, an α-renaming of the quantified tail, and the duality — composed
+by deep-`cong` transport, which also handles veriT's reoriented equality subterms through the
+`eq_symmetry` bridge. Progressive n-ary witnesses are handled binding by binding.
+
+**Legacy rules.** `qnt_cnf` reduces by a guided clausal descent: the conclusion
 `(cl (or ¬(∀x̄.φ) (∀x̄ₖ.C)))` is derived by instantiating the left quantifier under an anchor
 over `x̄ₖ` (dropped variables at dummy `choice` witnesses) and then decomposing `φ` one
 connective at a time with the CNF axioms (`and_pos`/`or_neg`/`implies_neg1/2`/`equiv_*`/
@@ -93,7 +113,14 @@ oracle that mirrors the checker's NNF/prenexing/CNF computation; the derivation 
 resolution chain, subproof-free except for the closing `bind`. `bfun_elim`, in its top-level
 form, expands the Boolean-quantified premise into the conjunction of its `2^k` instances
 (`forall_inst` per assignment, in the checker's enumeration order, `and_neg` to repack, a
-closing `bind` over the non-Boolean variables).
+closing `bind` over the non-Boolean variables). `ite_intro` derives each ite-subterm's
+selection tautology `(ite c (= s r₁) (= s r₂))` by a two-branch discharge over the condition:
+under the assumed (negated) condition, `equiv_neg1/2` and the `true`/`false` axioms give
+`(= c ⊤)`/`(= c ⊥)`, `cong` lifts that into `s = (ite c r₁ r₂)`, and the term-level branch
+selection is the `rare_rewrite` rule `ite-true-cond`/`ite-false-cond` of the alethe-toolkit
+rule set (shipped as `rare-tests/rare/ite-intro.rare`); the branches are crossed with the
+`ite_neg1/2` axioms and the equivalence is packed by `and_neg`/`and_pos` and the
+iff-introduction pattern.
 
 Since the convenience rules `equiv_intro` and `or_intro` are proposals not yet checked by
 Carcara, the pass emits their *expansions* (`equiv_neg1/2` + resolutions, `or_neg` × n +
@@ -107,17 +134,11 @@ The pass is best-effort and never rejects a proof: a step whose shape a recipe d
 fails, is kept unchanged and a warning is logged. In particular the following stay untouched,
 by design:
 
-- `sko_ex`: reducible on paper via the `sko_forall` duality, but elaborating *existing* steps
-  is blocked on choice-binder congruence (divergence 5): the duality route produces the witness
-  `(choice ((x S)) ¬¬φ)` where the step's conclusion uses `(choice ((x S)) φ)`, and no core
-  rule can rewrite under a `choice` binder today;
 - the *expensive* tier (`weakening`, `contraction`, the `la_mult_*` family, the arithmetic
-  `*_simplify` renames) and the *aggressive* tier (Boolean `*_simplify`, `aci_simp` itself,
-  `distinct_elim`, `comp_simplify`);
-- `lia_generic` (the `hole` pass's job, deliberately excluded here) and `ite_intro` (awaits
-  veriT-side removal: its conclusion nests the term-level ite constants inside the very formula
-  being defined, and reducing it needs a term-level ite selection axiom the core does not
-  have).
+  `*_simplify` renames) and the *aggressive* tier (Boolean `*_simplify`, `distinct_elim`,
+  `comp_simplify`) — `aci_simp` and `evaluate` are core computational primitives and need no
+  reduction;
+- `lia_generic`, which is the `hole` pass's job and is deliberately excluded here.
 
 ## Step ids
 

@@ -42,21 +42,24 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **53 core**, **42 reducible**,
-**9 expensive**, **11 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **54 core**, **42 reducible**,
+**9 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 22 | 2 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
-| equality & rewriting | 25 | 6 | 9 | 0 | 10 | 0 |
+| equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
 
 The "+1" is the extra rule `poly_simp`, promoted into the core as a computational primitive; one
-new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. For every
+new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. The extra
+rule `evaluate` (constant evaluation of interpreted operators) is likewise part of the core as
+a computational primitive, on the same footing as `aci_simp` and `poly_simp` (extras are not
+counted in the spec-rule tally above). For every
 expensive and aggressive rule, the [classification](./core/classification.md) records its
 concrete *reduction scheme* — what the reduction would be, at what cost, and which prerequisite is
 missing — so the distance of each rule from the core is visible. The classification also opens
@@ -525,15 +528,17 @@ Two prerequisites make this exact, both worth raising with the specification:
   checker (`checker/rules/subproof.rs`) expects `εxᵢ.¬(∀x_{i+1}…xₙ.φ')`, remaining variables
   re-quantified and earlier skolemizations substituted — the exact dual of `sko_ex`'s
   `εxᵢ.(∃x_{i+1}…xₙ.φ')`. The spec text should be fixed to the sequential form.
-- **A binder-congruence rule for `choice` is needed.** The witnesses of a `sko_ex` step
+- **Binder congruence for `choice` is part of `bind`.** The witnesses of a `sko_ex` step
   (`εxᵢ.(∃…φ)`) and those produced by the dual route (`εxᵢ.¬(∀…¬φ)`) differ by a duality rewrite
-  *under* `ε`, and no current rule reasons under choice binders — `bind` covers only `∀`/`∃`, and
-  the generalized `bind`'s conclusion formers are `∀`/`∃` only (see below), so no route reasons
-  under `ε`. A congruence rule for `choice` (from
-  `Γ, x↦y ▷ φ ≈ ψ` conclude `Γ ▷ εx.φ ≈ εy.ψ`) closes exactly this gap: with it, the
-  `¬∀¬`/`∃`-shaped witnesses of existing proofs can be bridged by `connective_def` + `not-not`
-  reasoning under the binder, and the reduction applies to already-produced steps, not just to new
-  proofs that take the duality detour from the start.
+  *under* `ε`, so bridging them needs congruence under the choice binder. Rather than a separate
+  primitive (the earlier divergence-5 proposal), the `bind` rule is read as *binder-generic*:
+  from `Γ, x↦y ▷ φ ≈ ψ` conclude `Γ ▷ εx.φ ≈ εy.ψ`, with exactly the mechanics it already has
+  for `∀`/`∃` — which is in fact how Carcara's `bind` checker is implemented, so no new rule is
+  involved. With it, the `¬∀¬`/`∃`-shaped witnesses of existing proofs are bridged by
+  `connective_def` + `not-not` reasoning under the binder, and the reduction applies to
+  already-produced steps, not just to new proofs that take the duality detour from the start —
+  the `core` pass implements exactly this (all corpus instances reduce; see the elaboration
+  chapter).
 
 ## Deriving the quantifier rewrites from Skolemization
 
@@ -632,10 +637,10 @@ exactly the existing binder rules:
 
 So the generalization recasts the binder category as **one anchor-closing scheme parameterized by
 the substitution discipline** — [α/congr-bind], [ε], and [qe-point] are the three justifications
-for the same closing step, and [gen] is the discipline-free case. What remains outside is
-congruence under `choice` (divergence 5): the conclusion formers here are `∀`/`∃`, and `ε` has no
-elimination/introduction rules, so binder congruence for `choice` is still the one primitive
-extension.
+for the same closing step, and [gen] is the discipline-free case. Congruence under `choice` is
+handled by `bind` itself, read as binder-generic (the α/congruence discipline over `ε`; formerly
+the separate divergence-5 proposal): `ε` has no elimination/introduction rules, so this
+congruence-only instance is all the choice binder ever needs.
 
 #### Checking without free-variable computation
 
@@ -667,7 +672,8 @@ about unbound variables would inherit that obligation in the rule checker.
 
 #### What the generalization buys
 
-First, what it does *not* buy: proving power. Apart from choice congruence (divergence 5),
+First, what it does *not* buy: proving power. Apart from choice congruence (the binder-generic
+`bind` over `ε`),
 **every instance of the generalized `bind` is derivable from the core** — the rule is
 *admissible*, with `sko_forall` and `forall_inst` carrying exactly the two directions of its
 closure. Per instance — anchor variables `x̄` with substitution entries, inner subproof deriving
@@ -687,9 +693,10 @@ The one load-bearing assumption is that the inner derivation *can* be replayed: 
 is schematic, so its instances remain valid under uniform substitution of closed terms (the
 ε-witnesses) for the fresh anchor variables, including under nested binders since the witnesses
 are closed — the same stability fact the worked example below exercises. The residue is exactly
-divergence 5: `sko_forall` speaks only about `∀` (and `∃` through duality), so a context used to
-rewrite under a `choice` binder has no Skolemization to route through, and choice congruence
-stays a genuine primitive outside both the generalization's closing step and this fallback.
+choice congruence: `sko_forall` speaks only about `∀` (and `∃` through duality), so a context
+used to rewrite under a `choice` binder has no Skolemization to route through — which is why the
+binder-generic reading of `bind` (formerly the separate divergence-5 proposal) carries genuine
+content there, outside both the generalization's closing step and this fallback.
 
 Admissibility settles the proposal's status in the strongest possible way: divergence 8 is a
 pure *proof-engineering* proposal — the safest kind to adopt, since a checker can always fall
@@ -925,8 +932,8 @@ candidate", and neither implies the other. This is why the abstract proof system
 RESOLUTE, too, keeps `forall-` primitive alongside its `choose`-based axioms.
 
 Since the route needs no new primitive, it is part of the main classification: the six quantifier
-rewrites are *reducible*. The binder-congruence rule for `choice` (divergence 5) remains proposed
-independently — it is not needed for these derivations, only for bridging witness shapes when
+rewrites are *reducible*. Binder congruence for `choice` — the binder-generic reading of `bind`,
+divergence 5 — is not needed for these derivations, only for bridging witness shapes when
 elaborating already-produced `sko_ex` steps.
 
 ## Elaborating `onepoint`
@@ -1051,7 +1058,8 @@ way:
 | `la_mult_pos_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
 | `la_mult_sign` (`alethe-toolkit` branch) | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
-| `evaluate`, `mod_simplify`, `all_simplify` | aggressive (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
+| `evaluate` | **core** (computational) | constant evaluation of interpreted operators, on the same footing as `aci_simp` and `poly_simp`: the check *is* the evaluation function |
+| `mod_simplify`, `all_simplify` | aggressive (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | aggressive (theory extensions) | `sat_refutation` oracle-reducible via its dedicated pass |
 
 ## Divergences from the specification
@@ -1078,8 +1086,10 @@ extending it, all worth raising with the Alethe specification maintainers:
    form.
 5. **The Skolemization pair and choice-binder congruence**: only one of `sko_ex`/`sko_forall`
    needs to be primitive (see the Skolemization section); making the reduction applicable to
-   existing proofs requires a binder-congruence rule for `choice`, which is proposed as a spec
-   extension (the one binder not covered by the generalized `bind`'s closing scheme).
+   existing proofs requires binder congruence for `choice`. The proposal is to state `bind` as
+   *binder-generic* — the same rule, mechanics unchanged, over `∀`/`∃`/`ε` alike — rather than
+   to add a separate rule; Carcara's `bind` checker already implements this reading, and the
+   `core` pass's `sko_ex` reduction relies on it.
 6. **Extend `connective_def` with implication**: adding `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)` to
    `connective_def`'s definition list lets the three `implies` CNF axioms reduce like the `xor`
    and `ite` families, shrinking the axiomatic CNF base to the `and`/`or`/`equiv` families.
@@ -1096,7 +1106,8 @@ extending it, all worth raising with the Alethe specification maintainers:
    instance with zero extra steps; ∀-introduction is the no-substitutions instance; `sko_*` and
    `onepoint` are the same closing scheme under their substitution disciplines; `qnt_rm_unused`
    is absorbed. Admissible given Skolemization, so no logical content is added. `choice`
-   congruence (divergence 5) remains the one extension outside the scheme.
+   congruence is the binder-generic reading of `bind` itself (formerly the separate divergence-5
+   proposal), orthogonal to this scheme.
 
 ## Validation
 
