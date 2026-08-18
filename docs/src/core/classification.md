@@ -1042,6 +1042,8 @@ way, with their concern category noted:
 | `strict_resolution` | clausal | core variant | strict form of `resolution` used after elaboration |
 | `bounded_farkas` | arithmetic | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
 | `poly_simp` | arithmetic | **core** (computational) | ring-normalization primitive; listed in the arithmetic core table above |
+| `poly_simp_rel` (arithmetic case) | arithmetic | reducible (**done**, `core` pass) | the conclusion equates two linear relations over proportional differences, so each direction is a single `la_generic` step: weight the left relation's literal by \|c₁\| and the right's by \|c₂\|, which cancels the two linear combinations, and the strict one of the two supplies the strengthening that closes the contradiction — the absolute values are exactly why the rule requires `c₁` and `c₂` to share a sign unless the relation is `=`. For `=` a positive equality is not an `la_generic` literal, so each direction goes through `la_disequality` (the `la_rw_eq` template); `equiv_intro` glues them. **8 steps for an inequality, 20 for an equality** (10/24 when the premise is not a polynomial identity and must be carried in the certificate). All 114 015 corpus instances reduce. Needs `la_generic`'s normalization to see through `to_real`, as `poly_simp`'s already does — without that, two thirds of the QF_LIA instances are out of reach |
+| `poly_simp_rel` (bitvector case) | arithmetic | removal | justified by odd coefficients being units modulo 2ⁿ, i.e. modular arithmetic: Farkas certificates over an ordered field and `la_disequality`'s antisymmetry cannot express it, and no bitvector core rule states that an odd constant is invertible. Awaits solver-side removal or a dedicated bitvector rule |
 | `la_mult_pos_pos` | arithmetic | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` schemes |
 | `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
 | `div_intro`, `log2_intro`, `to_int_intro` (`alethe-toolkit` branch) | arithmetic | core (definitional) | characterization axioms of interpreted operators (division bound pair, `pow2` bounds, floor bounds) — the natural home for an `abs_intro`, which would make the `abs` RARE rule a lemma |
@@ -1054,8 +1056,8 @@ way, with their concern category noted:
 
 Carcara checks 181 rule names; this classification analyses the 120 specification rules plus the
 extras above. The remainder are named here so that the gap is explicit rather than accidental —
-they are, with one exception, rules that **only cvc5 produces**, and only in theories the
-evaluation does not cover:
+they are rules that **only cvc5 produces**, and only in theories the evaluation does not
+cover:
 
 | rules | what they are | status |
 |---|---|---|
@@ -1065,9 +1067,9 @@ evaluation does not cover:
 | `ho_cong` | higher-order congruence: like `cong`, but the function position is itself equated by a premise | unclassified. It is not derivable from `cong`, which requires identical heads, so it is a genuine primitive candidate for a higher-order core |
 | `strict_refl` | the strict, post-elaboration variant of `refl` (syntactic equality after applying the context) | core variant, like `strict_resolution` above |
 
-Of these, only the string, PB, cutting-plane, array, bitvector and higher-order rules would show
-up in a corpus that exercised those theories; the evaluated logics (QF_UF, QF_UFLIA, QF_LIA,
-QF_LRA, UF, UFLIA) exercise none of them.
+None of them can appear in the evaluated logics (QF_UF, QF_UFLIA, QF_LIA, QF_LRA, UF, UFLIA).
+The one cvc5-only rule that *does* appear there, `poly_simp_rel`, is classified in the extras
+table above.
 
 <details id="ex-eq-mp">
 <summary>Example: <code>eq_mp</code> (implemented)</summary>

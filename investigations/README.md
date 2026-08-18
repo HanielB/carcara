@@ -12,6 +12,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-18 | [`rare_rewrite` timing outliers: deferred allocator work](./2026-08-18-rare-rewrite-timing-artifact.md) | `inv/rare-rewrite-outlier` | `OnceLock` **merged**; bench drain not taken |
 | 2026-08-18 | [`aci_simp` timing outliers: the same artifact, and mimalloc](./2026-08-18-aci-simp-timing-artifact.md) | `inv/aci-simp-outlier` | **declined** (no new dependency) |
 | 2026-08-18 | [What the `sko_ex` reduction costs](./2026-08-18-sko-ex-cost.md) | `inv/sko-ex-cost` | measurement; rule moved to *expensive* |
+| 2026-08-18 | [Reducing `poly_simp_rel`](./2026-08-18-poly-simp-rel.md) | `inv/poly-simp-rel` | **merged** |
 
 Most were prompted by the core-elaboration evaluation in
 `~/benchmarks/alethecore-eval` (see its `report.md`): three of them by extreme per-step
