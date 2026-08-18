@@ -473,8 +473,7 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         "nary_elim" => simplification::nary_elim,
         "ac_simp" => simplification::ac_simp,
 
-        // Binder (`sko_ex` is left out: elaborating already-produced steps needs binder
-        // congruence for `choice`, divergence 5)
+        // Binder
         "qnt_simplify" => binder::qnt_simplify,
         "qnt_rm_unused" => binder::qnt_rm_unused,
         "qnt_join" => binder::qnt_join,
