@@ -1,0 +1,17 @@
+# Investigation notes
+
+Written-up results of focused performance/correctness investigations, one file per
+investigation. Each note records the reproduction, the measured root cause, the change (or the
+argument that no change is warranted), before/after numbers, and validation status — so that a
+result can be reviewed without re-running the experiment.
+
+| date | note | branch | status |
+|---|---|---|---|
+| 2026-08-18 | [Non-RUP resolution steps in cvc5 proofs](./2026-08-18-nonrup-resolution.md) | `inv/nonrup-resolution` | **merged** |
+| 2026-08-18 | [The 2.3 s `refl` step: context-cache inheritance](./2026-08-18-refl-context-cache.md) | `inv/refl-outlier` | open, recommended |
+| 2026-08-18 | [`rare_rewrite` timing outliers: deferred allocator work](./2026-08-18-rare-rewrite-timing-artifact.md) | `inv/rare-rewrite-outlier` | open, partly recommended |
+| 2026-08-18 | [`aci_simp` timing outliers: the same artifact, and mimalloc](./2026-08-18-aci-simp-timing-artifact.md) | `inv/aci-simp-outlier` | open, recommended |
+
+All four were prompted by the core-elaboration evaluation in
+`~/benchmarks/alethecore-eval` (see its `report.md`): three of them by extreme per-step
+checking-time outliers in the Fig. 5a box plots, one by proofs that failed to elaborate.
