@@ -1,8 +1,8 @@
 # The 2.3 s `refl` step: eager invalidation of context substitution caches
 
-**Branch:** `inv/refl-outlier`. Not merged yet.
+**Branch:** `inv/refl-outlier` (commit `63f9e344`) — **merged into `coreAlethe`**.
 **Verdict:** genuine algorithmic cost, quadratic in anchor nesting depth. Fixed by deferring cache
-invalidation; recommended for merge.
+invalidation, which preserves every cache hit the eager scheme served.
 
 ## Symptom
 
