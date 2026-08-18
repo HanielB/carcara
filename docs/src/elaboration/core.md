@@ -40,6 +40,26 @@ equality rules (`eq_reflexive`, `eq_transitive`, `eq_congruent`, `eq_congruent_p
 `eq_symmetric`, `not_symm`, `eq_mp`) — a vocabulary point between the original rule set and the
 full core that avoids the discharge-subproof blowup of the `eq_*` reductions.
 
+## What a recipe is written against
+
+A recipe is derived from **the semantics of its rule as implemented by Carcara's checker**, not
+from the shapes any particular solver emits. The checker function defines the space the recipe
+must cover; proofs from veriT and cvc5 are validation data. Where the checker's own decision
+procedure is reusable, the recipe reuses it rather than reimplementing it — `qnt_cnf`'s descent
+is guided by the checker's `negation_normal_form`/`prenex_forall`/`conjunctive_normal_form`,
+`bfun_elim` follows the checker's assignment enumeration, `onepoint`'s guards come from the
+`extract_points` grammar — so that the two cannot drift apart.
+
+This matters because a recipe written against one producer's idioms silently fails on another's
+equally valid output: the *checker*, for instance, discovers `onepoint` guards by a
+polarity-driven traversal that accepts equalities in either orientation anywhere in the
+`and`/`or`/`=>` structure, so a recipe that pattern-matches one producer's layout is
+under-covering by construction, not by necessity.
+
+Consequently, coverage below is stated in terms of the checker's accepted space, and an
+uncovered case is one that is genuinely hard to *derive*, not merely one that a given solver
+does not happen to produce.
+
 ## Covered rules
 
 **Clausal.** `th_resolution` (rename to `resolution`), `tautology` (→ `true`, dropping the
