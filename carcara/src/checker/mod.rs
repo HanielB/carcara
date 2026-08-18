@@ -1,6 +1,6 @@
 pub mod error;
 mod parallel;
-mod rules;
+pub(crate) mod rules;
 mod sat_refutation;
 mod shared;
 

@@ -1,32 +1,40 @@
 //! Reduction of `onepoint`.
 //!
 //! An `onepoint` step closes a subproof whose anchor substitutes the *point* variables by the
-//! terms their guarded equalities force, concluding `(= (Q x̄. φ) (Q x̄ₖ. φ'))` with
-//! `φ' = σ(φ)`. The reduction derives the two implications and closes with the iff-introduction
-//! pattern:
+//! terms their guard equalities force, concluding `(= (Q x̄. φ) (Q x̄ₖ. φ'))`. The reduction
+//! derives the two implications and closes with the iff-introduction pattern:
 //!
 //! - the → direction of a `forall` (and the ← direction of an `exists`) is a `forall_inst` at
 //!   the points (plus the anchor variables for the kept prefix);
-//! - the opposite direction re-derives `φ` from `φ'` (or vice versa) under discharge subproofs
+//! - the opposite direction re-derives `φ` from `σ(φ)` (or vice versa) under discharge subproofs
 //!   that assume the guard equalities and transport the substituted positions by `symm`/`cong`
-//!   (the *transport* engine below), with the `implies`/`and` structure rebuilt through the CNF
-//!   axioms;
+//!   (the *transport* engine below), with the case where a guard fails discharged by
+//!   [`guard_escape`];
 //! - the `exists` forms route through the quantifier duality instance of `connective_def`.
 //!
+//! What counts as a guard is not guessed from a template: the rule's own [`extract_points`]
+//! traversal is what the recipe reads them off, and [`guard_escape`] mirrors that traversal
+//! production by production. So the reduction covers every body the rule accepts. What it does
+//! not cover is the other half of the rule's freedom: the right-hand side `φ'` need only be
+//! *provably* equal to `σ(φ)` under the anchor, and the subproof's own derivation of that
+//! equality is not reusable outside the context. The recipe therefore bridges `φ'` to `σ(φ)`
+//! itself, and handles the differences that arise in practice — the orientation of equality
+//! subterms, and the multiplicity of an `or`'s disjuncts — keeping the step otherwise.
+//!
 //! The replacement derivation lives *inside* the original subproof (whose anchor becomes
-//! vacuous), so the surrounding proof structure is untouched. Instances whose points occur under
-//! inner binders, or whose bodies fall outside the guard grammar handled here, are kept
-//! unchanged.
+//! vacuous), so the surrounding proof structure is untouched.
 
-use super::binder::{close_bind, instantiate, var_term};
+use super::binder::{close_bind, connective_def_duality, instantiate, var_term};
 use super::Builder;
-use crate::{ast::*, elaborator::error::ElaborationError};
-use indexmap::IndexMap;
+use crate::{
+    ast::*, checker::rules::subproof::extract_points, elaborator::error::ElaborationError,
+};
+use indexmap::{IndexMap, IndexSet};
+use std::collections::HashSet;
 
-/// Derives `(= from to)` where `to` is `from` with each point variable `x` replaced by its value
-/// `t` (or the reverse, when `reversed`), given unit facts for the (possibly reversed) point
-/// equalities. Returns `None` when `from == to` (no step needed); bails with `Err(())` when the
-/// substitution reaches under a binder.
+/// Derives `(= from to)` where the two terms differ only at the positions a point substitution
+/// touches, given unit facts `(= u v)` for those replacements. Returns `None` when `from == to`
+/// (no step needed); bails with `Err(())` when the two terms cannot be aligned.
 pub(super) fn transport(
     b: &mut Builder,
     facts: &IndexMap<Rc<Term>, Rc<ProofNode>>,
@@ -41,6 +49,35 @@ pub(super) fn transport(
         if node.clause()[0] == build_term!(b.pool, (= {from.clone()} {to.clone()})) {
             return Ok(Some(node.clone()));
         }
+    }
+    // A substituted position under a quantifier: congruence through a `bind` subproof over the
+    // — unchanged — binder list, with the facts crossing into it as outbound premises
+    if let (Term::Binder(f, f_bindings, f_body), Term::Binder(g, g_bindings, g_body)) =
+        (from.as_ref(), to.as_ref())
+    {
+        if f != g || f_bindings != g_bindings || !matches!(f, Binder::Forall | Binder::Exists) {
+            return Err(());
+        }
+        if captures_facts(b, f_bindings, facts) {
+            return Err(());
+        }
+        let (f_body, g_body) = (f_body.clone(), g_body.clone());
+        let anchor_args = f_bindings
+            .iter()
+            .map(|var| AnchorArg::Variable(var.clone()))
+            .collect();
+        b.open();
+        let Some(inner) = transport(b, facts, &f_body, &g_body)? else {
+            return Err(());
+        };
+        let clause = vec![build_term!(b.pool, (= {from.clone()} {to.clone()}))];
+        return Ok(Some(b.close_with(
+            anchor_args,
+            "bind",
+            clause,
+            Vec::new(),
+            inner,
+        )));
     }
     let (from_args, to_args) = match (from.as_ref(), to.as_ref()) {
         (Term::Op(f, fa), Term::Op(g, ga)) if f == g && fa.len() == ga.len() => {
@@ -59,6 +96,23 @@ pub(super) fn transport(
     }
     let clause = vec![build_term!(b.pool, (= {from.clone()} {to.clone()}))];
     Ok(Some(b.step(clause, "cong", premises, Vec::new())))
+}
+
+/// Whether any of the transport facts mentions a variable the binder list would capture, in which
+/// case the equality cannot be carried under the binder.
+fn captures_facts(
+    b: &mut Builder,
+    bindings: &BindingList,
+    facts: &IndexMap<Rc<Term>, Rc<ProofNode>>,
+) -> bool {
+    let bound: Vec<Rc<Term>> = bindings
+        .iter()
+        .map(|var| b.pool.add(var.clone().into()))
+        .collect();
+    facts.values().any(|node| {
+        let free = b.pool.free_vars(&node.clause()[0]);
+        bound.iter().any(|var| free.contains(var))
+    })
 }
 
 /// Derives the equivalence `(= (= x y) (= y x))` — equality symmetry as a formula — by two
@@ -81,8 +135,8 @@ pub(super) fn eq_symmetry(
     b.equiv_intro(xy, yx, forward, backward)
 }
 
-/// Derives `(= from to)` when the two terms differ only by the orientation of equality subterms
-/// (veriT's implicit reordering): flipped equalities are bridged by [`eq_symmetry`], composed
+/// Derives `(= from to)` when the two terms differ only by the orientation of equality subterms:
+/// flipped equalities are bridged by [`eq_symmetry`], composed
 /// with `cong`/`trans`. Returns `None` when the terms are identical; `Err(())` when they differ
 /// in any other way.
 fn orientation_bridge(
@@ -138,6 +192,92 @@ fn orientation_bridge(
     }
     let clause = vec![build_term!(b.pool, (= {from.clone()} {to.clone()}))];
     Ok(Some(b.step(clause, "cong", premises, Vec::new())))
+}
+
+/// Derives `(= from to)` when `from` is an `or` whose disjuncts are, as a set, exactly `to`'s
+/// (`to` being either an `or` or a single literal).
+///
+/// Substituting the points can make two disjuncts of a body coincide — two guards for the same
+/// point variable, written in opposite orientations, both become the same reflexive equality — and
+/// the right-hand side of the step is then the substituted body with the repetition dropped. The
+/// derivation is pure clause reasoning: `or_pos` unpacks one side and `or_neg` packs the other,
+/// with the resolution steps merging the repetitions.
+fn disjunct_bridge(
+    b: &mut Builder,
+    from: &Rc<Term>,
+    to: &Rc<Term>,
+) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    let Some(from_literals) = match_term!((or ...) = from).map(<[_]>::to_vec) else {
+        return Ok(None);
+    };
+    if from_literals.len() < 2 {
+        return Ok(None);
+    }
+    let to_literals = match match_term!((or ...) = to) {
+        Some(literals) => literals.to_vec(),
+        None => vec![to.clone()],
+    };
+    let from_set: IndexSet<&Rc<Term>> = from_literals.iter().collect();
+    let to_set: IndexSet<&Rc<Term>> = to_literals.iter().collect();
+    if from_set != to_set {
+        return Ok(None);
+    }
+
+    // `(cl (not p) l₁ … lₙ)` for an `or` term `p`, or the excluded middle for a single literal
+    let unpack = |b: &mut Builder, term: &Rc<Term>, literals: &[Rc<Term>]| {
+        if literals.len() == 1 {
+            return super::binder::excluded_middle(b, term);
+        }
+        let not_term = b.not(term);
+        let mut clause = vec![not_term];
+        clause.extend(literals.iter().cloned());
+        Ok(b.step(clause, "or_pos", Vec::new(), Vec::new()))
+    };
+    // Packs the literals of `term` into it, one `or_neg` per literal still in the clause
+    let pack = |b: &mut Builder,
+                mut current: Rc<ProofNode>,
+                term: &Rc<Term>,
+                literals: &[Rc<Term>]|
+     -> Result<Rc<ProofNode>, ElaborationError> {
+        if literals.len() == 1 {
+            // `term` is the literal itself; the clause may still carry repetitions of it
+            if current.clause().len() > 2 {
+                let clause = vec![current.clause()[0].clone(), term.clone()];
+                current = b.step(clause, "contraction", vec![current], Vec::new());
+            }
+            return Ok(current);
+        }
+        for (i, literal) in literals.iter().enumerate() {
+            if !current.clause().contains(literal) {
+                continue;
+            }
+            let not_literal = b.not(literal);
+            let index = b.pool.add(Term::new_int(i));
+            let or_neg = b.step(
+                vec![term.clone(), not_literal],
+                "or_neg",
+                Vec::new(),
+                vec![index],
+            );
+            current = b.resolve(vec![current, or_neg], vec![(literal.clone(), true)])?;
+        }
+        Ok(current)
+    };
+
+    let forward = {
+        let unpacked = unpack(b, from, &from_literals)?;
+        pack(b, unpacked, to, &to_literals)?
+    };
+    let backward = {
+        let unpacked = unpack(b, to, &to_literals)?;
+        pack(b, unpacked, from, &from_literals)?
+    };
+    Ok(Some(b.equiv_intro(
+        from.clone(),
+        to.clone(),
+        forward,
+        backward,
+    )?))
 }
 
 /// Replaces the literal `from` by `to` in a clause node, given an equality node `(= from to)`:
@@ -201,55 +341,262 @@ pub(super) fn anchor_points(
     Some((points, kept))
 }
 
-/// Classifies the body of a `forall` onepoint: an implication whose antecedent's conjunction
-/// spine carries (some of) the guard equalities — possibly with a negated guard as the
-/// consequent — or `(or l1 … ln)` with negated guard equalities among the literals.
-enum ForallBody {
-    Implies {
-        antecedent: Rc<Term>,
-        consequent: Rc<Term>,
-    },
-    Or {
-        literals: Vec<Rc<Term>>,
-    },
+/// The guard equalities of a quantified body, one per anchor point, in the anchor's order.
+///
+/// The rule's own [`extract_points`] traversal is what defines a guard, so the recipe reads the
+/// guards off it rather than off a template: `None` means some point of the anchor is not one the
+/// rule would have accepted, and the step is left alone.
+fn point_guards(
+    quant: Binder,
+    body: &Rc<Term>,
+    points: &[(SortedVar, Rc<Term>)],
+) -> Option<Vec<Rc<Term>>> {
+    let extracted = extract_points(quant, body);
+    points
+        .iter()
+        .map(|((name, _), value)| extracted.get(&(name.clone(), value.clone())).cloned())
+        .collect()
 }
 
-fn classify_forall_body(body: &Rc<Term>, point_vars: &[Rc<Term>]) -> Option<ForallBody> {
-    let is_guard = |t: &Rc<Term>| {
-        match_term!((= a b) = t)
-            .is_some_and(|(a, b)| point_vars.contains(a) || point_vars.contains(b))
+/// Derives the clause that lets a guard equality escape its body, following the same polarity
+/// walk that [`extract_points`] took to find it. `polarity` is the polarity `term` sits at, in the
+/// rule's convention (the walk starts at `quant == Exists`); the node returned concludes
+/// `(cl (not term) guard)` at positive polarity and `(cl term guard)` at negative polarity.
+///
+/// The two readings are the two halves of the same fact: at positive polarity the guard is a
+/// conjunct of `term`, so `term` entails it; at negative polarity its negation is a disjunct of
+/// `term`, so `term` follows from the guard failing. Each production of the walk is discharged by
+/// the corresponding CNF axiom — `and_pos` for a conjunct, `or_neg` for a disjunct,
+/// `implies_neg1`/`implies_neg2` for the two sides of an implication, and the excluded middle for
+/// the negations. The one production not covered is the walk through a quantifier: the guard is
+/// then under a binder, and carrying it out needs an instantiation of that binder, which the
+/// clause reasoning here cannot express.
+fn guard_escape(
+    b: &mut Builder,
+    term: &Rc<Term>,
+    polarity: bool,
+    guard: &Rc<Term>,
+    failed: &mut HashSet<(Rc<Term>, bool)>,
+) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    if failed.contains(&(term.clone(), polarity)) {
+        return Ok(None);
+    }
+    let escape = guard_escape_step(b, term, polarity, guard, failed)?;
+    if escape.is_none() {
+        failed.insert((term.clone(), polarity));
+    }
+    Ok(escape)
+}
+
+fn guard_escape_step(
+    b: &mut Builder,
+    term: &Rc<Term>,
+    polarity: bool,
+    guard: &Rc<Term>,
+    failed: &mut HashSet<(Rc<Term>, bool)>,
+) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    if let Some(inner) = term.remove_negation() {
+        let inner = inner.clone();
+        let Some(escape) = guard_escape(b, &inner, !polarity, guard, failed)? else {
+            return Ok(None);
+        };
+        if !polarity {
+            // `(cl (not inner) guard)` already is the clause wanted for `(cl term guard)`
+            return Ok(Some(escape));
+        }
+        // `(cl inner guard)`, and `(not term)` is `(not (not inner))`: the excluded middle for
+        // `(not inner)` turns the one into the other
+        let not_inner = b.not(&inner);
+        let excluded = super::binder::excluded_middle(b, &not_inner)?;
+        return Ok(Some(
+            b.resolve(vec![escape, excluded], vec![(inner, true)])?,
+        ));
+    }
+    if term.as_quant().is_some() {
+        return guard_escape_quantifier(b, term, polarity, guard, failed);
+    }
+    if polarity {
+        if term == guard {
+            return Ok(Some(super::binder::excluded_middle(b, guard)?));
+        }
+        let Some(conjuncts) = match_term!((and ...) = term).map(<[_]>::to_vec) else {
+            return Ok(None);
+        };
+        for (i, conjunct) in conjuncts.iter().enumerate() {
+            let Some(escape) = guard_escape(b, conjunct, true, guard, failed)? else {
+                continue;
+            };
+            let not_term = b.not(term);
+            let index = b.pool.add(Term::new_int(i));
+            let and_pos = b.step(
+                vec![not_term, conjunct.clone()],
+                "and_pos",
+                Vec::new(),
+                vec![index],
+            );
+            return Ok(Some(b.resolve(
+                vec![escape, and_pos],
+                vec![(conjunct.clone(), false)],
+            )?));
+        }
+        return Ok(None);
+    }
+    if let Some((antecedent, consequent)) = match_term!((=> p q) = term) {
+        let (antecedent, consequent) = (antecedent.clone(), consequent.clone());
+        if let Some(escape) = guard_escape(b, &antecedent, true, guard, failed)? {
+            let implies_neg1 = b.step(
+                vec![term.clone(), antecedent.clone()],
+                "implies_neg1",
+                Vec::new(),
+                Vec::new(),
+            );
+            return Ok(Some(
+                b.resolve(vec![escape, implies_neg1], vec![(antecedent, false)])?,
+            ));
+        }
+        if let Some(escape) = guard_escape(b, &consequent, false, guard, failed)? {
+            let not_consequent = b.not(&consequent);
+            let implies_neg2 = b.step(
+                vec![term.clone(), not_consequent],
+                "implies_neg2",
+                Vec::new(),
+                Vec::new(),
+            );
+            return Ok(Some(
+                b.resolve(vec![escape, implies_neg2], vec![(consequent, true)])?,
+            ));
+        }
+        return Ok(None);
+    }
+    let Some(disjuncts) = match_term!((or ...) = term).map(<[_]>::to_vec) else {
+        return Ok(None);
     };
-    if let Some((g, c)) = match_term!((=> g c) = body) {
-        // The guards may sit in the antecedent's conjunction spine or as the negated consequent
-        let mut spine = vec![g.clone()];
-        let mut has_guard = false;
-        while let Some(t) = spine.pop() {
-            if is_guard(&t) {
-                has_guard = true;
-                break;
-            }
-            if let Some(args) = match_term!((and ...) = t) {
-                spine.extend(args.iter().cloned());
-            }
-        }
-        let consequent_guard = c.remove_negation().is_some_and(is_guard);
-        if has_guard || consequent_guard {
-            return Some(ForallBody::Implies {
-                antecedent: g.clone(),
-                consequent: c.clone(),
-            });
-        }
-        return None;
+    for (i, disjunct) in disjuncts.iter().enumerate() {
+        let Some(escape) = guard_escape(b, disjunct, false, guard, failed)? else {
+            continue;
+        };
+        let not_disjunct = b.not(disjunct);
+        let index = b.pool.add(Term::new_int(i));
+        let or_neg = b.step(
+            vec![term.clone(), not_disjunct],
+            "or_neg",
+            Vec::new(),
+            vec![index],
+        );
+        return Ok(Some(
+            b.resolve(vec![escape, or_neg], vec![(disjunct.clone(), true)])?,
+        ));
     }
-    if let Some(args) = match_term!((or ...) = body) {
-        let has_guard = args
+    Ok(None)
+}
+
+/// The quantifier production of [`guard_escape`]. A guard reached under a binder is one the
+/// binder does not bind, so it crosses it in both readings: at positive polarity the quantified
+/// formula entails the guard, by instantiating it (a `forall` directly, an `exists` through its
+/// dual); at negative polarity the guard's failure entails the quantified formula, by generalizing
+/// (a `forall` by the generalized `bind`, an `exists` again through its dual).
+fn guard_escape_quantifier(
+    b: &mut Builder,
+    term: &Rc<Term>,
+    polarity: bool,
+    guard: &Rc<Term>,
+    failed: &mut HashSet<(Rc<Term>, bool)>,
+) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    let (binder, bindings, inner) = term.as_quant().unwrap();
+    let (bindings, inner) = (bindings.clone(), inner.clone());
+    if !matches!(binder, Binder::Forall | Binder::Exists) {
+        return Ok(None);
+    }
+    // The guard must survive the binder to be usable outside it
+    let free = b.pool.free_vars(guard);
+    if bindings
+        .iter()
+        .any(|var| free.contains(&b.pool.add(var.clone().into())))
+    {
+        return Ok(None);
+    }
+
+    // The `forall` the reasoning runs on, and the duality bridging it to an `exists`
+    let (universal, body, duality) = match binder {
+        Binder::Forall => (term.clone(), inner.clone(), None),
+        _ => {
+            let negated = b.not(&inner);
+            let dual = b.pool.add(Term::Binder(
+                Binder::Forall,
+                bindings.clone(),
+                negated.clone(),
+            ));
+            let duality = connective_def_duality(b, term, &dual);
+            (dual, negated, Some(duality))
+        }
+    };
+    // `exists` flips the reading: the dual `forall` is worked at the opposite polarity
+    let inner_polarity = polarity == matches!(binder, Binder::Forall);
+
+    let escape = if inner_polarity {
+        // `(cl (not universal) guard)`: instantiate at dummy witnesses and let the body entail it
+        let dummies = bindings
             .iter()
-            .any(|l| l.remove_negation().is_some_and(is_guard));
-        if has_guard {
-            return Some(ForallBody::Or { literals: args.to_vec() });
-        }
-    }
-    None
+            .map(|var| super::binder::dummy_choice(b.pool, var))
+            .collect();
+        let (inst, instantiated) = instantiate(b, &universal, dummies)?;
+        let Some(escape) = guard_escape(b, &instantiated, true, guard, failed)? else {
+            return Ok(None);
+        };
+        b.resolve(vec![inst, escape], vec![(instantiated, true)])?
+    } else {
+        // `(cl universal guard)`: derive the body under an anchor and close it over the binder
+        b.open();
+        let Some(escape) = guard_escape(b, &body, false, guard, failed)? else {
+            return Ok(None);
+        };
+        let Some(index) = escape.clause().iter().position(|t| *t == body) else {
+            return Ok(None);
+        };
+        close_bind(b, &bindings.0, &bindings.0, index, escape)
+    };
+
+    let Some(duality) = duality else {
+        return Ok(Some(escape));
+    };
+    // `escape` speaks of the dual `forall`; the duality carries it back to the `exists`
+    let equality = duality.clause()[0].clone();
+    let not_equality = b.not(&equality);
+    let not_universal = b.not(&universal);
+    let not_term = b.not(term);
+    let bridged = if polarity {
+        // `(cl (not term) (not universal))` from `(= term (not universal))`
+        let equiv_pos2 = b.step(
+            vec![not_equality, not_term, not_universal.clone()],
+            "equiv_pos2",
+            Vec::new(),
+            Vec::new(),
+        );
+        let implication = b.resolve(vec![equiv_pos2, duality], vec![(equality, false)])?;
+        b.resolve(vec![escape, implication], vec![(universal, true)])?
+    } else {
+        // `(cl term (not (not universal)))` from `(= term (not universal))`, with `not_not`
+        // stripping the double negation
+        let not_not_universal = b.not(&not_universal);
+        let equiv_pos1 = b.step(
+            vec![not_equality, term.clone(), not_not_universal.clone()],
+            "equiv_pos1",
+            Vec::new(),
+            Vec::new(),
+        );
+        let implication = b.resolve(vec![equiv_pos1, duality], vec![(equality, false)])?;
+        let triple = b.not(&not_not_universal);
+        let not_not = b.step(
+            vec![triple, universal.clone()],
+            "not_not",
+            Vec::new(),
+            Vec::new(),
+        );
+        let with_universal =
+            b.resolve(vec![implication, not_not], vec![(not_not_universal, true)])?;
+        b.resolve(vec![with_universal, escape], vec![(universal, true)])?
+    };
+    Ok(Some(bridged))
 }
 
 /// Orients a guard equality into a fact for `x → t` transport, adding a `symm` step if the guard
@@ -312,8 +659,8 @@ pub fn onepoint(
         };
         substitution.apply(pool, &body)
     };
-    // The right-hand side may differ from σ(φ) by the orientation of equality subterms
-    // (veriT's implicit reordering); the case functions bridge that difference when needed
+    // The right-hand side need not be σ(φ) verbatim; the case functions bridge the difference
+    // when they can
     let point_vars: Vec<Rc<Term>> = point_map.keys().cloned().collect();
 
     let args = OnepointArgs {
@@ -377,15 +724,19 @@ fn forall_onepoint(
     step: &StepNode,
     args: &OnepointArgs,
 ) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
-    let Some(shape) = classify_forall_body(args.body, args.point_vars) else {
+    let Some(guards) = point_guards(Binder::Forall, args.body, args.points) else {
         return Ok(None);
     };
 
     let mut b = Builder::new(pool, step);
-    // Bridge between σ(φ) and the right-hand side's body, when their equality orientations
-    // differ (derived once, outside the anchors)
-    let Ok(e_corr) = orientation_bridge(&mut b, args.sigma_body, args.rhs_body) else {
-        return Ok(None);
+    // Bridge between σ(φ) and the right-hand side's body, when it is not σ(φ) verbatim: the two
+    // may differ by the orientation of equality subterms or by repeated disjuncts of an `or`
+    let e_corr = match orientation_bridge(&mut b, args.sigma_body, args.rhs_body) {
+        Ok(bridge) => bridge,
+        Err(()) => match disjunct_bridge(&mut b, args.sigma_body, args.rhs_body)? {
+            Some(bridge) => Some(bridge),
+            None => return Ok(None),
+        },
     };
 
     // Direction →: instantiate at the points (and the kept variables at themselves)
@@ -424,7 +775,7 @@ fn forall_onepoint(
 
         // `(cl ¬φ' φ)` by a discharge subproof
         let implication =
-            derive_body_from_substituted(&mut b, args, &phi_prime, &shape, e_corr.as_ref())?;
+            derive_body_from_substituted(&mut b, args, &phi_prime, &guards, e_corr.as_ref())?;
         let Some(implication) = implication else {
             return Ok(None);
         };
@@ -438,25 +789,25 @@ fn forall_onepoint(
     Ok(Some(relabel_dropping_previous(step, &node)))
 }
 
-/// Derives `(cl ¬φ' φ)` for a `forall` body: a discharge subproof assumes `φ'`, rebuilds `φ`
-/// through its guard structure, transporting the payload with the guard equalities.
+/// Derives `(cl ¬φ' φ)` for a `forall` body.
+///
+/// A discharge subproof assumes `φ'` and rebuilds `φ` by cases on the guards: under a second,
+/// nested discharge subproof that assumes them all, `φ` is just `σ(φ)` transported back along the
+/// guard equalities, which the (bridged) assumption gives; and if any guard fails, `φ` holds
+/// outright, since the guard's negation is one of its disjuncts — that is what [`guard_escape`]
+/// derives. Resolving the two on each guard leaves `(cl φ)`.
 fn derive_body_from_substituted(
     b: &mut Builder,
     args: &OnepointArgs,
     phi_prime: &Rc<Term>,
-    shape: &ForallBody,
+    guards: &[Rc<Term>],
     e_corr: Option<&Rc<ProofNode>>,
 ) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
     let body = args.body;
-    let points = args.points;
-    let point_vars: Vec<Rc<Term>> = points
-        .iter()
-        .map(|(var, _)| b.pool.add(var.clone().into()))
-        .collect();
+    let point_vars = args.point_vars;
     b.open();
     let assumed = b.assume(phi_prime.clone());
-    // Bridge the assumption to σ(φ) when the orientation differs; everything below works on
-    // σ(φ) (`sigma_apply` of the pieces)
+    // Bridge the assumption to σ(φ), which is what the transport below starts from
     let outer_assumption = match e_corr {
         Some(eq) => {
             let flipped = b.symm(eq);
@@ -464,268 +815,54 @@ fn derive_body_from_substituted(
         }
         None => assumed.clone(),
     };
-    let working_term = args.sigma_body.clone();
 
-    let result = match shape {
-        ForallBody::Implies { antecedent, consequent } => {
-            let sigma = |b: &mut Builder, t: &Rc<Term>| sigma_apply(b, t, points);
-            let sigma_antecedent = sigma(b, antecedent);
-            let sigma_consequent = sigma(b, consequent);
-
-            // Discharge subproof: assume the antecedent whole, extract the guard facts from its
-            // conjunction spine, and derive the consequent
-            b.open();
-            let g_assumption = b.assume(antecedent.clone());
-            let mut facts: IndexMap<Rc<Term>, Rc<ProofNode>> = IndexMap::new();
-            let mut stack = vec![(antecedent.clone(), g_assumption.clone())];
-            while let Some((term, node)) = stack.pop() {
-                if let Some(and_args) = match_term!((and ...) = term) {
-                    for (i, arg) in and_args.iter().enumerate() {
-                        let not_term = b.not(&term);
-                        let index = b.pool.add(Term::new_int(i));
-                        let and_pos = b.step(
-                            vec![not_term, arg.clone()],
-                            "and_pos",
-                            Vec::new(),
-                            vec![index],
-                        );
-                        let arg_node =
-                            b.resolve(vec![and_pos, node.clone()], vec![(term.clone(), false)])?;
-                        stack.push((arg.clone(), arg_node));
-                    }
-                } else if let Some((var, oriented)) =
-                    orient_guard(b, &term, &point_vars, node.clone())
-                {
-                    let value = points
-                        .iter()
-                        .find(|(pv, _)| b.pool.add(pv.clone().into()) == var)
-                        .map(|(_, v)| v.clone());
-                    let matches = value.is_some_and(|v| {
-                        match_term!((= a b) = oriented.clause()[0])
-                            .is_some_and(|(_, rhs)| *rhs == v)
-                    });
-                    if matches {
-                        facts.entry(var).or_insert(oriented);
-                    }
-                }
-            }
-
-            // When the consequent is a negated guard equality, its guard fact is only
-            // available under an inner subproof assuming the equality — and the antecedent's
-            // substituted positions may need that same fact
-            let consequent_guard = match (
-                consequent.remove_negation(),
-                sigma_consequent.remove_negation(),
-            ) {
-                (Some(g), Some(sg))
-                    if match_term!((= a b) = g).is_some_and(|(a, bb)| {
-                        point_vars.contains(a) || point_vars.contains(bb)
-                    }) =>
-                {
-                    Some((g.clone(), sg.clone()))
-                }
-                _ => None,
-            };
-
-            let consequent_node = if let Some((g, sg)) = consequent_guard {
-                // Inner subproof: assume g, transport G to σG, extract ¬(t ≈ t), refute by refl
-                b.open();
-                let g_assumed = b.assume(g.clone());
-                let mut inner_facts = facts.clone();
-                if let Some((var, oriented)) = orient_guard(b, &g, &point_vars, g_assumed.clone()) {
-                    inner_facts.entry(var).or_insert(oriented);
-                }
-                let sigma_g_node = {
-                    let Ok(eq) = transport(b, &inner_facts, antecedent, &sigma_antecedent) else {
-                        return Ok(None);
-                    };
-                    match eq {
-                        Some(eq_node) => eq_mp(b, g_assumption.clone(), eq_node)?,
-                        None => g_assumption.clone(),
-                    }
-                };
-                let (not_working, not_sigma_g) = (b.not(&working_term), b.not(&sigma_antecedent));
-                let implies_pos = b.step(
-                    vec![not_working, not_sigma_g, sigma_consequent.clone()],
-                    "implies_pos",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let sigma_c_node = b.resolve(
-                    vec![implies_pos, outer_assumption.clone(), sigma_g_node],
-                    vec![
-                        (working_term.clone(), false),
-                        (sigma_antecedent.clone(), false),
-                    ],
-                )?;
-                let refl = b.step(vec![sg.clone()], "refl", Vec::new(), Vec::new());
-                let empty = b.resolve(vec![sigma_c_node, refl], vec![(sg, false)])?;
-                let sub = b.close_subproof(vec![g_assumed], empty);
-                // sub: (cl ¬g false); eliminate the `false` literal
-                let f = b.pool.bool_false();
-                let not_false = b.not(&f);
-                let false_step = b.step(vec![not_false], "false", Vec::new(), Vec::new());
-                b.resolve(vec![sub, false_step], vec![(f, true)])?
-            } else {
-                // σG from G by transport over the antecedent's own guard facts
-                let sigma_g_node = {
-                    let Ok(eq) = transport(b, &facts, antecedent, &sigma_antecedent) else {
-                        return Ok(None);
-                    };
-                    match eq {
-                        Some(eq_node) => eq_mp(b, g_assumption.clone(), eq_node)?,
-                        None => g_assumption.clone(),
-                    }
-                };
-                let (not_working, not_sigma_g) = (b.not(&working_term), b.not(&sigma_antecedent));
-                let implies_pos = b.step(
-                    vec![not_working, not_sigma_g, sigma_consequent.clone()],
-                    "implies_pos",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let sigma_c_node = b.resolve(
-                    vec![implies_pos, outer_assumption.clone(), sigma_g_node],
-                    vec![
-                        (working_term.clone(), false),
-                        (sigma_antecedent.clone(), false),
-                    ],
-                )?;
-                // The consequent by reverse transport
-                let reverse_facts = {
-                    let mut m = IndexMap::new();
-                    for (_, node) in &facts {
-                        let flipped = b.symm(node);
-                        let key = match_term!((= a b) = flipped.clause()[0])
-                            .unwrap()
-                            .0
-                            .clone();
-                        m.insert(key, flipped);
-                    }
-                    m
-                };
-                let Ok(eq) = transport(b, &reverse_facts, &sigma_consequent, consequent) else {
-                    return Ok(None);
-                };
-                match eq {
-                    Some(eq_node) => eq_mp(b, sigma_c_node, eq_node)?,
-                    None => sigma_c_node,
-                }
-            };
-
-            let inner = b.close_subproof(vec![g_assumption], consequent_node);
-
-            // Package `φ = (=> G C)` from `(cl ¬G C)`
-            let not_consequent = b.not(consequent);
-            let implies_neg1 = b.step(
-                vec![body.clone(), antecedent.clone()],
-                "implies_neg1",
-                Vec::new(),
-                Vec::new(),
-            );
-            let implies_neg2 = b.step(
-                vec![body.clone(), not_consequent],
-                "implies_neg2",
-                Vec::new(),
-                Vec::new(),
-            );
-            let r1 = b.resolve(vec![inner, implies_neg2], vec![(consequent.clone(), true)])?;
-            b.resolve(vec![r1, implies_neg1], vec![(antecedent.clone(), false)])?
-        }
-        ForallBody::Or { literals } => {
-            let sigma = |b: &mut Builder, t: &Rc<Term>| sigma_apply(b, t, points);
-            // Unpack φ' into its literals
-            let sigma_literals: Vec<Rc<Term>> = literals.iter().map(|l| sigma(b, l)).collect();
-            let not_working = b.not(&working_term);
-            let mut or_pos_clause = vec![not_working];
-            or_pos_clause.extend(sigma_literals.iter().cloned());
-            let or_pos = b.step(or_pos_clause, "or_pos", Vec::new(), Vec::new());
-            let mut current = b.resolve(
-                vec![or_pos, outer_assumption.clone()],
-                vec![(working_term.clone(), false)],
-            )?;
-
-            // Eliminate the reflexive negated guards `¬(= t t)` by `refl`
-            for (l, sl) in literals.iter().zip(&sigma_literals) {
-                let Some(g) = l.remove_negation() else {
-                    continue;
-                };
-                let Some(sg) = sl.remove_negation() else {
-                    continue;
-                };
-                if match_term!((= a b) = g)
-                    .is_some_and(|(a, bb)| point_vars.contains(a) || point_vars.contains(bb))
-                {
-                    let refl = b.step(vec![sg.clone()], "refl", Vec::new(), Vec::new());
-                    current = b.resolve(vec![current, refl], vec![(sg.clone(), false)])?;
-                }
-            }
-
-            // Transport each remaining payload literal under discharge subproofs assuming the
-            // guards
-            let guards: Vec<Rc<Term>> = literals
-                .iter()
-                .filter_map(|l| l.remove_negation())
-                .filter(|g| {
-                    match_term!((= a b) = *g)
-                        .is_some_and(|(a, bb)| point_vars.contains(a) || point_vars.contains(bb))
-                })
-                .cloned()
-                .collect();
-            for (l, sl) in literals.iter().zip(&sigma_literals) {
-                let is_guard_literal = l.remove_negation().is_some_and(|g| guards.contains(g));
-                if l == sl || is_guard_literal {
-                    continue;
-                }
-                // subproof: assume σl and the guards, conclude l
-                b.open();
-                let sl_assumption = b.assume(sl.clone());
-                let mut assumptions = vec![sl_assumption.clone()];
-                let mut facts = IndexMap::new();
-                for g in &guards {
-                    let a = b.assume(g.clone());
-                    assumptions.push(a.clone());
-                    let Some((_, oriented)) = orient_guard(b, g, &point_vars, a) else {
-                        return Ok(None);
-                    };
-                    let flipped = b.symm(&oriented);
-                    let key = match_term!((= a b) = flipped.clause()[0])
-                        .unwrap()
-                        .0
-                        .clone();
-                    facts.insert(key, flipped);
-                }
-                let Ok(eq) = transport(b, &facts, sl, l) else {
-                    return Ok(None);
-                };
-                let l_node = match eq {
-                    Some(eq_node) => eq_mp(b, sl_assumption, eq_node)?,
-                    None => sl_assumption,
-                };
-                let sub = b.close_subproof(assumptions, l_node);
-                // `(cl ¬σl ¬g1 … l)`: resolve into the current clause
-                current = b.resolve(vec![current, sub], vec![(sl.clone(), true)])?;
-            }
-
-            // Pack the clause back into `φ = (or l1 … ln)`. The current clause now holds, for
-            // each literal position, either the literal itself or the negation of a guard
-            let mut packed = current;
-            for (i, l) in literals.iter().enumerate() {
-                let not_l = b.not(l);
-                let index = b.pool.add(Term::new_int(i));
-                let or_neg = b.step(vec![body.clone(), not_l], "or_neg", Vec::new(), vec![index]);
-                if packed.clause().contains(l) {
-                    packed = b.resolve(vec![packed, or_neg], vec![(l.clone(), true)])?;
-                }
-            }
-            packed
-        }
+    // The guards hold: transport σ(φ) back to φ
+    b.open();
+    let mut assumptions = Vec::new();
+    let mut facts: IndexMap<Rc<Term>, Rc<ProofNode>> = IndexMap::new();
+    for guard in guards {
+        let assumption = b.assume(guard.clone());
+        assumptions.push(assumption.clone());
+        let Some((_, oriented)) = orient_guard(b, guard, point_vars, assumption) else {
+            return Ok(None);
+        };
+        // `(= x t)` oriented; the transport replaces the values by the variables, so it is the
+        // flipped equality that keys the facts
+        let flipped = b.symm(&oriented);
+        let key = match_term!((= a b) = flipped.clause()[0])
+            .unwrap()
+            .0
+            .clone();
+        facts.insert(key, flipped);
+    }
+    let Ok(eq) = transport(b, &facts, args.sigma_body, body) else {
+        return Ok(None);
     };
+    let body_node = match eq {
+        Some(eq_node) => eq_mp(b, outer_assumption, eq_node)?,
+        None => outer_assumption,
+    };
+    // `(cl ¬g₁ … ¬gₘ φ)`
+    let mut result = b.close_subproof(assumptions, body_node);
 
-    // Result should conclude `(cl … φ)` with possibly guard negations; the caller expects the
-    // unit-`φ` shape, so anything else bails
-    let final_ok = result.clause() == [body.clone()];
-    if !final_ok {
+    // Some guard fails: `φ` holds outright
+    for guard in guards {
+        if !result
+            .clause()
+            .iter()
+            .any(|literal| literal.remove_negation() == Some(guard))
+        {
+            // A guard shared by two points, already discharged
+            continue;
+        }
+        let mut failed = HashSet::new();
+        let Some(escape) = guard_escape(b, body, false, guard, &mut failed)? else {
+            return Ok(None);
+        };
+        result = b.resolve(vec![result, escape], vec![(guard.clone(), false)])?;
+    }
+
+    if result.clause() != [body.clone()] {
         return Ok(None);
     }
     Ok(Some(b.close_subproof(vec![assumed], result)))
@@ -750,23 +887,15 @@ pub(super) fn relabel_dropping_previous(step: &StepNode, node: &Rc<ProofNode>) -
     }))
 }
 
-/// Applies the point substitution to a term (plain term-level substitution).
-fn sigma_apply(b: &mut Builder, term: &Rc<Term>, points: &[(SortedVar, Rc<Term>)]) -> Rc<Term> {
-    let map: IndexMap<Rc<Term>, Rc<Term>> = points
-        .iter()
-        .map(|(var, value)| (b.pool.add(var.clone().into()), value.clone()))
-        .collect();
-    match Substitution::new(b.pool, map) {
-        Ok(mut substitution) => substitution.apply(b.pool, term),
-        Err(_) => term.clone(),
-    }
-}
-
 fn exists_onepoint(
     pool: &mut PrimitivePool,
     step: &StepNode,
     args: &OnepointArgs,
 ) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    let Some(guards) = point_guards(Binder::Exists, args.body, args.points) else {
+        return Ok(None);
+    };
+
     let mut b = Builder::new(pool, step);
 
     // Bridge between σ(φ) and the right-hand side's body, when their equality orientations
@@ -809,7 +938,8 @@ fn exists_onepoint(
 
         // (cl B F): anchor over the full prefix, derive `(cl ¬φ B)` by a discharge subproof
         b.open();
-        let sub = derive_substituted_from_body(&mut b, args, f_prime.as_ref(), e_corr.as_ref())?;
+        let sub =
+            derive_substituted_from_body(&mut b, args, &guards, f_prime.as_ref(), e_corr.as_ref())?;
         let Some(sub) = sub else {
             return Ok(None);
         };
@@ -902,73 +1032,41 @@ fn forall_term(b: &mut Builder, bindings: &[SortedVar], body: &Rc<Term>) -> Rc<T
     ))
 }
 
-/// The `connective_def` duality instance `(= (∃x̄. φ) ¬(∀x̄. ¬φ))`.
-fn connective_def_duality(b: &mut Builder, exists: &Rc<Term>, f: &Rc<Term>) -> Rc<ProofNode> {
-    let not_f = b.not(f);
-    let clause = vec![build_term!(b.pool, (= {exists.clone()} {not_f}))];
-    b.step(clause, "connective_def", Vec::new(), Vec::new())
-}
-
 /// For the `exists` → direction: a discharge subproof assuming `φ`, extracting the guard
-/// equalities from its conjunction spine, transporting `φ` to `φ'`, and introducing the
-/// existential when the right-hand side is quantified. Concludes `(cl ¬φ B)`.
+/// equalities out of it, transporting `φ` to `φ'`, and introducing the existential when the
+/// right-hand side is quantified. Concludes `(cl ¬φ B)`.
 fn derive_substituted_from_body(
     b: &mut Builder,
     args: &OnepointArgs,
+    guards: &[Rc<Term>],
     f_prime: Option<&(Rc<Term>, Rc<ProofNode>)>,
     e_corr: Option<&Rc<ProofNode>>,
 ) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
     let (body, rhs, rhs_body) = (args.body, args.rhs, args.rhs_body);
-    let (kept, points, point_vars) = (args.kept, args.points, args.point_vars);
+    let (kept, point_vars) = (args.kept, args.point_vars);
     b.open();
     let assumption = b.assume(body.clone());
 
-    // Extract every guard equality reachable through the conjunction spine
-    let mut facts = IndexMap::new();
-    let mut stack = vec![(body.clone(), assumption.clone())];
-    while let Some((term, node)) = stack.pop() {
-        if let Some(args) = match_term!((and ...) = term) {
-            for (i, arg) in args.iter().enumerate() {
-                let not_term = b.not(&term);
-                let index = b.pool.add(Term::new_int(i));
-                let and_pos = b.step(
-                    vec![not_term, arg.clone()],
-                    "and_pos",
-                    Vec::new(),
-                    vec![index],
-                );
-                let arg_node =
-                    b.resolve(vec![and_pos, node.clone()], vec![(term.clone(), false)])?;
-                stack.push((arg.clone(), arg_node));
-            }
-        } else if match_term!((= a b) = term)
-            .is_some_and(|(a, bb)| point_vars.contains(a) || point_vars.contains(bb))
-        {
-            if let Some((var, oriented)) = orient_guard(b, &term, point_vars, node) {
-                // Several guards may mention the same point variable; only the one matching the
-                // anchor's substitution value is usable as the transport fact
-                let value = points
-                    .iter()
-                    .find(|(p, _)| b.pool.add(p.clone().into()) == var)
-                    .map(|(_, v)| v.clone());
-                let matches = value.is_some_and(|v| {
-                    match_term!((= a b) = oriented.clause()[0]).is_some_and(|(_, rhs)| *rhs == v)
-                });
-                if matches {
-                    facts.entry(var).or_insert(oriented);
-                }
-            }
-        }
-    }
-    if facts.len() < points.len() {
-        return Ok(None);
+    // Every guard is a conjunct of the body — that is what its positive polarity means — so
+    // `guard_escape` carries it out of the assumption
+    let mut facts: IndexMap<Rc<Term>, Rc<ProofNode>> = IndexMap::new();
+    for guard in guards {
+        let mut failed = HashSet::new();
+        let Some(escape) = guard_escape(b, body, true, guard, &mut failed)? else {
+            return Ok(None);
+        };
+        let fact = b.resolve(
+            vec![escape, assumption.clone()],
+            vec![(body.clone(), false)],
+        )?;
+        let Some((var, oriented)) = orient_guard(b, guard, point_vars, fact) else {
+            return Ok(None);
+        };
+        facts.insert(var, oriented);
     }
 
     // Transport φ to σ(φ), then bridge to the (possibly reoriented) right-hand side body
-    let sigma_body = sigma_apply(b, body, points);
-    debug_assert_eq!(&sigma_body, args.sigma_body);
-    let facts_by_var: IndexMap<Rc<Term>, Rc<ProofNode>> = facts.into_iter().collect();
-    let Ok(eq) = transport(b, &facts_by_var, body, &sigma_body) else {
+    let Ok(eq) = transport(b, &facts, body, args.sigma_body) else {
         return Ok(None);
     };
     let sigma_node = match eq {

@@ -279,9 +279,14 @@ pub fn r#let(
     Ok(())
 }
 
-fn extract_points(quant: Binder, term: &Rc<Term>) -> HashSet<(String, Rc<Term>)> {
+/// The points of a quantified formula: the equalities that force one of the binder variables, as
+/// the `onepoint` rule understands them. Each point `(x, t)` maps to the equality term it was read
+/// off, which the `core` elaborator's reduction needs; sharing the traversal keeps the recipe and
+/// the rule from drifting apart. The first occurrence wins, so that a point is always paired with
+/// the leftmost equality that yields it.
+pub fn extract_points(quant: Binder, term: &Rc<Term>) -> IndexMap<(String, Rc<Term>), Rc<Term>> {
     fn find_points(
-        acc: &mut HashSet<(String, Rc<Term>)>,
+        acc: &mut IndexMap<(String, Rc<Term>), Rc<Term>>,
         seen: &mut HashSet<(Rc<Term>, bool)>,
         polarity: bool,
         term: &Rc<Term>,
@@ -302,10 +307,10 @@ fn extract_points(quant: Binder, term: &Rc<Term>) -> HashSet<(String, Rc<Term>)>
             true => {
                 if let Some((a, b)) = match_term!((= a b) = term) {
                     if let Some(a) = a.as_var() {
-                        acc.insert((a.to_owned(), b.clone()));
+                        acc.entry((a.to_owned(), b.clone())).or_insert(term.clone());
                     }
                     if let Some(b) = b.as_var() {
-                        acc.insert((b.to_owned(), a.clone()));
+                        acc.entry((b.to_owned(), a.clone())).or_insert(term.clone());
                     }
                 } else if let Some(args) = match_term!((and ...) = term) {
                     for a in args {
@@ -326,7 +331,7 @@ fn extract_points(quant: Binder, term: &Rc<Term>) -> HashSet<(String, Rc<Term>)>
         }
     }
 
-    let mut result = HashSet::new();
+    let mut result = IndexMap::new();
     let mut seen = HashSet::new();
     find_points(&mut result, &mut seen, quant == Binder::Exists, term);
     result
@@ -372,7 +377,7 @@ pub fn onepoint(
     // Since a substitution may use a variable introduced in a previous substitution, we apply the
     // substitution to the points in order to replace these variables by their value.
     let points: HashSet<_> = points
-        .into_iter()
+        .into_keys()
         .map(|(x, t)| (x, context.apply(pool, &t)))
         .collect();
 
