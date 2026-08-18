@@ -180,17 +180,24 @@ impl<'e> Elaborator<'e> {
     /// logged, so the pass never rejects a proof.
     /// With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are left
     /// unchanged — the vocabulary evaluated as the `eq_cl` configuration.
+    ///
+    /// Recipes are memoized by their conclusion: a derivation that is self-contained and mentions
+    /// no anchor-bound variable is emitted once, at depth 0, and every later step with the same
+    /// conclusion is replaced by it. See [`core::share`].
     fn elaborate_core(
         &mut self,
         proof: ProofNodeForest,
         keep_equality: bool,
     ) -> Result<ProofNodeForest, Error> {
-        proof.mutate(|context, node, _| {
+        let mut sharing = core::share::Sharing::new(&proof);
+        let result = proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
                     if let Some(func) = core::get_elaboration_function(&s.rule, keep_equality) {
                         match func(self.pool, context, s) {
-                            Ok(new_node) => return Ok(new_node),
+                            Ok(new_node) => {
+                                return Ok(sharing.share(self.pool, context, s, new_node));
+                            }
                             Err(e) => {
                                 log::warn!(
                                     "core elaboration of '{}' ({}) failed, keeping step: {}",
@@ -206,7 +213,9 @@ impl<'e> Elaborator<'e> {
                 ProofNode::Assume { .. } => (),
             }
             Ok(node.clone())
-        })
+        });
+        log::info!("core elaboration: sharing saved {} steps", sharing.saved());
+        result
     }
 
     fn elaborate_local(&mut self, proof: ProofNodeForest) -> Result<ProofNodeForest, Error> {
