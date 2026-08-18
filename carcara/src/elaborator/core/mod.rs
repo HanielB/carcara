@@ -468,6 +468,7 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         "la_totality" => arithmetic::la_totality,
         "la_tautology" => arithmetic::la_tautology,
         "la_rw_eq" => arithmetic::la_rw_eq,
+        "poly_simp_rel" => arithmetic::poly_simp_rel,
 
         // ACI reasoning (`ac_simp` is the one legacy rule with a working fallback: `lia_generic`
         // is excluded from this pass, `qnt_cnf` is oracle-only, and `ite_intro`/`bfun_elim` need
@@ -487,7 +488,6 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         // `sko_ex` is classified *expensive* and deliberately left unreduced: its recipe (in
         // `skolem.rs`, still available and tested) costs ~35 emitted steps per binding, an ~8x
         // local blowup, which the classification is not willing to pay by default
-
         "qnt_cnf" => legacy::qnt_cnf,
         "bfun_elim" => legacy::bfun_elim,
         "ite_intro" => legacy::ite_intro,
