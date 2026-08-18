@@ -1050,6 +1050,25 @@ way, with their concern category noted:
 | `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
 | strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | aggressive | `sat_refutation` oracle-reducible via its dedicated pass |
 
+### Outside this classification's scope
+
+Carcara checks 181 rule names; this classification analyses the 120 specification rules plus the
+extras above. The remainder are named here so that the gap is explicit rather than accidental —
+they are, with one exception, rules that **only cvc5 produces**, and only in theories the
+evaluation does not cover:
+
+| rules | what they are | status |
+|---|---|---|
+| `bitblast_ashr`, `bitblast_comp`, `bitblast_const`, `bitblast_lshr`, `bitblast_shl`, `bitblast_udiv`, `bitblast_urem`, `bitblast_var` | eight bitblasting schemas Carcara checks beyond the specification's 14 | unclassified; presumably core alongside the other `bitblast_*` (same definitional character), but not analysed |
+| `bitblast_equal`, `bitblast_sign_extend` | cvc5's names for the specification's `bitblast_eq` and `bitblast_sext` | naming divergence worth raising with the spec, not a semantic gap |
+| 20 string rules (`concat_*`, `re_*`, `string_*`), 15 `pbblast_*`, 6 `cp_*`, 4 `arrays_*`, `drat`/`drup` | the theory-extension families of the row above | covered *collectively* as aggressive; no rule-by-rule reduction scheme is recorded |
+| `ho_cong` | higher-order congruence: like `cong`, but the function position is itself equated by a premise | unclassified. It is not derivable from `cong`, which requires identical heads, so it is a genuine primitive candidate for a higher-order core |
+| `strict_refl` | the strict, post-elaboration variant of `refl` (syntactic equality after applying the context) | core variant, like `strict_resolution` above |
+
+Of these, only the string, PB, cutting-plane, array, bitvector and higher-order rules would show
+up in a corpus that exercised those theories; the evaluated logics (QF_UF, QF_UFLIA, QF_LIA,
+QF_LRA, UF, UFLIA) exercise none of them.
+
 <details id="ex-eq-mp">
 <summary>Example: <code>eq_mp</code> (implemented)</summary>
 
