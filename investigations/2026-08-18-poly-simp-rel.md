@@ -5,6 +5,15 @@
 all 114 015 corpus instances reduce and re-check. The bitvector case is **not** reducible over
 the core's arithmetic vocabulary and is kept.
 
+The aggregate price is the largest of any recipe — about +25% steps on cvc5's arithmetic proofs,
+because the rule fires 114 015 times — and it was accepted deliberately. The expensive tier means
+"this rule stays in the checking vocabulary", and this rule does not deserve that: it is an
+ad-hoc packaging of a Farkas step, with a premise the checker never validates as an identity and
+a same-sign side condition that exists only because the certificate's weights are absolute
+values. Paying a fixed 8 or 20 steps per instance to be rid of it is exactly the trade the
+reducible tier exists to make — unlike `sko_ex`, a principled binder rule worth keeping, whose
+reduction costs O(bindings) steps per instance.
+
 ## The rule
 
 Checker: `carcara/src/checker/rules/polynomial.rs::poly_simp_rel`. From a premise
