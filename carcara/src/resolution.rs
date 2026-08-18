@@ -119,6 +119,22 @@ pub fn greedy_resolution(
         //     (step t2 (cl (= false true) false true) :rule equiv_neg2)
         //     (step t3 (cl (= false true)) :rule resolution :premises (t1 t2))
         let mut eliminated_clause_pivot = false;
+
+        // Pivots introduced by the current premise are buffered and only merged into the pivots
+        // set after the premise is fully processed. This prevents a literal from being eliminated
+        // against a pivot that came from the same premise, which is never a valid chain move: in a
+        // resolution chain, each premise is resolved against the accumulated clause on a single
+        // pivot, and the premise's literals never cancel each other. This matters when a clause
+        // contains the same atom under different numbers of negations, e.g.
+        //
+        //     (step t1 (cl (not (not p)) (not (not (not p))) false) :rule hole)
+        //     (step t2 (cl q (not p)) :rule hole)
+        //     (step t3 (cl q (not (not p))) :rule hole)
+        //     (step t4 (cl false q) :rule resolution :premises (t1 t2 t3))
+        //
+        // Without the buffer, the two stacked-negation literals in t1 would cancel each other,
+        // deriving a bogus trace instead of the valid chain with pivots (not p) and (not (not p)).
+        let mut new_pivots = Vec::new();
         for term in premise {
             let (n, inner) = term.remove_all_negations();
             let n = n as i32;
@@ -172,9 +188,13 @@ pub fn greedy_resolution(
             } else {
                 // If the term is not in the conclusion clause, it must be a pivot. If it was
                 // not already in the pivots set, we insert `false`, to indicate that it was
-                // not yet eliminated
-                pivots.entry((n, inner)).or_insert(false);
+                // not yet eliminated. The insertion is deferred to the end of the premise so
+                // this pivot cannot eliminate a literal of the same premise
+                new_pivots.push((n, inner));
             }
+        }
+        for pivot in new_pivots {
+            pivots.entry(pivot).or_insert(false);
         }
     }
 
@@ -429,4 +449,49 @@ pub fn rup_chain(
         .collect();
 
     Some(RupChain { order, pivots, final_clause })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::pool::PrimitivePool;
+    use crate::parser::tests::parse_terms;
+
+    /// A pattern produced by cvc5 when it refutes the contradictory conjunction `(and (not p)
+    /// (not (not p)))` via a subproof: the same atom occurs under one, two, and three negations.
+    /// The step is a valid left-to-right chain with pivots `(not p)` and `(not (not p))`, but a
+    /// greedy algorithm that allows a pivot to eliminate a literal of its own premise instead
+    /// cancels the two stacked-negation literals of the first premise against each other,
+    /// producing a trace that does not replay as a chain.
+    #[test]
+    fn stacked_negations_within_a_premise() {
+        let mut pool = PrimitivePool::new();
+        let definitions = "(declare-fun p () Bool)";
+        let [nnp, nnnp, false_, na, np] = parse_terms(
+            &mut pool,
+            definitions,
+            [
+                "(not (not p))",
+                "(not (not (not p)))",
+                "false",
+                "(not (and (not p) (not (not p))))",
+                "(not p)",
+            ],
+        );
+
+        let premises: [&[Rc<Term>]; 3] = [
+            &[nnp.clone(), nnnp, false_.clone()],
+            &[na.clone(), np],
+            &[na.clone(), nnp],
+        ];
+        let conclusion = [false_, na.clone(), na];
+
+        let trace = greedy_resolution(&conclusion, &premises, &mut pool, true)
+            .expect("greedy resolution failed");
+        assert!(!trace.not_not_added);
+        assert!(
+            set_replay_valid(&conclusion, &premises, &trace.pivot_trace),
+            "greedy trace does not replay as a valid chain"
+        );
+    }
 }
