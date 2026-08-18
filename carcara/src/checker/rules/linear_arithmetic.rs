@@ -95,6 +95,14 @@ impl LinearComb {
                     self.add_term(a, &coeff.as_neg());
                 }
             }
+            // `to_real` is the identity on values, so it is transparent to the normalization. The
+            // polynomial normalization of `poly_simp` already treats it this way; without this
+            // case, `(to_real t)` would be an atom distinct from `t`, and any `la_generic` clause
+            // that mixes an integer term with its real embedding (as the ones cvc5 emits around
+            // `poly_simp_rel` do) would fail to normalize.
+            Term::Op(Operator::ToReal, args) => {
+                self.add_term(&args[0], coeff);
+            }
             Term::Op(Operator::Mult, args) if args.len() == 2 => {
                 let (var, mut inner_coeff) = match (args[0].as_fraction(), args[1].as_fraction()) {
                     (None, Some(coeff)) => (&args[0], coeff),
