@@ -12,7 +12,17 @@ struct RewriteContext {
     in_progress: IndexSet<Rc<Term>>,
 }
 
-pub fn get_rules() -> Vec<(RewriteTerm, RewriteTerm)> {
+/// Returns the fixed set of meta-rewrite rules used to normalize RARE rule instantiations.
+///
+/// The set is built once and cached for the lifetime of the process: `check_rare` consults it
+/// for every `rare_rewrite` step (and once per premise), and rebuilding it each time performs
+/// hundreds of small allocations per step, which is pure overhead on rare-heavy proofs.
+pub fn get_rules() -> &'static [(RewriteTerm, RewriteTerm)] {
+    static RULES: std::sync::OnceLock<Vec<(RewriteTerm, RewriteTerm)>> = std::sync::OnceLock::new();
+    RULES.get_or_init(build_rules)
+}
+
+fn build_rules() -> Vec<(RewriteTerm, RewriteTerm)> {
     // For each n-ary (right-assoc-nil) operator we need, in this order:
     //   flatten   `(Op (RareList ..x..)) ~> (Op x)`  -- splice a rare list into the parent
     //   singleton `(Op x) ~> x`                       -- a one-argument application is its argument
@@ -439,7 +449,7 @@ mod tests {
     }
 
     fn normalize(pool: &mut PrimitivePool, term: Rc<Term>) -> Rc<Term> {
-        rewrite_meta_terms(pool, term, &get_rules())
+        rewrite_meta_terms(pool, term, get_rules())
     }
 
     #[test]
