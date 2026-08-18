@@ -18,6 +18,27 @@ struct JobDescriptor<'a> {
     run_index: usize,
 }
 
+/// Forces the allocator to finish the bookkeeping caused by parsing, so that its cost is
+/// measured as part of parsing instead of being charged to an unrelated proof step.
+///
+/// Parsing ends by dropping the parser state and the proof source text all at once. glibc's
+/// malloc does not do the corresponding work at that point: the freed chunks are parked in the
+/// unsorted bin, and walking that bin, coalescing neighbours and inserting into the sorted large
+/// bins is deferred to the *next* allocation requests. On large proofs that backlog was measured
+/// at 50-90 ms, and it was paid by whichever step happened to allocate first once checking had
+/// begun -- appearing in `steps.csv` as a single step of some rule hundreds of times slower than
+/// that rule's median, and inflating the checking time by an amount that belongs to parsing.
+///
+/// Repeatedly requesting a large-bin-sized chunk (well below the mmap threshold, so it goes
+/// through the bins) makes the allocator process the backlog here, while the parsing timer is
+/// still running. On a heap that has no backlog, or under an allocator that does not defer this
+/// work, the loop costs well under a millisecond.
+fn settle_allocator() {
+    for _ in 0..1000 {
+        std::hint::black_box(Vec::<u8>::with_capacity(64 * 1024));
+    }
+}
+
 fn run_job<T: CollectResults + Default + Send>(
     results: &mut T,
     job: JobDescriptor,
@@ -44,6 +65,7 @@ fn run_job<T: CollectResults + Default + Send>(
         rare_rules,
         parser_config,
     )?;
+    settle_allocator(); // still inside the parsing measurement, see the function's documentation
     let parsing = parsing.elapsed();
 
     let mut checker = checker::ProofChecker::new(&mut pool, &rules, checker_config);
