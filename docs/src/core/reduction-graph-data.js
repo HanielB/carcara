@@ -256,10 +256,9 @@ window.REDGRAPH = {
    "id": "weakening",
    "parent": "cat_clausal",
    "label": "weakening",
-   "level": "expensive",
-   "borderStyle": "dashed",
+   "level": "reducible",
    "url": "classification.html#clausal",
-   "tooltip": "i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)",
+   "tooltip": "i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)\n(rename to resolution under its RUP reading)",
    "x": 65.5,
    "y": 785.0,
    "w": 79.0,
@@ -269,10 +268,9 @@ window.REDGRAPH = {
    "id": "contraction",
    "parent": "cat_clausal",
    "label": "contraction",
-   "level": "expensive",
-   "borderStyle": "dashed",
+   "level": "reducible",
    "url": "classification.html#clausal",
-   "tooltip": "i ▷ C\n⟹  ▷ C with duplicate literals removed",
+   "tooltip": "i ▷ C\n⟹  ▷ C with duplicate literals removed\n(rename to resolution under its RUP reading)",
    "x": 65.5,
    "y": 893.0,
    "w": 83.0,
@@ -926,13 +924,11 @@ window.REDGRAPH = {
   {
    "source": "weakening",
    "target": "resolution",
-   "style": "dashed",
    "label": "RUP"
   },
   {
    "source": "contraction",
    "target": "resolution",
-   "style": "dashed",
    "label": "RUP"
   },
   {

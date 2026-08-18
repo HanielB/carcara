@@ -284,8 +284,8 @@
 <!-- weakening -->
 <g id="node18" class="node">
 <title>weakening</title>
-<g id="a_node18"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C, D &#160;(arbitrary literals appended)" target="_self">
-<path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M93,-825C93,-825 38,-825 38,-825 32,-825 26,-819 26,-813 26,-813 26,-801 26,-801 26,-795 32,-789 38,-789 38,-789 93,-789 93,-789 99,-789 105,-795 105,-801 105,-801 105,-813 105,-813 105,-819 99,-825 93,-825"/>
+<g id="a_node18"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C, D &#160;(arbitrary literals appended)&#10;(rename to resolution under its RUP reading)" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M93,-825C93,-825 38,-825 38,-825 32,-825 26,-819 26,-813 26,-813 26,-801 26,-801 26,-795 32,-789 38,-789 38,-789 93,-789 93,-789 99,-789 105,-795 105,-801 105,-801 105,-813 105,-813 105,-819 99,-825 93,-825"/>
 <text text-anchor="middle" x="65.5" y="-804.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">weakening</text>
 </a>
 </g>
@@ -293,15 +293,15 @@
 <!-- weakening&#45;&gt;resolution -->
 <g id="edge26" class="edge">
 <title>weakening&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="5,2" d="M105.24,-800.35C143.55,-793.77 202.51,-783.65 245.43,-776.28"/>
+<path fill="none" stroke="#8a887f" d="M105.24,-800.35C143.55,-793.77 202.51,-783.65 245.43,-776.28"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="245.82,-778.35 251.38,-775.26 245.11,-774.21 245.82,-778.35"/>
 <text text-anchor="middle" x="177" y="-797.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
 </g>
 <!-- contraction -->
 <g id="node19" class="node">
 <title>contraction</title>
-<g id="a_node19"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C with duplicate literals removed" target="_self">
-<path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M95,-717C95,-717 36,-717 36,-717 30,-717 24,-711 24,-705 24,-705 24,-693 24,-693 24,-687 30,-681 36,-681 36,-681 95,-681 95,-681 101,-681 107,-687 107,-693 107,-693 107,-705 107,-705 107,-711 101,-717 95,-717"/>
+<g id="a_node19"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C with duplicate literals removed&#10;(rename to resolution under its RUP reading)" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M95,-717C95,-717 36,-717 36,-717 30,-717 24,-711 24,-705 24,-705 24,-693 24,-693 24,-687 30,-681 36,-681 36,-681 95,-681 95,-681 101,-681 107,-687 107,-693 107,-693 107,-705 107,-705 107,-711 101,-717 95,-717"/>
 <text text-anchor="middle" x="65.5" y="-696.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">contraction</text>
 </a>
 </g>
@@ -309,7 +309,7 @@
 <!-- contraction&#45;&gt;resolution -->
 <g id="edge27" class="edge">
 <title>contraction&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="5,2" d="M107.22,-710.37C138.41,-719.13 182.48,-731.63 221,-743 228.84,-745.32 237.11,-747.8 245.22,-750.26"/>
+<path fill="none" stroke="#8a887f" d="M107.22,-710.37C138.41,-719.13 182.48,-731.63 221,-743 228.84,-745.32 237.11,-747.8 245.22,-750.26"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="245.04,-752.39 251.39,-752.13 246.26,-748.38 245.04,-752.39"/>
 <text text-anchor="middle" x="177" y="-745.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
 </g>

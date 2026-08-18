@@ -43,8 +43,8 @@ digraph core_alethe {
     implies_ax [URL="classification.html#clausal", target="_self", tooltip="implies_pos:   ▷ ¬(φ1 → φ2), ¬φ1, φ2\nimplies_neg1:  ▷ (φ1 → φ2), φ1\nimplies_neg2:  ▷ (φ1 → φ2), ¬φ2", label="implies axioms (3)", color="#2a78d6", penwidth=2.4];
     equiv_intro [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ ¬A, B;   j ▷ A, ¬B\n⟹  ▷ A ≈ B", label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
     or_intro    [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ l1, …, ln\n⟹  ▷ (l1 ∨ … ∨ ln)", label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
-    weakening   [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    contraction [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C with duplicate literals removed", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    weakening   [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)\n(rename to resolution under its RUP reading)", color="#1baf7a", penwidth=1.6];
+    contraction [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C with duplicate literals removed\n(rename to resolution under its RUP reading)", color="#1baf7a", penwidth=1.6];
   }
 
   subgraph cluster_binder {
@@ -126,8 +126,8 @@ digraph core_alethe {
   la_totality -> la_generic; la_tautology -> la_generic;
 
   // ---- expensive edges (dashed: check-power upgrade or proposed dependency) ----
-  weakening -> resolution [style=dashed, label="RUP"];
-  contraction -> resolution [style=dashed, label="RUP"];
+  weakening -> resolution [label="RUP"];
+  contraction -> resolution [label="RUP"];
   shuffle -> aci_simp;
   nary_elim -> aci_simp;
   nary_elim -> rare_rewrite [style=dotted, label="non-comm.\ncases"];

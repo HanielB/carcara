@@ -42,13 +42,13 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **54 core**, **42 reducible**,
-**9 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **54 core**, **44 reducible**,
+**7 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 23 | 22 | 2 | 0 | 0 |
+| clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
@@ -269,14 +269,18 @@ the premises, checkable by unit propagation (Carcara's `prefer_rup` mode).
 Under the RUP reading, `weakening` and `contraction` are *degenerate instances* of `resolution`:
 negating the conclusion immediately falsifies the premise clause (same literal set, or a
 superset), so the conflict appears before any propagation happens. Both therefore reduce to
-`resolution` by a pure rename. They sit at the *expensive* level rather than reducible because
-the rename upgrades the check: a linear syntactic scan (containment / dedup) becomes unit
-propagation, and the chain reading — under which `weakening` is not derivable at all, since chain
-resolution never introduces literals — loses them from its vocabulary. The two readings pull in
-opposite directions here: uncrowding *introduces* explicit `contraction` steps precisely to make
-the chain reading's implicit duplicate merging syntactically checkable, while the RUP reading
-absorbs them silently. An elaboration targeting the chain core keeps both rules in its output; one
-targeting the RUP core renames them away.
+`resolution` by a pure rename, zero new steps, and both sit at the *reducible* level: RUP is one
+of `resolution`'s two core semantics, so the target of the rename is a core rule as it stands.
+
+What the rename does cost is a change of *which* semantics checks the step — a linear syntactic
+scan (containment / dedup) becomes a unit-propagation check — and it is unavailable to a pipeline
+targeting the chain reading, under which `weakening` is not derivable at all, since chain
+resolution never introduces literals. The two readings pull in opposite directions here:
+uncrowding *introduces* explicit `contraction` steps precisely to make the chain reading's
+implicit duplicate merging syntactically checkable, while the RUP reading absorbs them silently.
+So an elaboration targeting the chain core keeps both rules in its output (as Carcara's does, and
+as its elaborated granularity requires, since `resolution` is checked there with explicit
+pivots); one targeting the RUP core renames them away.
 
 ## Arithmetic: `la_generic` and `poly_simp` as the computational core
 
@@ -999,8 +1003,8 @@ Two caveats initially kept `onepoint` in the core; both are resolved:
   `connective_def` unpacking; and cross-reductions within a family (e.g. `equiv_pos1` from
   `equiv_pos2` via symmetry of the equivalence) fail R2. The `xor`/`ite`/`implies` families are
   kept even though `connective_def` derivations exist — see "The CNF axioms are kept whole"
-  above. (`weakening` and `contraction` remain outside: under resolution's RUP reading they are
-  expensive-level renames — see "Resolution's dual semantics" above.)
+  above. (`weakening` and `contraction` remain outside the core: under resolution's RUP reading
+  they are zero-step renames, hence reducible — see "Resolution's dual semantics" above.)
 - **`connective_def`** — kept whole. Its propositional instances are derivable at O(1) via
   `equiv_neg1/2` and the branch tautologies, but the quantifier-duality instance
   (`¬∀x̄.φ ≈ ∃x̄.¬φ`) is the R4-chosen axiom side that bootstraps all ∃-reasoning (`sko_ex`'s

@@ -35,13 +35,13 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 23 | 22 | 2 | 0 | 0 |
+| clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 8 | 0 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **53** | **42** | **9** | **11** | **5** |
+| **total** | **120** | **54** | **44** | **7** | **10** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -120,7 +120,7 @@ admit `connective_def` derivations (the `implies` case via the proposed extensio
 | `not_not` | primitive for explicit double-negation merging; deriving it would pull in the rewrite tier |
 | `and_pos` (k), `and_neg`, `or_pos`, `or_neg` (k), `equiv_pos1/2`, `equiv_neg1/2`, `xor_pos1/2`, `xor_neg1/2`, `ite_pos1/2`, `ite_neg1/2`, `implies_pos`, `implies_neg1/2` | the 19 CNF axioms — the whole [def] base is primitive. One side of each axiom/premise-rule pair must be primitive (R4); the `equiv` family is the bootstrap for unpacking `connective_def` equivalences; `and`/`or` are the Tseitin base every derivation re-clausifies into; the `xor`/`ite`/`implies` families are kept even though `connective_def` derivations exist (see the parent chapter) |
 
-### Reducible (22)
+### Reducible (24)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
@@ -128,13 +128,8 @@ admit `connective_def` derivations (the `implies` case via the proposed extensio
 | `tautology` | `true` | 1 | syntactic | **done** (`core` pass); conclusion is literally `⊤`; drops the premise from the DAG |
 | `reordering` | (eliminated) | 0 | — | done — reordering pass recomputes downstream conclusions |
 | 19 premise clausification rules | matching CNF axiom + `resolution` | 2 each | syntactic | **done** (`core` pass); pivot = the premise formula |
-
-### Expensive (2)
-
-| rule | reduction scheme | cost | what makes it expensive |
-|---|---|---|---|
-| `weakening` | rename to `resolution` (RUP reading): negating the conclusion falsifies the premise before any propagation | 0 | a linear syntactic containment scan becomes a unit-propagation check; not derivable at all under the chain reading (chain resolution never introduces literals) |
-| `contraction` | rename to `resolution` (RUP reading): same degenerate-RUP argument | 0 | ditto — and the chain-targeting pipeline *introduces* explicit `contraction` steps (uncrowding) precisely to avoid implicit duplicate merging; the two readings pull in opposite directions here |
+| `weakening` | rename to `resolution` | 0 | RUP | negating the conclusion falsifies the premise before any propagation, so the step is a degenerate RUP derivation. The rename is only available under `resolution`'s RUP semantics — under the chain reading a resolution never *introduces* literals — which is why a chain-targeting pipeline keeps the rule |
+| `contraction` | rename to `resolution` | 0 | RUP | same degenerate-RUP argument (the duplicate literal propagates nothing). Note the chain-targeting pipeline deliberately *emits* `contraction` steps, since chain resolution does not merge duplicates implicitly; the two readings of `resolution` pull in opposite directions here |
 
 The exact axiom pairings for the premise clausification rules (the `equiv` family crosses indices):
 
