@@ -1,9 +1,11 @@
 # `rare_rewrite` timing outliers: deferred allocator work
 
-**Branch:** `inv/rare-rewrite-outlier` (commit `b9e533ee`). Not merged yet.
-**Verdict:** measurement artifact, not checking cost. One of the two changes (the `OnceLock`)
-is a real improvement worth keeping; the other is bench-only cosmetics, superseded by the
-mimalloc change of the [`aci_simp` note](./2026-08-18-aci-simp-timing-artifact.md).
+**Branch:** `inv/rare-rewrite-outlier` (commit `b9e533ee`). The `OnceLock` half is **merged**
+into `coreAlethe` as `61c65719`; the bench-only allocator drain was not taken.
+**Verdict:** measurement artifact, not checking cost. Of the two changes, the `OnceLock` is a
+real improvement and was taken; the allocator drain is bench-only cosmetics and was not. See
+the [`aci_simp` note](./2026-08-18-aci-simp-timing-artifact.md) for the same artifact seen from
+the other rule.
 
 ## Symptom
 
@@ -63,8 +65,9 @@ glibc backlog simply moved to the step's remaining allocations.
 A loop of 1000 × 64 KB `Vec::with_capacity` between the parsing and checking timers in
 `run_job`, forcing glibc to process the free-list backlog *before* per-step timing starts, so
 the cost is not misattributed to one step. It costs <1 ms on a clean heap or under a
-non-glibc allocator. This affects only what `bench` reports, never what checking costs; if the
-mimalloc change is merged, this loop becomes redundant and could be dropped.
+non-glibc allocator. This affects only what `bench` reports, never what checking costs. It was
+**not merged**: it is a hack in the measurement path, and the artifact is now documented
+instead. It remains on the branch should future measurements need it.
 
 ## Before/after (maximum `rare_rewrite` step, ns)
 

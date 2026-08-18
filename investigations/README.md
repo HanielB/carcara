@@ -8,9 +8,9 @@ result can be reviewed without re-running the experiment.
 | date | note | branch | status |
 |---|---|---|---|
 | 2026-08-18 | [Non-RUP resolution steps in cvc5 proofs](./2026-08-18-nonrup-resolution.md) | `inv/nonrup-resolution` | **merged** |
-| 2026-08-18 | [The 2.3 s `refl` step: context-cache inheritance](./2026-08-18-refl-context-cache.md) | `inv/refl-outlier` | open, recommended |
-| 2026-08-18 | [`rare_rewrite` timing outliers: deferred allocator work](./2026-08-18-rare-rewrite-timing-artifact.md) | `inv/rare-rewrite-outlier` | open, partly recommended |
-| 2026-08-18 | [`aci_simp` timing outliers: the same artifact, and mimalloc](./2026-08-18-aci-simp-timing-artifact.md) | `inv/aci-simp-outlier` | open, recommended |
+| 2026-08-18 | [The 2.3 s `refl` step: context-cache invalidation](./2026-08-18-refl-context-cache.md) | `inv/refl-outlier` | being redesigned (deferred invalidation) |
+| 2026-08-18 | [`rare_rewrite` timing outliers: deferred allocator work](./2026-08-18-rare-rewrite-timing-artifact.md) | `inv/rare-rewrite-outlier` | `OnceLock` **merged**; bench drain not taken |
+| 2026-08-18 | [`aci_simp` timing outliers: the same artifact, and mimalloc](./2026-08-18-aci-simp-timing-artifact.md) | `inv/aci-simp-outlier` | **declined** (no new dependency) |
 
 All four were prompted by the core-elaboration evaluation in
 `~/benchmarks/alethecore-eval` (see its `report.md`): three of them by extreme per-step

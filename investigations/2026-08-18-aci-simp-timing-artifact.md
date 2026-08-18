@@ -1,11 +1,14 @@
 # `aci_simp` timing outliers, and why mimalloc makes checking faster
 
-**Branch:** `inv/aci-simp-outlier` (commit `392a6d76`). Not merged yet.
+**Branch:** `inv/aci-simp-outlier` (commit `392a6d76`). **Declined** — the mimalloc dependency
+is not wanted. The diagnosis below stands and is the reason the `aci_simp` box-plot whiskers
+must not be read as checking cost; the branch is kept only as the record of that measurement.
 **Verdict:** the outlier is the same allocator artifact as the
 [`rare_rewrite` one](./2026-08-18-rare-rewrite-timing-artifact.md) — the `aci_simp` checker
-itself is already DAG-aware and memoized. The change (mimalloc as the CLI's global allocator)
-is nevertheless recommended: besides erasing the artifact it makes real checking ~25% faster
-on large proofs.
+itself is already DAG-aware and memoized. The change explored here (mimalloc as the CLI's
+global allocator) erases the artifact and makes real checking ~25% faster on large proofs, but
+was declined because it adds a dependency; the section below is kept because it explains *why*
+the outliers are not checking cost, and what a future allocator change would buy.
 
 ## Symptom
 
@@ -40,7 +43,7 @@ Note that a checker-internal fix cannot dodge this: the multiset-comparison tail
 makes only ~10 allocations, yet was charged 15–21 ms. The cost scales with the allocator's
 backlog, not with the rule's allocation count.
 
-## Change: mimalloc as the CLI's global allocator
+## The change that was explored (and declined): mimalloc as the CLI's global allocator
 
 ```rust
 // cli/src/main.rs
@@ -95,10 +98,10 @@ evaluation's totals, not just its box plots.
 - Sweeps with identical flags, baseline vs fixed: `elab/QF_UF/verit` 92/92 valid,
   `elab/QF_LRA/verit` 54/54 valid — per-file results byte-identical, 0 errors on both sides.
 
-## Caveats before merging
+## Why it was declined
 
 - mimalloc is a C dependency built by the `mimalloc` crate; it adds a build-time toolchain
-  requirement and affects the CLI binary only (the `carcara` library still uses whatever
-  allocator its embedder chooses).
+  requirement, and avoiding new dependencies outweighs the gain. It would affect the CLI binary
+  only (the `carcara` library still uses whatever allocator its embedder chooses).
 - The gain is glibc-specific. On musl, macOS, or under an embedder that already sets a global
   allocator, the artifact and the speedup will differ.
