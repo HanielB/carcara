@@ -197,37 +197,305 @@ pub fn qnt_simplify(
     Ok(b.relabel(step, node))
 }
 
-/// `qnt_rm_unused` rewrites `(forall L. phi) ≈ (forall R. phi)` with `R ⊆ L` (the right side may
-/// be `phi` itself): both directions instantiate at anchor variables and close over the
-/// appropriate subset.
+/// The binder list with the shadowed occurrences dropped, in order of first occurrence.
+///
+/// A repeated name in a binder list only ever binds through its *last* occurrence, so the earlier
+/// ones are vacuous: `(Q L. phi)` and `(Q dedup(L). phi)` are the same quantifier, and the rule's
+/// checker sees no difference either — it collects both binder lists into sets. Returns `None`
+/// when a name occurs at two different sorts, since the two occurrences are then different
+/// variables and dropping either would change the term.
+fn dedup_bindings(bindings: &[SortedVar]) -> Option<Vec<SortedVar>> {
+    let mut distinct: Vec<SortedVar> = Vec::new();
+    for var in bindings {
+        if let Some(seen) = distinct.iter().find(|(name, _)| *name == var.0) {
+            if seen.1 != var.1 {
+                return None;
+            }
+        } else {
+            distinct.push(var.clone());
+        }
+    }
+    Some(distinct)
+}
+
+fn quantify(
+    pool: &mut PrimitivePool,
+    binder: Binder,
+    bindings: &[SortedVar],
+    body: &Rc<Term>,
+) -> Rc<Term> {
+    pool.add(Term::Binder(
+        binder,
+        BindingList(bindings.to_vec()),
+        body.clone(),
+    ))
+}
+
+/// Rewrites the binder list of a quantifier into an equivalent one — the same variables, with the
+/// repetitions dropped — with a plain `bind` step over a `refl`. The rule compares the two binder
+/// lists as sets, so this is exactly the normalization it licenses.
+fn normalize_bindings(
+    b: &mut Builder,
+    from: &Rc<Term>,
+    to: &Rc<Term>,
+    bindings: &[SortedVar],
+) -> Rc<ProofNode> {
+    let body = from.as_quant().unwrap().2.clone();
+    let anchor_args = bindings
+        .iter()
+        .map(|var| AnchorArg::Variable(var.clone()))
+        .collect();
+    b.open();
+    let equality = build_term!(b.pool, (= {body.clone()} {body}));
+    let refl = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+    let clause = vec![build_term!(b.pool, (= {from.clone()} {to.clone()}))];
+    b.close_with(anchor_args, "bind", clause, Vec::new(), refl)
+}
+
+/// `qnt_rm_unused` rewrites `(Q L. phi) ≈ (Q R. phi)` where `R` and `L` have the same variables
+/// but for some that do not occur in `phi` (the right side may be `phi` itself, when they all go).
+///
+/// The rule reads both binder lists as *sets*, so `L` and `R` may repeat variables and may list
+/// the survivors in any order. The repetitions are normalized away first, by a `bind` step on
+/// either side; between the normalized quantifiers, both directions of the equivalence instantiate
+/// at anchor variables and close over the appropriate subset.
 pub fn qnt_rm_unused(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
+    let keep = || Ok(Rc::new(ProofNode::Step(step.clone())));
+
     let Some((lhs, rhs)) = match_term!((= l r) = &step.clause[0]) else {
-        return Ok(Rc::new(ProofNode::Step(step.clone())));
+        return keep();
     };
     let (lhs, rhs) = (lhs.clone(), rhs.clone());
-    let Some((left_bindings, body)) = forall_parts(&lhs) else {
-        return Ok(Rc::new(ProofNode::Step(step.clone())));
+    let Some((quant, left_bindings, body)) = lhs
+        .as_quant()
+        .map(|(q, bindings, body)| (q, bindings.0.clone(), body.clone()))
+    else {
+        return keep();
     };
-    let right_bindings = match forall_parts(&rhs) {
-        Some((bindings, right_body)) => {
-            if right_body != body {
-                return Ok(Rc::new(ProofNode::Step(step.clone())));
+    if !matches!(quant, Binder::Forall | Binder::Exists) {
+        return keep();
+    }
+    let right_bindings = match rhs.as_quant() {
+        Some((q, bindings, right_body)) => {
+            if q != quant || *right_body != body {
+                return keep();
             }
-            bindings
+            bindings.0.clone()
         }
         None if rhs == body => Vec::new(),
-        None => return Ok(Rc::new(ProofNode::Step(step.clone()))),
+        None => return keep(),
     };
-    if has_duplicate_names(&left_bindings) {
-        return Ok(Rc::new(ProofNode::Step(step.clone())));
+    let (Some(left_distinct), Some(right_distinct)) = (
+        dedup_bindings(&left_bindings),
+        dedup_bindings(&right_bindings),
+    ) else {
+        return keep();
+    };
+    if right_distinct
+        .iter()
+        .any(|var| !left_distinct.contains(var))
+    {
+        return keep();
     }
 
     let mut b = Builder::new(pool, step);
+    let left_normal = quantify(b.pool, quant, &left_distinct, &body);
+    let right_normal = if right_bindings.is_empty() {
+        rhs.clone()
+    } else {
+        quantify(b.pool, quant, &right_distinct, &body)
+    };
 
+    // The reduction is a chain of up to three links: normalize the left binder list, remove the
+    // unused variables, normalize the right binder list back
+    let normalize_left = left_normal != lhs;
+    let normalize_right = right_normal != rhs;
+    let remove = left_normal != right_normal;
+    match (normalize_left, remove, normalize_right) {
+        // The two sides are the same quantifier written the same way
+        (false, false, false) => Ok(b.finish(step, "refl", Vec::new(), Vec::new())),
+
+        // A single link, which takes the step's own identity
+        (true, false, false) | (false, false, true) => {
+            let bindings = if normalize_left {
+                &left_distinct
+            } else {
+                &right_distinct
+            };
+            let anchor_args = bindings
+                .iter()
+                .map(|var| AnchorArg::Variable(var.clone()))
+                .collect();
+            b.open();
+            let equality = build_term!(b.pool, (= {body.clone()} {body.clone()}));
+            let refl = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+            Ok(b.close_finish(
+                step,
+                anchor_args,
+                "bind",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                refl,
+            ))
+        }
+        (false, true, false) => {
+            let node = rm_unused_equality(
+                &mut b,
+                quant,
+                &lhs,
+                &rhs,
+                &left_distinct,
+                &right_distinct,
+                &body,
+            )?;
+            Ok(b.relabel(step, node))
+        }
+
+        _ => {
+            let mut links = Vec::new();
+            if normalize_left {
+                links.push(normalize_bindings(
+                    &mut b,
+                    &lhs,
+                    &left_normal,
+                    &left_distinct,
+                ));
+            }
+            if remove {
+                links.push(rm_unused_equality(
+                    &mut b,
+                    quant,
+                    &left_normal,
+                    &right_normal,
+                    &left_distinct,
+                    &right_distinct,
+                    &body,
+                )?);
+            }
+            if normalize_right {
+                links.push(normalize_bindings(
+                    &mut b,
+                    &right_normal,
+                    &rhs,
+                    &right_distinct,
+                ));
+            }
+            let clause = vec![build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}))];
+            let node = b.step(clause, "trans", links, Vec::new());
+            Ok(b.relabel(step, node))
+        }
+    }
+}
+
+/// Derives `(cl (= lhs rhs))` for the binder-list removal proper, both binder lists being free of
+/// repetitions. The `exists` case routes through the quantifier duality of `connective_def`, so
+/// that the removal itself always happens on a `forall`.
+fn rm_unused_equality(
+    b: &mut Builder,
+    quant: Binder,
+    lhs: &Rc<Term>,
+    rhs: &Rc<Term>,
+    left_bindings: &[SortedVar],
+    right_bindings: &[SortedVar],
+    body: &Rc<Term>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    if quant == Binder::Forall {
+        return rm_unused_derivation(b, lhs, rhs, left_bindings, right_bindings, body);
+    }
+
+    let not_body = b.not(body);
+    let left_dual = quantify(b.pool, Binder::Forall, left_bindings, &not_body);
+    let duality = connective_def_duality(b, lhs, &left_dual);
+    // When every variable goes, the right-hand side is `phi` itself and its dual is just `¬phi`,
+    // which the double-negation equivalence closes; otherwise the duality closes it
+    let (right_dual, closing) = if right_bindings.is_empty() {
+        (not_body.clone(), None)
+    } else {
+        let dual = quantify(b.pool, Binder::Forall, right_bindings, &not_body);
+        let duality = connective_def_duality(b, rhs, &dual);
+        let flipped = b.symm(&duality);
+        (dual, Some(flipped))
+    };
+
+    let removal = rm_unused_derivation(
+        b,
+        &left_dual,
+        &right_dual,
+        left_bindings,
+        right_bindings,
+        &not_body,
+    )?;
+    let (not_left_dual, not_right_dual) = (b.not(&left_dual), b.not(&right_dual));
+    let clause = vec![build_term!(b.pool, (= {not_left_dual} {not_right_dual}))];
+    let congruence = b.step(clause, "cong", vec![removal], Vec::new());
+
+    let closing = match closing {
+        Some(closing) => closing,
+        None => double_negation(b, body)?,
+    };
+    let clause = vec![build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}))];
+    Ok(b.step(
+        clause,
+        "trans",
+        vec![duality, congruence, closing],
+        Vec::new(),
+    ))
+}
+
+/// The `connective_def` duality instance `(= (exists X. phi) (not (forall X. (not phi))))`.
+pub(super) fn connective_def_duality(
+    b: &mut Builder,
+    exists: &Rc<Term>,
+    dual: &Rc<Term>,
+) -> Rc<ProofNode> {
+    let not_dual = b.not(dual);
+    let clause = vec![build_term!(b.pool, (= {exists.clone()} {not_dual}))];
+    b.step(clause, "connective_def", Vec::new(), Vec::new())
+}
+
+/// The equivalence `(= (not (not phi)) phi)`: `not_not` one way, the excluded middle the other.
+fn double_negation(b: &mut Builder, phi: &Rc<Term>) -> Result<Rc<ProofNode>, ElaborationError> {
+    let not_phi = b.not(phi);
+    let not_not_phi = b.not(&not_phi);
+    let triple = b.not(&not_not_phi);
+    let forward = b.step(vec![triple, phi.clone()], "not_not", Vec::new(), Vec::new());
+    let backward = excluded_middle(b, &not_phi)?;
+    b.equiv_intro(not_not_phi, phi.clone(), forward, backward)
+}
+
+/// The anchor variables to declare so that a closure over `closure` is legal: the generalized
+/// `bind` wants the closure to be a subsequence of the anchor, so the anchor is `vars` itself when
+/// that already holds, and `closure` moved to the front otherwise — the rule puts no order on the
+/// surviving binder list.
+fn anchor_covering(vars: &[SortedVar], closure: &[SortedVar]) -> Vec<SortedVar> {
+    let mut remaining = vars.iter();
+    if closure
+        .iter()
+        .all(|var| remaining.any(|declared| declared == var))
+    {
+        return vars.to_vec();
+    }
+    let mut anchor = closure.to_vec();
+    anchor.extend(vars.iter().filter(|var| !closure.contains(var)).cloned());
+    anchor
+}
+
+/// Derives `(cl (= lhs rhs))` for a `forall` binder-list removal, neither list repeating a
+/// variable: both directions instantiate at anchor variables and close over the appropriate
+/// subset.
+fn rm_unused_derivation(
+    b: &mut Builder,
+    lhs: &Rc<Term>,
+    rhs: &Rc<Term>,
+    left_bindings: &[SortedVar],
+    right_bindings: &[SortedVar],
+    body: &Rc<Term>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
     // Direction →: instantiate the left side at the anchor variables and close over `R`
     let forward = if right_bindings.is_empty() {
         // The right side is `phi` itself: instantiate at dummy witnesses, no anchor needed
@@ -235,32 +503,32 @@ pub fn qnt_rm_unused(
             .iter()
             .map(|v| dummy_choice(b.pool, v))
             .collect();
-        let (inst, _) = instantiate(&mut b, &lhs, dummies)?;
+        let (inst, _) = instantiate(b, lhs, dummies)?;
         inst
     } else {
         b.open();
+        let anchor_vars = anchor_covering(left_bindings, right_bindings);
         let args = left_bindings.iter().map(|v| var_term(b.pool, v)).collect();
-        let (inst, _) = instantiate(&mut b, &lhs, args)?;
+        let (inst, _) = instantiate(b, lhs, args)?;
         // The instantiated clause is `(cl (not lhs) phi)`; close `phi` over `R`
-        close_bind(&mut b, &left_bindings, &right_bindings, 1, inst)
+        close_bind(b, &anchor_vars, right_bindings, 1, inst)
     };
 
     // Direction ←: instantiate the right side (or take the excluded middle) and close over `L`
     let backward = {
         b.open();
         let inner = if right_bindings.is_empty() {
-            excluded_middle(&mut b, &body)?
+            excluded_middle(b, body)?
         } else {
             let args = right_bindings.iter().map(|v| var_term(b.pool, v)).collect();
-            let (inst, _) = instantiate(&mut b, &rhs, args)?;
+            let (inst, _) = instantiate(b, rhs, args)?;
             inst
         };
         // The clause is `(cl (not rhs) phi)`; close `phi` over all of `L`
-        close_bind(&mut b, &left_bindings, &left_bindings, 1, inner)
+        close_bind(b, left_bindings, left_bindings, 1, inner)
     };
 
-    let node = b.equiv_intro(lhs, rhs, forward, backward)?;
-    Ok(b.relabel(step, node))
+    b.equiv_intro(lhs.clone(), rhs.clone(), forward, backward)
 }
 
 /// `qnt_join` rewrites `(forall X. (forall Y. phi)) ≈ (forall XY. phi)`.

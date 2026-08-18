@@ -174,6 +174,6 @@ pub(super) mod reflexivity;
 pub(super) mod resolution;
 pub(super) mod simplification;
 pub(super) mod strings;
-pub(super) mod subproof;
+pub mod subproof;
 pub(super) mod tautology;
 pub(super) mod transitivity;
