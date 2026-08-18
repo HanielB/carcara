@@ -36,12 +36,12 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
-| binder | 13 | 5 | 8 | 0 | 0 | 0 |
+| binder | 13 | 5 | 7 | 1 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **54** | **44** | **7** | **10** | **5** |
+| **total** | **120** | **54** | **43** | **8** | **10** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -211,11 +211,10 @@ own variable and reintroduced by generalization.
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
 | `forall_inst` | polyeq elaboration already normalizes it; independent of Skolemization — some arbitrary-term principle must be primitive (see parent chapter) |
 
-### Reducible (8)
+### Reducible (7)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans`; existing steps additionally bridge the ∃-shaped witnesses to the ¬∀¬-shaped ones by a `bind` over the `choice` binder (choice congruence — `bind` is binder-generic, see its row) plus deep-`cong` transport | O(n·\|φ\|) | syntactic | **done** (`core` pass, all corpus instances incl. n-ary progressive witnesses and veriT's reoriented equalities). Mutually dual with `sko_forall` — either could be the primitive (R4 picks one). Measured cost (`investigations/2026-08-18-sko-ex-cost.md`): ~35 emitted steps per binding (Δsteps ≈ 6.5 + 34.6·n, R² = 0.77), growth driven by binder arity rather than term size, conclusions at most ~2.3× the original's DAG, ~73 µs of extra checking per instance — an ~8× *local* blowup that is 0.71% of the corpus's steps |
 | `onepoint` | case-split template driven by the guarded-occurrence grammar: `=`-branches transport `φ'` by deep `cong` with the point equalities; `≠`-branches derive `φ` by one CNF-axiom step per grammar production (`implies_neg1` for guards, `or_neg`/`and_pos` + `resolution` for descent, `not_not` for flips); assembled by `equiv_intro` (or its derivation) and `bind` | O(points·\|φ\|) | syntactic | **done** (`core` pass, ∀ and — through the `connective_def` duality — ∃ forms; guards read off the antecedent's `and`-spine or a negated consequent, with an `eq_symmetry` bridge for flipped guard orientations); requires the spec to adopt the inductive side condition (divergence 7). Points under inner quantifiers generalize directly with the generalized `bind` (divergence 8), or via the derived `∀ȳ.⊤ ≈ ⊤`. Discharges the spec-acknowledged mutual-points gap via anchor-ordered case splits |
 | `qnt_simplify` | generalized `bind` + `true` + iff-intro | 4 | syntactic | **done** (`core` pass, ∀ forms); witness-free with divergence 8, else ∀-ε-clause template |
 | `qnt_rm_unused` | absorbed by the generalized `bind`'s miniscoped closure; standalone steps via `forall_inst` + closure + iff-intro | O(1) | syntactic | **done** (`core` pass, ∀ forms); ditto |
@@ -640,6 +639,12 @@ corresponding quantifier with `ite2`/`ite1`, instantiate at the anchor variable,
 ```
 
 </details>
+
+### Expensive (1)
+
+| rule | reduction scheme | cost | what makes it expensive |
+|---|---|---|---|
+| `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans`; existing steps additionally bridge the ∃-shaped witnesses to the ¬∀¬-shaped ones by a `bind` over the `choice` binder (choice congruence — `bind` is binder-generic, see its row) plus deep-`cong` transport | ~35 steps per binding (Δsteps ≈ 6.5 + 34.6·n measured, R² = 0.77); an ~8× local blowup — a ~10-command step region becomes ~84 steps plus ~6 anchors | The reduction is *complete and implemented* (`core/skolem.rs`, all corpus instances reduce and re-check) and every emitted step is a cheap core rule; it is classified expensive on **cost**, not feasibility. Each binding costs a witness-bridge `bind` subproof, a `connective_def` duality, an α-renaming `bind` of the quantified tail, a deep-`cong` transport, and a re-materialized copy of the double-negation helper. The `core` pass therefore leaves `sko_ex` steps alone by default; re-enabling the recipe is one map entry. Full measurements: `investigations/2026-08-18-sko-ex-cost.md` |
 
 ## Equality and rewriting
 

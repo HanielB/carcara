@@ -112,28 +112,7 @@ the body from the substituted formula by refuting the trivialized guards (`refl`
 The whole equivalence lives inside the now-vacuous anchor and closes with the generalized
 `bind`.
 
-`sko_ex` reduces through the quantifier duality — `sko_forall` is the core's designated
-ε-introduction axiom. In fresh variables (the step's own anchor substitution would poison
-nested context-sensitive checks): an α-renaming `bind`, a `sko_forall` subproof over the dual
-`(∀z̄.¬φ_z)` whose single inner step is a `refl` under the witness context, the
-`connective_def` duality and a double-negation equivalence, and — for existing steps — a
-per-binding *witness bridge* `(= wᵢ vᵢ)` between the ¬∀¬-shaped witnesses the dual produces and
-the ∃-shaped ones the step's anchor carries: a `bind` over the `choice` binder (choice
-congruence; Carcara's `bind` checker is binder-generic, so no new rule is involved) closing a
-double-negation equivalence, an α-renaming of the quantified tail, and the duality — composed
-by deep-`cong` transport, which also handles veriT's reoriented equality subterms through the
-`eq_symmetry` bridge. Progressive n-ary witnesses are handled binding by binding.
-
-**Legacy rules.** `qnt_cnf` reduces by a guided clausal descent: the conclusion
-`(cl (or ¬(∀x̄.φ) (∀x̄ₖ.C)))` is derived by instantiating the left quantifier under an anchor
-over `x̄ₖ` (dropped variables at dummy `choice` witnesses) and then decomposing `φ` one
-connective at a time with the CNF axioms (`and_pos`/`or_neg`/`implies_neg1/2`/`equiv_*`/
-`ite_*`/`not_not`, plus the `connective_def` duality for `¬∃`), each branch choice guided by an
-oracle that mirrors the checker's NNF/prenexing/CNF computation; the derivation is a linear
-resolution chain, subproof-free except for the closing `bind`. `bfun_elim`, in its top-level
-form, expands the Boolean-quantified premise into the conjunction of its `2^k` instances
-(`forall_inst` per assignment, in the checker's enumeration order, `and_neg` to repack, a
-closing `bind` over the non-Boolean variables). `ite_intro` derives each ite-subterm's
+`ite_intro` derives each ite-subterm's
 selection tautology `(ite c (= s r₁) (= s r₂))` by a two-branch discharge over the condition:
 under the assumed (negated) condition, `equiv_neg1/2` and the `true`/`false` axioms give
 `(= c ⊤)`/`(= c ⊥)`, `cong` lifts that into `s = (ite c r₁ r₂)`, and the term-level branch
@@ -154,8 +133,15 @@ The pass is best-effort and never rejects a proof: a step whose shape a recipe d
 fails, is kept unchanged and a warning is logged. In particular the following stay untouched,
 by design:
 
-- the *expensive* tier (`weakening`, `contraction`, the `la_mult_*` family, the arithmetic
-  `*_simplify` renames) and the *aggressive* tier (Boolean `*_simplify`, `distinct_elim`,
+- `sko_ex`, which is classified *expensive*: its reduction (through the quantifier duality, with
+  the ∃-shaped witnesses bridged to the ¬∀¬-shaped ones by a `bind` over the `choice` binder) is
+  complete and lives in `core/skolem.rs`, and every emitted step is a cheap core rule — but it
+  costs ~35 steps per binding, an ~8× local blowup, which the classification is not willing to
+  pay by default. Re-enabling it is one entry in `get_elaboration_function`; the measurements are
+  in `investigations/2026-08-18-sko-ex-cost.md`;
+- the rest of the *expensive* tier (`weakening` and `contraction` — reducible only under
+  `resolution`'s RUP reading, which the elaborated granularity does not use — the `la_mult_*`
+  family, the arithmetic `*_simplify` renames) and the *aggressive* tier (Boolean `*_simplify`, `distinct_elim`,
   `comp_simplify`) — `aci_simp` and `evaluate` are core computational primitives and need no
   reduction;
 - `lia_generic`, which is the `hole` pass's job and is deliberately excluded here.

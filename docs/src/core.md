@@ -42,14 +42,14 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **54 core**, **44 reducible**,
-**7 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **54 core**, **43 reducible**,
+**8 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
-| binder | 13 | 5 | 8 | 0 | 0 | 0 |
+| binder | 13 | 5 | 7 | 1 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |

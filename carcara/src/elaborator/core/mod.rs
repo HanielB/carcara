@@ -25,7 +25,10 @@ pub mod legacy;
 pub mod onepoint;
 #[allow(clippy::unnecessary_wraps)]
 pub mod simplification;
-#[allow(clippy::unnecessary_wraps)]
+// `sko_ex` is classified *expensive*, so this recipe is not registered below and the module is
+// unused; it is kept because the reduction is complete and validated, and re-enabling it is a
+// one-line change (see `investigations/2026-08-18-sko-ex-cost.md` for the cost measurements)
+#[allow(clippy::unnecessary_wraps, dead_code)]
 pub mod skolem;
 
 use crate::{ast::*, elaborator::error::ElaborationError};
@@ -481,7 +484,10 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         "miniscope_split" => binder::miniscope_split,
         "miniscope_ite" => binder::miniscope_ite,
         "onepoint" => onepoint::onepoint,
-        "sko_ex" => skolem::sko_ex,
+        // `sko_ex` is classified *expensive* and deliberately left unreduced: its recipe (in
+        // `skolem.rs`, still available and tested) costs ~35 emitted steps per binding, an ~8x
+        // local blowup, which the classification is not willing to pay by default
+
         "qnt_cnf" => legacy::qnt_cnf,
         "bfun_elim" => legacy::bfun_elim,
         "ite_intro" => legacy::ite_intro,

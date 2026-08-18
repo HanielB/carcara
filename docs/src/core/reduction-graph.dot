@@ -54,7 +54,7 @@ digraph core_alethe {
     bind_let    [URL="classification.html#binder", target="_self", tooltip="bind for let bindings (extra rule):\nΓ, ȳ, x̄↦ȳ ▷ … ≈ …  over let-bound variables", color="#2a78d6", penwidth=2.4];
     sko_forall  [URL="classification.html#binder", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.¬(∀xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∀x̄.φ ≈ ψ\n(sequential witness form; the spec text is fixed by divergence 4)", color="#2a78d6", penwidth=2.4];
     forall_inst [URL="classification.html#binder", target="_self", tooltip="▷ ¬(∀x̄.φ) ∨ φ[x̄↦t̄]\n(unit or-clause; instance terms in :args)", color="#2a78d6", penwidth=2.4];
-    sko_ex   [URL="classification.html#ex-sko-ex", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.(∃xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∃x̄.φ ≈ ψ", color="#1baf7a", penwidth=1.6];
+    sko_ex   [URL="classification.html#ex-sko-ex", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.(∃xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∃x̄.φ ≈ ψ", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     onepoint [URL="classification.html#ex-onepoint", target="_self", tooltip="Γ, x̄ₖ, x̄ⱼ↦t̄ⱼ ▷ φ ≈ φ′\n⟹  Γ ▷ Qx̄.φ ≈ Qx̄ₖ.φ′\n(points t̄ⱼ from guarded equalities xⱼ ≈ tⱼ in φ)", color="#1baf7a", penwidth=1.6];
     qnt_rw   [URL="classification.html#ex-qnt-simplify", target="_self", tooltip="qnt_simplify:  ▷ ∀x̄.⊤ ≈ ⊤  (⊥ likewise)\nqnt_rm_unused:  ▷ Qx̄.φ ≈ Qx̄′.φ,  dropped variables unused\nqnt_join:  ▷ Qx̄.Qȳ.φ ≈ Qz̄.φ\nminiscope_*:  Q distributed over ∧ / ∨ / ite", label="quantifier\nrewrites (6)", color="#1baf7a", penwidth=1.6];
   }

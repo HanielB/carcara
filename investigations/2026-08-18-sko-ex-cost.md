@@ -3,9 +3,11 @@
 **Branch:** `inv/sko-ex-cost` (measurement only, no code change).
 **Question:** the `sko_ex` recipe emits a lot of machinery per step — should the rule stay
 *reducible*, or move to *expensive* (i.e. be left unreduced)?
-**Verdict:** keep it **reducible**. The reduction is linear in the number of bindings with
-cheap emitted steps; the local blowup is ~8× but the corpus-wide cost is +0.71% of steps and
-+1.24 ms of checking in total.
+**Verdict:** the measurements below argue either way, and the call was made for
+**expensive**: the reduction is complete, linear in the number of bindings and emits only cheap
+core rules — the corpus-wide cost is a mere +0.71% of steps — but the ~8× *local* blowup is a
+price the classification is not willing to pay by default. The recipe stays in the tree
+(`core/skolem.rs`, unregistered) and re-enabling it is one map entry.
 
 ## Method
 
@@ -101,7 +103,7 @@ adds ~35 printed steps — a witness-bridge `bind` subproof, a `connective_def` 
 of the double-negation helper. The `Arrow_Order` outlier (142 for 3 bindings) has a wider
 transport because its body is a three-way disequality conjunction.
 
-## Why *reducible* is the right level
+## The measurement against criterion R1
 
 Against criterion R1 — linear in the step's size with a small constant, emitted steps cheap to
 check:
@@ -112,9 +114,16 @@ check:
   ~12 µs medians. Nothing lands in an expensive checker.
 - **Absolute cost is negligible here.** +0.71% of the corpus's steps; +1.24 ms of checking.
 
-The honest caveat: it is cheap *because there are only 17 instances*. The per-instance blowup is
+**How the decision came out.** R1 is met on every axis measured, so the reduction is not
+*infeasible* — and it stays available in the tree for that reason. What decided the
+classification is the local price rather than the corpus-wide one: it is cheap here *because
+there are only 17 instances*. The per-instance blowup is
 ~8× locally, growing at ~35 steps per binding, so on a Skolemization-heavy corpus it would
 matter — a proof that is 10% `sko_ex` by step count would grow ~1.8×, with checking up ~40% at
-the measured 5–6× per-region multiple. If that ever becomes the regime, the first thing to fix
-is not the recipe's shape but the re-materialization of its shared helper derivations across
-subproof contexts.
+the measured 5–6× per-region multiple. Rather than let the classification depend on how
+Skolemization-heavy a corpus happens to be, `sko_ex` is classified **expensive** and the `core`
+pass leaves it alone.
+
+If it is ever promoted back, the first thing to fix is not the recipe's shape but the
+re-materialization of its shared helper derivations across subproof contexts: the recipe emits
+18–34 steps and 37–167 get printed, so that alone accounts for most of the blowup.
