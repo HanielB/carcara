@@ -3,6 +3,25 @@ use carcara::{ast, checker, elaborator, parser};
 /// Runs the `core` elaboration pass on a proof, checks the result in elaborated granularity, and
 /// returns the rules of the steps of the resulting proof.
 fn run_core_pass(problem: &str, proof: &str) -> Vec<String> {
+    let elaborated = elaborate_core_pass(problem, proof);
+
+    fn collect(commands: &[ast::ProofCommand], rules: &mut Vec<String>) {
+        for c in commands {
+            match c {
+                ast::ProofCommand::Step(s) => rules.push(s.rule.clone()),
+                ast::ProofCommand::Subproof(s) => collect(&s.commands, rules),
+                ast::ProofCommand::Assume { .. } => (),
+            }
+        }
+    }
+    let mut rules = Vec::new();
+    collect(&elaborated.commands, &mut rules);
+    rules
+}
+
+/// Runs the `core` elaboration pass on a proof, checks the result in elaborated granularity, and
+/// returns it.
+fn elaborate_core_pass(problem: &str, proof: &str) -> ast::Proof {
     let (mut problem, proof, rare_rules, mut pool) = parser::parse_instance(
         problem,
         proof,
@@ -49,18 +68,7 @@ fn run_core_pass(problem: &str, proof: &str) -> Vec<String> {
         .check(&problem, &elaborated)
         .expect("elaborated proof does not check");
 
-    fn collect(commands: &[ast::ProofCommand], rules: &mut Vec<String>) {
-        for c in commands {
-            match c {
-                ast::ProofCommand::Step(s) => rules.push(s.rule.clone()),
-                ast::ProofCommand::Subproof(s) => collect(&s.commands, rules),
-                ast::ProofCommand::Assume { .. } => (),
-            }
-        }
-    }
-    let mut rules = Vec::new();
-    collect(&elaborated.commands, &mut rules);
-    rules
+    elaborated
 }
 
 /// Every arithmetic instance of `poly_simp_rel` reduces: one `la_generic` per direction for the
@@ -140,4 +148,60 @@ fn poly_simp_rel_bitvector_is_kept() {
     ";
     let rules = run_core_pass(definitions, proof);
     assert!(rules.iter().any(|r| r == "poly_simp_rel"));
+}
+
+/// Two steps with the same conclusion, in different subproofs, share a single derivation, which is
+/// emitted once at the top level.
+#[test]
+fn sharing_across_subproofs() {
+    let definitions = "
+        (declare-const x Int)
+        (declare-const y Int)
+        (declare-const p Bool)
+    ";
+    // The `poly_simp_rel` step cannot be the last step before the one that closes the subproof,
+    // since that one refers to it by its position; the `contraction` step stands in between
+    let subproof = |i: usize| {
+        format!(
+            "(anchor :step t{i})
+             (assume t{i}.h1 p)
+             (step t{i}.t1 (cl (= (* 1 (- (+ x y) 1)) (* 1 (- x (+ 1 (* -1 y)))))) :rule poly_simp)
+             (step t{i}.t2 (cl (= (< (+ x y) 1) (< x (+ 1 (* -1 y))))) :rule poly_simp_rel \
+              :premises (t{i}.t1))
+             (step t{i}.t3 (cl (= (< (+ x y) 1) (< x (+ 1 (* -1 y))))) :rule contraction \
+              :premises (t{i}.t2))
+             (step t{i} (cl (not p) (= (< (+ x y) 1) (< x (+ 1 (* -1 y))))) :rule subproof \
+              :discharge (t{i}.h1))"
+        )
+    };
+    let proof = format!(
+        "(assume a0 p)\n{}\n{}\n(step end (cl) :rule hole)",
+        subproof(1),
+        subproof(2)
+    );
+
+    let elaborated = elaborate_core_pass(definitions, &proof);
+
+    // Each direction of the equivalence takes one `la_generic` step, so a shared derivation has two
+    // of them and two unshared ones would have four
+    fn count(commands: &[ast::ProofCommand], rule: &str) -> usize {
+        commands
+            .iter()
+            .map(|c| match c {
+                ast::ProofCommand::Step(s) => usize::from(s.rule == rule),
+                ast::ProofCommand::Subproof(s) => count(&s.commands, rule),
+                ast::ProofCommand::Assume { .. } => 0,
+            })
+            .sum()
+    }
+    assert_eq!(count(&elaborated.commands, "poly_simp_rel"), 0);
+    assert_eq!(count(&elaborated.commands, "la_generic"), 2);
+
+    // The shared derivation lives at the top level, where both subproofs can see it
+    let top_level: usize = elaborated
+        .commands
+        .iter()
+        .filter(|c| matches!(c, ast::ProofCommand::Step(s) if s.rule == "la_generic"))
+        .count();
+    assert_eq!(top_level, 2);
 }

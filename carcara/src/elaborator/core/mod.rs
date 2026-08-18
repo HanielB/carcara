@@ -23,6 +23,7 @@ pub mod equality;
 pub mod legacy;
 #[allow(clippy::unnecessary_wraps)]
 pub mod onepoint;
+pub mod share;
 #[allow(clippy::unnecessary_wraps)]
 pub mod simplification;
 // `sko_ex` is classified *expensive*, so this recipe is not registered below and the module is

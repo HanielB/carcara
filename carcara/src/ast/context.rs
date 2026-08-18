@@ -124,6 +124,28 @@ impl ContextStack {
         self.stack.push(context_id);
     }
 
+    /// Returns the variables bound by the anchors currently in the stack, that is, the variables
+    /// declared or assigned by every `anchor` that is in scope.
+    ///
+    /// The result is empty exactly when no anchor in scope binds anything, which is the common
+    /// case: the `subproof` rule's anchors take no arguments.
+    pub fn bound_variables(&self) -> Vec<SortedVar> {
+        let mut result = Vec::new();
+        for id in &self.stack {
+            let guard = self.context_vec[*id].1.read().unwrap();
+            let Some(context) = guard.as_ref() else {
+                continue;
+            };
+            for arg in &context.args {
+                match arg {
+                    AnchorArg::Variable(v) => result.push(v.clone()),
+                    AnchorArg::Assign(v, _) => result.push(v.clone()),
+                }
+            }
+        }
+        result
+    }
+
     pub fn pop(&mut self) {
         use std::sync::atomic::Ordering;
 
