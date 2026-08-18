@@ -42,7 +42,21 @@ pub struct Substitution {
     /// The variables that should be renamed to preserve capture-avoidance, if they are bound by a
     /// binder term.
     should_be_renamed: Option<IndexSet<String>>,
-    cache: IndexMap<Rc<Term>, Rc<Term>>,
+
+    /// The memoization cache for `apply`. Each entry records the generation at which it was
+    /// stored, which is what allows its validity to be decided lazily. See
+    /// [`Substitution::get_cached`].
+    cache: IndexMap<Rc<Term>, (Rc<Term>, u32)>,
+
+    /// The number of mappings inserted into this substitution so far. This is used as a logical
+    /// clock: it is incremented by every `insert`, and identifies the version of the substitution
+    /// that a cache entry was computed against.
+    generation: u32,
+
+    /// For each variable that was ever inserted into this substitution, the generation at which
+    /// the latest such insertion happened. A cache entry stored at generation `g` is invalidated
+    /// exactly by the variables whose recorded generation is greater than `g`.
+    invalidated_at: IndexMap<Rc<Term>, u32>,
 }
 
 impl Substitution {
@@ -61,6 +75,8 @@ impl Substitution {
             avoid_capture: true,
             should_be_renamed: None,
             cache: IndexMap::new(),
+            generation: 0,
+            invalidated_at: IndexMap::new(),
         }
     }
 
@@ -95,6 +111,8 @@ impl Substitution {
             avoid_capture: true,
             should_be_renamed: None,
             cache: IndexMap::new(),
+            generation: 0,
+            invalidated_at: IndexMap::new(),
         })
     }
 
@@ -123,8 +141,14 @@ impl Substitution {
 
         // Introducing new mappings may invalidate previously defined cache entries. In particular,
         // if a term contains `x` as a free variable, the result of applying the substitution to it
-        // may be different after adding the `x -> t` mapping, so we remove these cache entries.
-        self.cache.retain(|k, _| !pool.free_vars(k).contains(&x));
+        // may be different after adding the `x -> t` mapping. Instead of scanning the cache here
+        // and dropping those entries eagerly, we only record that `x` was inserted at this
+        // generation, and let `get_cached` decide the validity of an entry when (and only when) it
+        // is actually consulted. This matters when a substitution is extended right after being
+        // built from a larger one, as when composing the cumulative substitutions of nested
+        // contexts: the eager scan would be paid for entries that are never looked up again.
+        self.generation += 1;
+        self.invalidated_at.insert(x.clone(), self.generation);
 
         if let Some(should_be_renamed) = &mut self.should_be_renamed {
             if x != t {
@@ -141,6 +165,54 @@ impl Substitution {
 
         self.map.insert(x, t);
         Ok(())
+    }
+
+    /// Looks up `term` in the memoization cache, validating the entry that is found.
+    ///
+    /// Since `insert` does not invalidate cache entries eagerly, an entry may have been computed
+    /// against an older version of the substitution, in which case it can only be used if none of
+    /// the mappings inserted since then can change the result. An entry stored at generation `g`
+    /// is invalidated by a variable `w` if `w` was (re-)inserted after `g`, and `w` occurs free in
+    /// the key. This is precisely the condition under which the eager invalidation would have
+    /// dropped the entry, so both schemes use exactly the same entries.
+    ///
+    /// Entries that are found to still be valid are promoted to the current generation, so that
+    /// they are only validated once per version of the substitution.
+    fn get_cached(&mut self, pool: &mut dyn TermPool, term: &Rc<Term>) -> Option<Rc<Term>> {
+        let (value, entry_generation) = self.cache.get(term)?;
+
+        // Fast path: the entry was stored after the latest insertion, so nothing can have
+        // invalidated it. This is the common case, since a substitution is usually fully built
+        // before being applied.
+        if *entry_generation >= self.generation {
+            return Some(value.clone());
+        }
+
+        let (value, entry_generation) = (value.clone(), *entry_generation);
+        let free_vars = pool.free_vars(term);
+
+        // We look for an invalidating variable from whichever side is smaller: the free variables
+        // of the key, or the variables inserted into this substitution
+        let is_invalidated = if free_vars.len() <= self.invalidated_at.len() {
+            free_vars.iter().any(|w| {
+                self.invalidated_at
+                    .get(w)
+                    .is_some_and(|g| *g > entry_generation)
+            })
+        } else {
+            self.invalidated_at
+                .iter()
+                .any(|(w, g)| *g > entry_generation && free_vars.contains(w))
+        };
+
+        if is_invalidated {
+            self.cache.swap_remove(term);
+            None
+        } else {
+            self.cache
+                .insert(term.clone(), (value.clone(), self.generation));
+            Some(value)
+        }
     }
 
     /// Removes a mapping from the substitution.
@@ -209,8 +281,8 @@ impl Substitution {
             };
         }
 
-        if let Some(t) = self.cache.get(term) {
-            return t.clone();
+        if let Some(t) = self.get_cached(pool, term) {
+            return t;
         }
         if let Some(t) = self.map.get(term) {
             return t.clone();
@@ -311,7 +383,8 @@ impl Substitution {
         // calculated substitution in the cache hash map so it may be reused later. This means we
         // don't re-visit already seen terms, so this method traverses the term as a DAG, not as a
         // tree
-        self.cache.insert(term.clone(), result.clone());
+        self.cache
+            .insert(term.clone(), (result.clone(), self.generation));
         result
     }
 
