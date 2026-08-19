@@ -17,6 +17,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-18 | [Global normalization of arithmetic atoms: a negative result](./2026-08-18-poly-normalization.md) | `inv/poly-normalization` | negative; found hoist-and-share instead |
 | 2026-08-18 | [Sharing the core pass's derivations](./2026-08-18-share-derivations.md) | `inv/share-derivations` | **merged** |
 | 2026-08-18 | [Orientation normalization: feasible and not worth building](./2026-08-18-orientation-normalization.md) | `inv/orientation-normalization` | negative; found a round-trip to fix at its source |
+| 2026-08-18 | [`symm` round trips in elaboration](./2026-08-18-symm-round-trip.md) | `inv/symm-round-trip` | **merged** |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
