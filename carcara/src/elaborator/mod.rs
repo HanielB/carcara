@@ -317,10 +317,32 @@ fn add_refl_step(
     }))
 }
 
+/// If `node` is itself a `symm` step, returns its premise, as long as that premise concludes
+/// exactly `clause`.
+///
+/// Flipping a `symm` step gives back the clause its premise already concludes, so the premise can
+/// be used directly instead of stacking a second `symm` on top of the first. Elaboration produces
+/// such round trips often: the `polyeq` pass flips a `refl` step to apply the context on the
+/// right-hand term, and the passes that consume that equality then need the original orientation
+/// back.
+fn unwrap_symm_step(node: &Rc<ProofNode>, clause: &[Rc<Term>]) -> Option<Rc<ProofNode>> {
+    let step = node.as_step()?;
+    if step.rule != "symm" || step.premises.len() != 1 {
+        return None;
+    }
+    let premise = &step.premises[0];
+    (premise.clause() == clause).then(|| premise.clone())
+}
+
 fn add_symm_step(pool: &mut PrimitivePool, node: &Rc<ProofNode>, id: String) -> Rc<ProofNode> {
     assert_eq!(node.clause().len(), 1);
     let (a, b) = match_term!((= a b) = node.clause()[0]).unwrap();
     let clause = vec![build_term!(pool, (= {b.clone()} {a.clone()}))];
+
+    if let Some(premise) = unwrap_symm_step(node, &clause) {
+        return premise;
+    }
+
     Rc::new(ProofNode::Step(StepNode {
         id,
         depth: node.depth(),

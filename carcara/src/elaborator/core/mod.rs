@@ -222,9 +222,15 @@ impl<'a> Builder<'a> {
     }
 
     /// Adds a `symm` step over a unit-equality node, with a fresh id at the current depth.
+    ///
+    /// If the node is itself a `symm` step, no step is added: its premise already concludes the
+    /// flipped equality, and is returned instead.
     pub fn symm(&mut self, node: &Rc<ProofNode>) -> Rc<ProofNode> {
         let (a, b) = match_term!((= a b) = node.clause()[0]).unwrap();
         let clause = vec![build_term!(self.pool, (= {b.clone()} {a.clone()}))];
+        if let Some(premise) = super::unwrap_symm_step(node, &clause) {
+            return premise;
+        }
         self.step(clause, "symm", vec![node.clone()], Vec::new())
     }
 
