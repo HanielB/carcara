@@ -91,14 +91,17 @@ pub fn eq_transitive(
         .collect();
 
     let last = if links.len() == 1 {
-        // Degenerate chains have a single link, which either is the conclusion itself (in which
-        // case flipping twice gives us a new node concluding it) or flips to it
+        // Degenerate chains have a single link, which already concludes the conclusion, possibly
+        // after the `symm` that flipped it. If the link is the assumption itself, though, the
+        // subproof still needs a step to close on, since the closing `subproof` step reads its
+        // conclusion off the command that immediately precedes it, which is the *last* assumption.
+        // A one-premise `trans` restates the equality
         let link = links.into_iter().next().unwrap();
-        if link.clause()[0] == step.clause[n - 1] {
-            let flipped = b.symm(&link);
-            b.symm(&flipped)
-        } else {
+        if link.is_step() {
             link
+        } else {
+            let conclusion = step.clause[n - 1].clone();
+            b.step(vec![conclusion], "trans", vec![link], Vec::new())
         }
     } else {
         let conclusion = step.clause[n - 1].clone();

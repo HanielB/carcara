@@ -205,3 +205,22 @@ fn sharing_across_subproofs() {
         .count();
     assert_eq!(top_level, 2);
 }
+
+/// A degenerate `eq_transitive`, whose chain has a single link, is closed by restating that link
+/// with a one-premise `trans`, and not by flipping it twice with `symm`.
+#[test]
+fn degenerate_eq_transitive() {
+    let definitions = "
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+        (declare-const d Int)
+    ";
+    let proof = "
+        (step t1 (cl (not (= a b)) (not (= c d)) (= a b)) :rule eq_transitive)
+        (step end (cl) :rule hole)
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "symm").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "trans").count(), 1);
+}
