@@ -24,7 +24,7 @@ pub use carcara_macros::match_term;
 pub use context::{Context, ContextStack};
 pub use evaluate::Value;
 pub use iter::ProofIter;
-pub use node::{ProofNode, ProofNodeForest, StepNode, SubproofNode};
+pub use node::{ProofNode, ProofNodeForest, StepNode, SubproofNode, VisitedNodes};
 pub use polyeq::{alpha_equiv, polyeq, Polyeq, PolyeqComparable, PolyeqConfig};
 pub use pool::{PrimitivePool, TermPool};
 pub use printer::{print_proof, write_asserts, write_proof_to_dest, USE_SHARING_IN_TERM_DISPLAY};

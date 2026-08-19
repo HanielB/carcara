@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 /// An alternative, graph-based representation for an Alethe proof.
 ///
@@ -105,6 +106,29 @@ impl ProofNode {
     }
 }
 
+/// The set of nodes already visited by a traversal.
+///
+/// [`Rc<ProofNode>::traverse`] starts from an empty set, so an analysis that traverses the roots of
+/// a [`ProofNodeForest`] one by one visits every shared subgraph once per root, which is quadratic
+/// in the amount of sharing. Such callers should instead share a single `VisitedNodes` between the
+/// traversals, with [`Rc<ProofNode>::traverse_with`] or [`ProofNodeForest::traverse`].
+#[derive(Debug, Default)]
+pub struct VisitedNodes {
+    seen: HashSet<Rc<ProofNode>>,
+    did_outbound: HashSet<Rc<ProofNode>>,
+}
+
+impl VisitedNodes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns `true` if the given node was already visited.
+    pub fn contains(&self, node: &Rc<ProofNode>) -> bool {
+        self.seen.contains(node)
+    }
+}
+
 impl Rc<ProofNode> {
     pub fn new(value: ProofNode) -> Self {
         // SAFETY: In the case of proof nodes, we don't care about creating identical nodes in
@@ -114,21 +138,27 @@ impl Rc<ProofNode> {
     }
 
     /// Visits every node of the proof, in postorder, and calls `visit_func` on them.
-    pub fn traverse<F>(&self, mut visit_func: F)
+    pub fn traverse<F>(&self, visit_func: F)
     where
         F: FnMut(&Rc<ProofNode>),
     {
-        use std::collections::HashSet;
+        self.traverse_with(&mut VisitedNodes::new(), visit_func);
+    }
 
-        let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
+    /// Like [`Rc<ProofNode>::traverse`], but takes the set of already visited nodes, so that it can
+    /// be shared with other traversals. Nodes in the set are not visited again.
+    pub fn traverse_with<F>(&self, visited: &mut VisitedNodes, mut visit_func: F)
+    where
+        F: FnMut(&Rc<ProofNode>),
+    {
+        let VisitedNodes { seen, did_outbound } = visited;
         let mut todo: Vec<(&Rc<ProofNode>, bool)> = vec![(self, false)];
-        let mut did_outbound: HashSet<&Rc<ProofNode>> = HashSet::new();
 
         loop {
             let Some((node, is_done)) = todo.pop() else {
                 return;
             };
-            if !is_done && seen.contains(&node) {
+            if !is_done && seen.contains(node) {
                 continue;
             }
 
@@ -146,8 +176,8 @@ impl Rc<ProofNode> {
                 }
                 ProofNode::Subproof(s) if !is_done => {
                     // First, we add all of the subproof's outbound premises if he haven't already
-                    if !did_outbound.contains(&node) {
-                        did_outbound.insert(node);
+                    if !did_outbound.contains(node) {
+                        did_outbound.insert(node.clone());
                         todo.push((node, false));
                         todo.extend(s.outbound_premises.iter().map(|premise| (premise, false)));
                         continue;
@@ -161,7 +191,7 @@ impl Rc<ProofNode> {
             };
 
             visit_func(node);
-            seen.insert(node);
+            seen.insert(node.clone());
         }
     }
 
@@ -250,6 +280,20 @@ impl ProofNodeForest {
 
     pub fn into_commands(&self) -> Vec<ProofCommand> {
         proof_nodes_to_list(self)
+    }
+
+    /// Visits every node of the forest, in postorder, and calls `visit_func` on them.
+    ///
+    /// Nodes shared by several roots are visited only once, since all roots are traversed with the
+    /// same set of visited nodes.
+    pub fn traverse<F>(&self, mut visit_func: F)
+    where
+        F: FnMut(&Rc<ProofNode>),
+    {
+        let mut visited = VisitedNodes::new();
+        for root in &self.0 {
+            root.traverse_with(&mut visited, &mut visit_func);
+        }
     }
 }
 
