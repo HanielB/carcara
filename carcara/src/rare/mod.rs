@@ -83,6 +83,158 @@ fn build_rules() -> Vec<(RewriteTerm, RewriteTerm)> {
     ]
 }
 
+/// A hasher for values whose hash is already a well-spread pointer, used for the visited set of
+/// [`MetaShapes::contains_redex`].
+///
+/// `Rc<Term>` hashes as the address of its allocation, which the default `IndexSet` hasher then
+/// runs through `SipHash`. That set is built and thrown away inside a single traversal and never
+/// sees adversarial input, so a multiplication is all the mixing it needs, and the traversal is
+/// short enough that the hashing shows up in the checking time.
+#[derive(Default)]
+struct PtrHasher(u64);
+
+impl std::hash::Hasher for PtrHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // Not expected to be reached: term pointers are thin, so they hash through `write_usize`.
+        for b in bytes {
+            self.write_usize(*b as usize);
+        }
+    }
+
+    fn write_usize(&mut self, i: usize) {
+        // Fibonacci hashing: multiplying by 2^64 / phi spreads an address over the whole word, so
+        // that both the high bits (used as hash tags) and the low bits (used as bucket indices)
+        // vary.
+        self.0 ^= (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+type VisitedSet<'a> = IndexSet<&'a Rc<Term>, std::hash::BuildHasherDefault<PtrHasher>>;
+
+/// The shapes of the terms that some set of meta-rewrite rules can match at their root.
+///
+/// `rewrite_meta_terms` only ever changes a term if some rule's left-hand side matches at one of
+/// its nodes: when nothing matches anywhere, every node is rebuilt from unchanged children, and
+/// hash consing hands back the original term. So a term in which no rule can match anywhere can
+/// skip the sweep entirely. Deciding that with the full matcher would be the very traversal we are
+/// trying to avoid, so we instead approximate each pattern by the *shape* of its root -- the
+/// operator and the number of arguments -- which is everything a match at that node depends on
+/// besides the children. The approximation is one-sided: it can report a possible match where full
+/// matching would fail, which only costs a sweep that turns out to be a no-op, and it never misses
+/// a match.
+#[derive(Debug, Default)]
+pub struct MetaShapes {
+    /// Operators at the root of an `(op ..xs..)` pattern, which matches an application of `op` of
+    /// any arity.
+    any_arity: Vec<Operator>,
+
+    /// `(op, n)` pairs from `(op p1 ... pn)` patterns, which match `op` applied to exactly `n`
+    /// arguments.
+    fixed_arity: Vec<(Operator, usize)>,
+
+    /// The largest `n` in `fixed_arity`. Every pattern in `build_rules` has at most one argument
+    /// at its root, while operator applications in real terms mostly have two or more, so this is
+    /// a cheap test that rejects most nodes before any scan.
+    max_fixed_arity: usize,
+
+    /// Set when some pattern's root is a variable or a constant, and can therefore match terms
+    /// that are not operator applications. No rule in `build_rules` has that shape, but callers
+    /// may pass their own rules; for those the analysis gives up and reports that any term may
+    /// need rewriting.
+    matches_non_op: bool,
+}
+
+impl MetaShapes {
+    /// Computes the root shapes of the left-hand sides of `rules`.
+    pub fn of(rules: &[(RewriteTerm, RewriteTerm)]) -> Self {
+        let mut this = Self::default();
+        for (lhs, _) in rules {
+            match lhs {
+                RewriteTerm::ManyEq(op, _) => this.any_arity.push(*op),
+                RewriteTerm::OperatorEq(op, params) => {
+                    this.fixed_arity.push((*op, params.len()));
+                    this.max_fixed_arity = this.max_fixed_arity.max(params.len());
+                }
+                RewriteTerm::VarEqual(_) | RewriteTerm::Const(_) => this.matches_non_op = true,
+            }
+        }
+        this
+    }
+
+    /// Returns `true` if some rule may match at the root of `term`.
+    fn is_redex(&self, term: &Term) -> bool {
+        match term {
+            Term::Op(op, args) => {
+                self.any_arity.contains(op)
+                    || (args.len() <= self.max_fixed_arity
+                        && self.fixed_arity.contains(&(*op, args.len())))
+            }
+            _ => self.matches_non_op,
+        }
+    }
+
+    /// Returns `true` if `rewrite_meta_terms` may change `term`, that is, if some rule may match
+    /// at some node of it. A `false` answer means the sweep is exactly the identity and can be
+    /// skipped.
+    ///
+    /// The traversal visits every subterm, including the positions that `rewrite_meta_terms`
+    /// itself leaves alone (the values bound by a `let`, for instance). Visiting more positions
+    /// than the sweep does can only turn a `false` into a `true`, which is the safe direction.
+    /// `match` terms are reported as a possible match because `rewrite_meta_terms` does not
+    /// support them at all, and answering `false` would silently replace its `todo!()` with an
+    /// answer.
+    pub fn contains_redex(&self, term: &Rc<Term>) -> bool {
+        self.any_contains_redex([term])
+    }
+
+    /// Like [`MetaShapes::contains_redex`], but for several terms at once. The terms are traversed
+    /// with a single visited set, so structure they share is only looked at once.
+    pub fn any_contains_redex<'a>(&self, terms: impl IntoIterator<Item = &'a Rc<Term>>) -> bool {
+        if self.matches_non_op {
+            return true;
+        }
+
+        let mut visited: VisitedSet = VisitedSet::default();
+        let mut stack: Vec<&'a Rc<Term>> = terms.into_iter().collect();
+        while let Some(term) = stack.pop() {
+            if !visited.insert(term) {
+                continue;
+            }
+            if self.is_redex(term) {
+                return true;
+            }
+            match term.as_ref() {
+                Term::Var(_, _) | Term::Const(_) | Term::Sort(_) => (),
+                Term::Op(_, args) => stack.extend(args),
+                Term::App(func, args) => {
+                    stack.push(func);
+                    stack.extend(args);
+                }
+                Term::Binder(_, bindings, body) | Term::Let(bindings, body) => {
+                    stack.extend(bindings.iter().map(|(_, t)| t));
+                    stack.push(body);
+                }
+                Term::ParamOp { op_args, args, .. } => {
+                    stack.extend(op_args);
+                    stack.extend(args);
+                }
+                Term::Match(_, _) => return true,
+            }
+        }
+        false
+    }
+}
+
+/// Returns the root shapes of the fixed meta-rule set given by [`get_rules`], computed once.
+pub fn meta_shapes() -> &'static MetaShapes {
+    static SHAPES: std::sync::OnceLock<MetaShapes> = std::sync::OnceLock::new();
+    SHAPES.get_or_init(|| MetaShapes::of(get_rules()))
+}
+
 #[derive(Debug, Clone)]
 enum Trace<T1, T2> {
     Term(T1),
@@ -384,6 +536,12 @@ pub fn rewrite_meta_terms(
     term: Rc<Term>,
     rules: &[(RewriteTerm, RewriteTerm)],
 ) -> Rc<Term> {
+    // A term that no rule can match anywhere is rebuilt node by node into itself, so skip it. This
+    // guard makes the function cheap on its own; callers that can rule out a match without looking
+    // at the term at all (see `check_rare`) should still avoid the call entirely.
+    if !MetaShapes::of(rules).contains_redex(&term) {
+        return term;
+    }
     let mut ctx = RewriteContext::default();
     rewrite_meta_terms_inner(pool, term, rules, &mut ctx)
 }
@@ -521,6 +679,56 @@ mod tests {
         let list = rare_list(&mut pool, vec![a.clone()]);
         let term = op(&mut pool, Operator::BvAdd, vec![list]);
         assert_eq!(a, normalize(&mut pool, term));
+    }
+
+    #[test]
+    fn test_meta_shapes_agree_with_rewriting() {
+        let shapes = meta_shapes();
+        assert!(
+            !shapes.matches_non_op,
+            "no rule in `build_rules` may match a term that is not an operator application"
+        );
+
+        let mut pool = PrimitivePool::new();
+        let (a, b) = (int(&mut pool, 1), int(&mut pool, 2));
+        let t = op(&mut pool, Operator::True, vec![]);
+
+        // Terms with no meta-construct anywhere: `contains_redex` says so, and the sweep is indeed
+        // the identity on them.
+        let plain = [
+            a.clone(),
+            op(&mut pool, Operator::Add, vec![a.clone(), b.clone()]),
+            op(&mut pool, Operator::And, vec![t.clone(), t.clone()]),
+            op(&mut pool, Operator::Not, vec![t.clone()]),
+            {
+                let inner = op(&mut pool, Operator::Mult, vec![a.clone(), b.clone()]);
+                op(&mut pool, Operator::Equals, vec![inner, b.clone()])
+            },
+        ];
+        for term in plain {
+            assert!(!shapes.contains_redex(&term), "{} has no redex", term);
+            assert_eq!(term, normalize(&mut pool, term.clone()));
+        }
+
+        // Terms the sweep does act on, at the root and nested: `contains_redex` must find them,
+        // otherwise `check_rare` would compare an un-normalized term and reject a valid step.
+        let with_redex = [
+            rare_list(&mut pool, vec![a.clone()]),
+            op(&mut pool, Operator::Or, vec![t.clone()]),
+            op(&mut pool, Operator::Add, vec![]),
+            {
+                let list = rare_list(&mut pool, vec![a.clone(), b.clone()]);
+                op(&mut pool, Operator::Add, vec![list, b.clone()])
+            },
+            {
+                let singleton = op(&mut pool, Operator::Mult, vec![a.clone()]);
+                let sum = op(&mut pool, Operator::Add, vec![singleton, b.clone()]);
+                op(&mut pool, Operator::Equals, vec![sum, b.clone()])
+            },
+        ];
+        for term in with_redex {
+            assert!(shapes.contains_redex(&term), "{} has a redex", term);
+        }
     }
 
     #[test]

@@ -17,6 +17,14 @@ pub enum AttributeParameters {
 pub struct TypeParameter {
     pub term: Rc<Term>,
     pub attribute: AttributeParameters,
+
+    /// The variable that stands for this parameter in the rule's premises and conclusion.
+    ///
+    /// It is built when the rule is parsed, from the same pool and with the same sort as the
+    /// occurrences in those terms, so it is the very same term and can be used directly as a
+    /// substitution key. For a `:list` parameter the sort is the list's element sort, not
+    /// `(rare-list ...)`, which is what `term` holds.
+    pub variable: Rc<Term>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +35,15 @@ pub struct RuleDefinition {
     pub premises: Vec<Rc<Term>>,
     pub conclusion: Rc<Term>,
     pub is_elaborated: bool,
+
+    /// Whether the rule's own conclusion and premises contain a construct that the meta-rewriting
+    /// sweep of `rare::rewrite_meta_terms` can act on, as decided by `rare::MetaShapes`.
+    ///
+    /// This is a property of the rule alone, so it is computed once, when the rule set is parsed.
+    /// It is not by itself enough to conclude that an instantiation of the rule needs no sweep:
+    /// the argument values substituted into it may contain meta-constructs of their own, which is
+    /// how a `:list` parameter receives a `rare-list`. See `check_rare`.
+    pub has_meta_construct: bool,
 }
 
 impl fmt::Display for RuleDefinition {
