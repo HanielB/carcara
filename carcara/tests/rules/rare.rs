@@ -53,6 +53,16 @@ const RARE_RULES: &str = r#"
     :premises ()
     :conclusion (= (+ xs y) (+ xs y)))
 
+; A rule whose conclusion is itself a meta-construct: the singleton (or x) collapses to x, so the
+; instantiated conclusion is (= x x). Nothing in the step's arguments announces this, so it can
+; only be seen in the rule.
+(declare-rare-rule or-singleton (
+    (x Bool)
+)
+    :args (x)
+    :premises ()
+    :conclusion (= (or x) x))
+
 ; N-ary bitvector with a list parameter: the list is spliced into the (bvadd ...)
 (declare-rare-rule bvadd-flatten (
     (xs (_ BitVec 4) :list)
@@ -322,6 +332,47 @@ fn rare_rewrite_nary_list() {
             "(step t1 (cl (= (bvadd #b0001 #b0010 #b0011) (bvadd #b0001 #b0010 #b0011))) :rule rare_rewrite :args (\"bvadd-flatten\" (rare-list #b0001 #b0010) #b0011))": true,
 
             "(step t1 (cl (= (bvadd #b0001 #b0011) (bvadd #b0001 #b0011))) :rule rare_rewrite :args (\"bvadd-flatten\" (rare-list #b0001) #b0011))": true,
+        }
+    }
+}
+
+/// `check_rare` skips the meta-rewriting sweep when neither the rule's own terms nor the step's
+/// argument values can be rewritten. These are the cases where it must *not* skip, and the case
+/// where a `:list` rule legitimately needs no sweep.
+#[test]
+fn rare_rewrite_meta_skip_guard() {
+    rare_test_cases! {
+        definitions = "
+            (declare-const p Bool)
+            (declare-const a Int)
+            (declare-const b Int)
+            (declare-const c Int)
+        ",
+        // Only the argument value carries the meta-construct: `add-flatten`'s conclusion is
+        // `(= (+ xs y) (+ xs y))`, whose operator applications are all binary, so the rule alone
+        // gives no reason to sweep.
+        "Meta-construct only in the arguments" {
+            "(step t1 (cl (= (+ a b c) (+ a b c))) :rule rare_rewrite :args (\"add-flatten\" (rare-list a b) c))": true,
+
+            "(step t1 (cl (= (+ a c) (+ a c))) :rule rare_rewrite :args (\"add-flatten\" (rare-list a) c))": true,
+
+            // The list is spliced, not dropped.
+            "(step t1 (cl (= (+ a c) (+ a c))) :rule rare_rewrite :args (\"add-flatten\" (rare-list a b) c))": false,
+        }
+
+        // A `:list` parameter given an ordinary term needs no sweep at all, and must still check.
+        "List parameter without a list argument" {
+            "(step t1 (cl (= (+ a c) (+ a c))) :rule rare_rewrite :args (\"add-flatten\" a c))": true,
+
+            "(step t1 (cl (= (+ a c) (+ b c))) :rule rare_rewrite :args (\"add-flatten\" a c))": false,
+        }
+
+        // Only the rule carries the meta-construct: its conclusion `(= (or x) x)` normalizes to
+        // `(= x x)`, and the argument is an ordinary term.
+        "Meta-construct only in the rule" {
+            "(step t1 (cl (= p p)) :rule rare_rewrite :args (\"or-singleton\" p))": true,
+
+            "(step t1 (cl (= (or p) p)) :rule rare_rewrite :args (\"or-singleton\" p))": false,
         }
     }
 }

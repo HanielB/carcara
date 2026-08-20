@@ -60,6 +60,9 @@ impl<'p, 's> Parser<'p, 's> {
         };
 
         self.insert_sorted_var((name.clone(), binding_sort.clone()));
+        let variable = self
+            .pool
+            .add(Term::new_var(name.clone(), binding_sort.clone()));
         self.state.sort_defs.insert(
             name.clone(),
             SortDef {
@@ -86,7 +89,7 @@ impl<'p, 's> Parser<'p, 's> {
                 });
         }
 
-        Ok((name, TypeParameter { term, attribute }))
+        Ok((name, TypeParameter { term, attribute, variable }))
     }
 
     fn parse_body(&mut self) -> CarcaraResult<Body> {
@@ -149,13 +152,24 @@ impl<'p, 's> Parser<'p, 's> {
             ));
         }
 
+        let conclusion = body.conclusion.unwrap();
+        let premises = body.premises.clone();
+
+        // Whether an instantiation of this rule can need meta-rewriting depends on the rule's own
+        // terms and on the argument values it is given; the first half only depends on the rule,
+        // so it is decided here rather than at every step that uses the rule.
+        let shapes = crate::rare::meta_shapes();
+        let has_meta_construct =
+            shapes.contains_redex(&conclusion) || premises.iter().any(|p| shapes.contains_redex(p));
+
         Ok(RuleDefinition {
             name,
             parameters: parameters.iter().cloned().collect(),
             arguments: body.args.clone(),
-            premises: body.premises.clone(),
-            conclusion: body.conclusion.unwrap(),
+            premises,
+            conclusion,
             is_elaborated: false,
+            has_meta_construct,
         })
     }
 
