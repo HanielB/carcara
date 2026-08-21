@@ -4,9 +4,15 @@
 **Verdict:** both regimes of the frozen-RARE analysis are implemented and validated: the
 aggressive tier's `*_simplify` rules reduce — to `rare_rewrite`/`evaluate` chains
 (`core-simp-rare`) or all the way to the core plus one new axiom pair (`core-taut`), which also
-reduces every `evaluate` and `rare_rewrite` step. Corpus sweep and evaluation numbers in the
-evaluation report; the design analysis is the "trusted computing base" section of
-`docs/src/core.md`.
+reduces every `evaluate` and `rare_rewrite` step. **Eliminating the whole rewrite vocabulary
+costs 8% of proof size on cvc5's proofs (aggregate 0.93 → 1.08, still smaller than the input),
+33% on veriT's, and ~7% of checking time on both**; `rare_rewrite` goes 98 692 → 8 285 steps and
+`evaluate` 26 084 → 156, the remainder being the `to_int`/floor family that needs a
+`to_int_intro` axiom. Keeping the RARE engine is *not* the cheaper option: `core-simp-rare`
+produces baseline-sized proofs that check slower than `core-taut`'s 32%-larger ones (17.1 s vs
+15.4 s on veriT), because a `rare_rewrite` step costs ~1.9 µs against ~0.07 µs for a `refl`.
+Full numbers in the evaluation report; the design analysis is the "trusted computing base"
+section of `docs/src/core.md`.
 
 ## What was built
 
@@ -73,6 +79,19 @@ evaluation report; the design analysis is the "trusted computing base" section o
 4. **`la_generic` takes single negations only** (`negate_disequality` uses `remove_negation`),
    so direction clauses use collapsed literals (`c` for `¬c`) and the equivalence assembly
    resolves on the complement pairs directly.
+
+## Sizing the frozen set
+
+The `core-simp-rare` outputs answer the question the analysis left open: **55 distinct rewrite
+rules** over the corpus — 40 of the 101 active non-BV/array rules of `rewrites.eo` plus the 15
+of `simplify-rules.eo`; veriT's proofs need 32, cvc5's 45. Two rewrites of the `*_simplify`
+fixpoint systems are not expressible in RARE at all (the singleton collapse and the flatten),
+since the list semantics normalize the rule's own left-hand side away.
+
+The one blow-up worth recording: QF_LIA/veriT reaches 10.58 aggregate under `core-taut` (from
+4.07), entirely from two `Averest` proofs with ~18 000 `and_simplify` steps over conjunctions of
+hundreds of arguments — the n-ary recipes are linear in the arity. A dedicated packing recipe
+for wide n-ary simplifications is the prerequisite for making this regime the default.
 
 ## Validation
 
