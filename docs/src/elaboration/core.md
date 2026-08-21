@@ -40,6 +40,35 @@ equality rules (`eq_reflexive`, `eq_transitive`, `eq_congruent`, `eq_congruent_p
 `eq_symmetric`, `not_symm`, `eq_mp`) — a vocabulary point between the original rule set and the
 full core that avoids the discharge-subproof blowup of the `eq_*` reductions.
 
+## The rewrite-reduction regimes
+
+Two variants of the pass extend it over the rewrite vocabulary (the `*_simplify` rules,
+`evaluate`, `rare_rewrite`):
+
+- **`core-simp-rare`** replays each `*_simplify` step as the chain of rewrites its checker
+  applies, one `rare_rewrite` lemma per rewrite (an `evaluate` lemma for the constant folds),
+  glued by `trans`. `evaluate` and `rare_rewrite` are kept: they are the computational
+  vocabulary this regime deliberately retains. The chains use rewrite rules beyond cvc5's
+  `rewrites.eo`, shipped in `rare-tests/rare/simplify-rules.eo`; give the checker the
+  concatenation of both files (`--rare-file`). A rewrite the rule file cannot express (the
+  singleton collapse and the flatten of a nested application — the RARE list semantics
+  normalize those rules' own left-hand sides away) is emitted as its core derivation instead.
+- **`core-taut`** reduces the whole vocabulary to the core: the chains' lemmas, and every
+  `evaluate` and `rare_rewrite` step of the input, become core derivations, using the recipes
+  the "frozen RARE set" analysis of the classification proposes (the `poly_simp_rel` template
+  for the arithmetic atom equivalences, discharge subproofs over the CNF axioms for the
+  propositional ones, the term-`ite` selection axioms `ite_then_intro`/`ite_else_intro` for the
+  `ite` rules) and, for `evaluate`, a structural recursion following the checker's own
+  evaluation function. The `prod`/`sum`/`minus`/`unary_minus`/`div_simplify` rules rename to
+  `poly_simp` in both regimes (their integer-`div` instances excepted).
+
+The traces are read off the checkers themselves: the `*_simplify` step functions return the
+name of the rewrite they apply, so the replay cannot drift from what the check accepts. Steps
+whose conclusion mentions an anchor-*assigned* variable are kept unreduced (the recipes' `refl`
+and excluded-middle steps would change meaning under the context substitution), as are
+`rare_rewrite` steps of rules outside the recipe set — both logged, both counted by the
+evaluation.
+
 ## What a recipe is written against
 
 A recipe is derived from **the semantics of its rule as implemented by Carcara's checker**, not

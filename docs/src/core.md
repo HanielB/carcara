@@ -1126,7 +1126,9 @@ question of whether the *whole* rewrite vocabulary reduces. That question is ans
 turns out to sharpen rather than kill the plan. The classification keeps `rare_rewrite` core —
 it is the extensibility point — but the frozen set is the measured answer to "what does that
 choice cost in trust": 1 233 lines of Rust plus 513 lines of trusted declarations, against 36
-recipes.
+recipes. **Both regimes are implemented** as the `core-taut` and `core-simp-rare` variants of
+the `core` pass (see the elaboration chapter), the former on the term-`ite` selection axioms
+`ite_then_intro`/`ite_else_intro` proposed below.
 
 #### Dropping the `*_simplify` rules too: the whole file
 

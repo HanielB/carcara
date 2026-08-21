@@ -20,6 +20,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-18 | [`symm` round trips in elaboration](./2026-08-18-symm-round-trip.md) | `inv/symm-round-trip` | **merged** |
 | 2026-08-20 | [`rare_rewrite`: skipping the meta-rewriting sweep](./2026-08-20-rare-meta-skip.md) | `inv/rare-meta-skip` | **merged** |
 | 2026-08-21 | [Lifting repeated closed steps](./2026-08-21-hoist-pass.md) | `inv/hoist-pass` | **merged** |
+| 2026-08-21 | [The rewrite-reduction regimes](./2026-08-21-rewrite-reduction-regimes.md) | `coreAlethe` | **merged** |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
