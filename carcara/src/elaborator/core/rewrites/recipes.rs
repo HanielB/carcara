@@ -1287,10 +1287,15 @@ fn uncurry(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
     );
     let r1 = b.resolve(vec![u, ipos], vec![(inner_impl.clone(), true)])?;
     // r1 = (cl ¬a ¬b c)
+    // With `a == b` the two negated antecedents are one literal, gone after one resolution
     let ap0 = and_pos_step(b, &and_term, 0)?;
-    let ap1 = and_pos_step(b, &and_term, 1)?;
     let r2 = b.resolve(vec![r1, ap0], vec![(a.clone(), false)])?;
-    let r3 = b.resolve(vec![r2, ap1], vec![(bb.clone(), false)])?;
+    let r3 = if a == bb {
+        r2
+    } else {
+        let ap1 = and_pos_step(b, &and_term, 1)?;
+        b.resolve(vec![r2, ap1], vec![(bb.clone(), false)])?
+    };
     // r3 = (cl c ¬(and a b) ¬(and a b)) → deduped = (cl c ¬(and a b))
     let rneg1 = b.step(
         vec![rhs.clone(), and_term.clone()],
@@ -1349,13 +1354,18 @@ fn uncurry(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
         Vec::new(),
     );
     let r4 = b.resolve(vec![r3, sneg2], vec![(inner_impl.clone(), true)])?;
-    let sneg1 = b.step(
-        vec![lhs.clone(), a.clone()],
-        "implies_neg1",
-        Vec::new(),
-        Vec::new(),
-    );
-    let inner = b.resolve(vec![r4, sneg1], vec![(a.clone(), false)])?;
+    // With `a == b`, ¬a was already consumed when the inner implication was introduced
+    let inner = if a == bb {
+        r4
+    } else {
+        let sneg1 = b.step(
+            vec![lhs.clone(), a.clone()],
+            "implies_neg1",
+            Vec::new(),
+            Vec::new(),
+        );
+        b.resolve(vec![r4, sneg1], vec![(a.clone(), false)])?
+    };
     let sub2 = b.close_subproof(vec![h], inner);
 
     b.equiv_intro(lhs.clone(), rhs.clone(), sub1, sub2)
@@ -2086,64 +2096,6 @@ fn elim_dup(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
     }
 }
 
-fn dup_source(args: &[Rc<Term>], j: usize) -> usize {
-    args[..j].iter().position(|t| *t == args[j]).unwrap()
-}
-
-/// `(= (or ¬(t ≈ t) xs…) (or xs…))` — with the right side possibly a singleton application or a
-/// bare term.
-fn or_not_refl(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
-    let (rhs_args, rhs_is_app) = rhs_arguments(rhs);
-    let args = match_term_err!((or ...) = lhs)?.to_vec();
-    let pos = args
-        .iter()
-        .position(|t| match_term!((not (= a b)) = t).is_some_and(|(a, b)| a == b))
-        .ok_or_else(|| explanation("no reflexive disequality"))?;
-    let (t, _) = match_term!((not (= a b)) = &args[pos]).unwrap();
-    let t = t.clone();
-    let e = eq(b.pool, &t, &t);
-    // dir1 = (cl ¬lhs rhs): or_pos, kill the disequality with refl, pack the rest
-    let op = or_pos_step(b, lhs)?;
-    let r = refl(b, &t);
-    let mut node = b.resolve(vec![op, r], vec![(e, false)])?;
-    if rhs_is_app {
-        let mut lits = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for (i, arg) in args.iter().enumerate() {
-            if i == pos || !seen.insert(arg.clone()) {
-                continue;
-            }
-            let j = rhs_args
-                .iter()
-                .position(|x| x == arg)
-                .ok_or_else(|| explanation("disjunct not in the right-hand side"))?;
-            lits.push((arg.clone(), j));
-        }
-        node = pack_or(b, node, rhs, &lits)?;
-    }
-    let dir1 = node;
-    // dir2 = (cl lhs ¬rhs)
-    let dir2 = if !rhs_is_app {
-        let keep = args
-            .iter()
-            .position(|x| x == rhs)
-            .ok_or_else(|| explanation("surviving term not found"))?;
-        or_neg_step(b, lhs, keep)?
-    } else {
-        let op = or_pos_step(b, rhs)?;
-        let mut lits = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for (i, arg) in args.iter().enumerate() {
-            if i == pos || !seen.insert(arg.clone()) {
-                continue;
-            }
-            lits.push((arg.clone(), i));
-        }
-        pack_or(b, op, lhs, &lits)?
-    };
-    b.equiv_intro(lhs.clone(), rhs.clone(), dir1, dir2)
-}
-
 /// The argument list a right-hand side stands for: the arguments of an `and`/`or` application
 /// (a singleton application included), or the term itself as a one-element list.
 fn rhs_arguments(rhs: &Rc<Term>) -> (Vec<Rc<Term>>, bool) {
@@ -2170,6 +2122,8 @@ fn removed_position(args: &[Rc<Term>], rhs: &Rc<Term>, neutral: bool) -> Option<
     None
 }
 
+/// The positions `(i, j)` of a duplicated element and of the copy whose removal yields `rhs`'s
+/// argument list.
 fn dup_positions(args: &[Rc<Term>], rhs: &Rc<Term>) -> Option<(usize, usize)> {
     let (rhs_args, _) = rhs_arguments(rhs);
     for j in 1..args.len() {
@@ -2182,6 +2136,72 @@ fn dup_positions(args: &[Rc<Term>], rhs: &Rc<Term>) -> Option<(usize, usize)> {
         }
     }
     None
+}
+
+fn dup_source(args: &[Rc<Term>], j: usize) -> usize {
+    args[..j].iter().position(|t| *t == args[j]).unwrap()
+}
+
+/// `(= (or ¬(t ≈ t) xs…) (or xs…))` — with the right side possibly a singleton application or
+/// a bare term, and the reflexive disequality possibly occurring more than once (the rule
+/// removes one occurrence, so another copy can survive on the right).
+fn or_not_refl(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
+    let (rhs_args, rhs_is_app) = rhs_arguments(rhs);
+    let args = match_term_err!((or ...) = lhs)?.to_vec();
+    let pos = args
+        .iter()
+        .position(|t| match_term!((not (= a b)) = t).is_some_and(|(a, b)| a == b))
+        .ok_or_else(|| explanation("no reflexive disequality"))?;
+    let (t, _) = match_term!((not (= a b)) = &args[pos]).unwrap();
+    let t = t.clone();
+    let e = eq(b.pool, &t, &t);
+
+    // dir1 = (cl ¬lhs rhs): from `or_pos`, each *distinct* disjunct is either packed into the
+    // right-hand side (if it survives there — which the disequality does when it occurs twice,
+    // since the rule removes only one copy) or killed by `refl`
+    let mut node = or_pos_step(b, lhs)?;
+    let mut seen = std::collections::HashSet::new();
+    for arg in &args {
+        if !seen.insert(arg.clone()) {
+            continue;
+        }
+        if let Some(j) = rhs_args.iter().position(|x| x == arg) {
+            if rhs_is_app {
+                let neg = or_neg_step(b, rhs, j)?;
+                node = b.resolve(vec![node, neg], vec![(arg.clone(), true)])?;
+            }
+            // A bare right-hand side *is* the surviving literal: nothing to pack
+        } else {
+            let r = refl(b, &t);
+            node = b.resolve(vec![node, r], vec![(e.clone(), false)])?;
+        }
+    }
+    let dir1 = node;
+
+    // dir2 = (cl lhs ¬rhs): every disjunct of the right-hand side occurs in the left one
+    let dir2 = if !rhs_is_app {
+        let keep = args
+            .iter()
+            .position(|x| x == rhs)
+            .ok_or_else(|| explanation("surviving term not found"))?;
+        or_neg_step(b, lhs, keep)?
+    } else {
+        let op = or_pos_step(b, rhs)?;
+        let mut lits = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for arg in &rhs_args {
+            if !seen.insert(arg.clone()) {
+                continue;
+            }
+            let j = args
+                .iter()
+                .position(|x| x == arg)
+                .ok_or_else(|| explanation("right-hand disjunct not on the left"))?;
+            lits.push((arg.clone(), j));
+        }
+        pack_or(b, op, lhs, &lits)?
+    };
+    b.equiv_intro(lhs.clone(), rhs.clone(), dir1, dir2)
 }
 
 /// `(= (distinct xs t ys t zs) false)` — through `distinct_elim` as the definitional rule for

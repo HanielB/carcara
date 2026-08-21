@@ -212,6 +212,7 @@ fn simplify_cases() -> Vec<&'static str> {
         "(step t1 (cl (= (not (=> p q)) (and p (not q)))) :rule bool_simplify)",
         "(step t1 (cl (= (not (or p q)) (and (not p) (not q)))) :rule bool_simplify)",
         "(step t1 (cl (= (=> p (=> q r)) (=> (and p q) r))) :rule bool_simplify)",
+        "(step t1 (cl (= (=> p (=> p r)) (=> (and p p) r))) :rule bool_simplify)",
         "(step t1 (cl (= (and p (=> p q)) (and p q))) :rule bool_simplify)",
         // comp_simplify
         "(step t1 (cl (= (< x y) (not (<= y x)))) :rule comp_simplify)",
