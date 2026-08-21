@@ -1,4 +1,5 @@
 use crate::ast::*;
+use std::collections::{hash_map, HashMap};
 use std::sync::{atomic::AtomicUsize, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug)]
@@ -35,6 +36,15 @@ pub struct ContextStack {
     /// The stack of contexts id (works just like a map to `context_vec`).
     stack: Vec<usize>,
     num_cumulative_calculated: usize,
+    /// How many of the anchors in the stack bind each variable name. A name is in scope exactly
+    /// while its count is positive.
+    ///
+    /// This is maintained by `push` and `pop` instead of being read off the stack on demand,
+    /// because deciding whether a term mentions a bound variable is done per step: walking the
+    /// whole stack for every step of a deeply nested proof is quadratic.
+    bound_names: HashMap<String, usize>,
+    /// The names each anchor in the stack added, so that popping it can take them back out.
+    bound_frames: Vec<Vec<String>>,
 }
 
 impl ContextStack {
@@ -56,6 +66,8 @@ impl ContextStack {
             context_vec,
             stack: vec![],
             num_cumulative_calculated: 0,
+            bound_names: HashMap::new(),
+            bound_frames: Vec::new(),
         }
     }
 
@@ -66,6 +78,8 @@ impl ContextStack {
             context_vec: self.context_vec.clone(),
             stack: vec![],
             num_cumulative_calculated: 0,
+            bound_names: HashMap::new(),
+            bound_frames: Vec::new(),
         }
     }
 
@@ -122,34 +136,43 @@ impl ContextStack {
         // required at any moment, then we are assured it will wait until the
         // fully context construction
         self.stack.push(context_id);
+
+        let names: Vec<String> = args
+            .iter()
+            .map(|arg| match arg {
+                AnchorArg::Variable((name, _)) | AnchorArg::Assign((name, _), _) => name.clone(),
+            })
+            .collect();
+        for name in &names {
+            *self.bound_names.entry(name.clone()).or_insert(0) += 1;
+        }
+        self.bound_frames.push(names);
     }
 
-    /// Returns the variables bound by the anchors currently in the stack, that is, the variables
-    /// declared or assigned by every `anchor` that is in scope.
-    ///
-    /// The result is empty exactly when no anchor in scope binds anything, which is the common
-    /// case: the `subproof` rule's anchors take no arguments.
-    pub fn bound_variables(&self) -> Vec<SortedVar> {
-        let mut result = Vec::new();
-        for id in &self.stack {
-            let guard = self.context_vec[*id].1.read().unwrap();
-            let Some(context) = guard.as_ref() else {
-                continue;
-            };
-            for arg in &context.args {
-                match arg {
-                    AnchorArg::Variable(v) => result.push(v.clone()),
-                    AnchorArg::Assign(v, _) => result.push(v.clone()),
-                }
-            }
-        }
-        result
+    /// Returns `true` if no anchor in the stack binds anything, which is the common case: the
+    /// `subproof` rule's anchors take no arguments.
+    pub fn binds_nothing(&self) -> bool {
+        self.bound_names.is_empty()
+    }
+
+    /// Returns `true` if some anchor in the stack declares or assigns a variable of this name.
+    pub fn binds(&self, name: &str) -> bool {
+        self.bound_names.contains_key(name)
     }
 
     pub fn pop(&mut self) {
         use std::sync::atomic::Ordering;
 
         if let Some(id) = self.stack.pop() {
+            for name in self.bound_frames.pop().unwrap_or_default() {
+                if let hash_map::Entry::Occupied(mut e) = self.bound_names.entry(name) {
+                    *e.get_mut() -= 1;
+                    if *e.get() == 0 {
+                        e.remove();
+                    }
+                }
+            }
+
             let this_context = &self.context_vec[id];
 
             let mut remaining_threads = this_context.0.load(Ordering::Acquire);
