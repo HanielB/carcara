@@ -2,7 +2,7 @@ pub mod error;
 mod parallel;
 pub(crate) mod rules;
 mod sat_refutation;
-mod shared;
+pub(crate) mod shared;
 
 use crate::{
     ast::{rare_rules::Rules, *},

@@ -35,6 +35,7 @@
 //! larger than the unshared pass would have.
 
 use crate::ast::*;
+use crate::elaborator::hoist::{context_free, fresh_prefix, visit_all};
 use std::collections::{HashMap, HashSet};
 
 /// What the memo holds for a conclusion that has been derived at least once.
@@ -72,10 +73,8 @@ impl Sharing {
     /// Prepares to share derivations in the given proof: picks an id namespace that is free in it,
     /// and collects the steps that cannot be moved out of their subproof.
     pub fn new(proof: &ProofNodeForest) -> Self {
-        let mut ids: Vec<&str> = Vec::new();
         let mut implicit_premises = HashSet::new();
         for node in visit_all(proof) {
-            ids.push(node.id());
             if let ProofNode::Step(s) = node.as_ref() {
                 if let Some(previous) = &s.previous_step {
                     implicit_premises.insert(previous.id().to_owned());
@@ -83,14 +82,9 @@ impl Sharing {
             }
         }
 
-        let mut prefix = String::from("sh");
-        while ids.iter().any(|id| id.starts_with(&prefix)) {
-            prefix.push('_');
-        }
-
         Self {
             cache: HashMap::new(),
-            prefix,
+            prefix: fresh_prefix(proof, "sh"),
             emitted: 0,
             implicit_premises,
             saved: 0,
@@ -227,61 +221,4 @@ fn self_contained(root: &Rc<ProofNode>, depth: usize) -> Option<Vec<Rc<ProofNode
         }
     }
     Some(order)
-}
-
-/// Returns `true` if no term in the derivation has a free variable that an anchor in scope binds.
-///
-/// When that holds, the anchors' substitution is the identity on every term of the derivation, and
-/// the variables they declare are not among the derivation's, so checking the derivation outside
-/// the anchors is the same problem as checking it inside them.
-fn context_free(
-    pool: &mut PrimitivePool,
-    context: &ContextStack,
-    derivation: &[Rc<ProofNode>],
-) -> bool {
-    let bound = context.bound_variables();
-    if bound.is_empty() {
-        return true;
-    }
-    let bound: HashSet<Rc<Term>> = bound
-        .into_iter()
-        .map(|(name, sort)| pool.add(Term::new_var(name, sort)))
-        .collect();
-    !derivation.iter().any(|node| {
-        let s = node.as_step().unwrap();
-        s.clause
-            .iter()
-            .chain(&s.args)
-            .any(|t| pool.free_vars(t).iter().any(|v| bound.contains(v)))
-    })
-}
-
-/// Visits every node of a proof forest, including the ones that [`Rc<ProofNode>::traverse`] skips
-/// because nothing depends on them.
-fn visit_all(proof: &ProofNodeForest) -> Vec<&Rc<ProofNode>> {
-    let mut result = Vec::new();
-    let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
-    let mut todo: Vec<&Rc<ProofNode>> = proof.0.iter().collect();
-    while let Some(node) = todo.pop() {
-        if !seen.insert(node) {
-            continue;
-        }
-        result.push(node);
-        match node.as_ref() {
-            ProofNode::Assume { .. } => (),
-            ProofNode::Step(s) => {
-                todo.extend(
-                    s.premises
-                        .iter()
-                        .chain(&s.discharge)
-                        .chain(&s.previous_step),
-                );
-            }
-            ProofNode::Subproof(s) => {
-                todo.push(&s.last_step);
-                todo.extend(s.extra_steps.iter().chain(&s.outbound_premises));
-            }
-        }
-    }
-    result
 }

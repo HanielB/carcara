@@ -207,6 +207,7 @@ pub struct CheckingOptions {
 
 #[derive(ArgEnum, Clone)]
 pub enum ElaborationPass {
+    Hoist,
     Polyeq,
     Hole,
     Core,
@@ -229,7 +230,7 @@ pub struct ElaborationOptions {
         arg_enum,
         long,
         multiple = true,
-        default_values = &["polyeq", "hole", "local", "uncrowd", "reordering"]
+        default_values = &["hoist", "polyeq", "hole", "local", "uncrowd", "reordering"]
     )]
     pub pipeline: Vec<ElaborationPass>,
 }
@@ -468,15 +469,16 @@ impl IntoConfig for (CheckingOptions, ToolOptions) {
     }
 }
 
-impl IntoConfig for (ElaborationOptions, ToolOptions) {
+impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
     type Output = (elaborator::Config, Vec<elaborator::ElaborationPass>);
 
     fn into_config(self) -> Self::Output {
-        let (e, t) = self;
+        let (e, t, c) = self;
         let pipeline: Vec<_> = e
             .pipeline
             .into_iter()
             .map(|p| match p {
+                ElaborationPass::Hoist => elaborator::ElaborationPass::Hoist,
                 ElaborationPass::Polyeq => elaborator::ElaborationPass::Polyeq,
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
                 ElaborationPass::Core => elaborator::ElaborationPass::Core,
@@ -493,6 +495,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions) {
             uncrowd_rotation: e.uncrowd_rotate,
             hole_solver: t.smt_solver.clone(),
             sat_ref_tools: t.into_config(),
+            allowed_rules: c.allowed_rules.unwrap_or_default().into_iter().collect(),
         };
         (config, pipeline)
     }

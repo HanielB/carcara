@@ -160,8 +160,9 @@ fn elaborate_command(
 ) -> CliResult<(bool, ast::Problem, ast::Proof, ast::PrimitivePool)> {
     let (problem, proof, rules) = get_instance(&options.input)?;
 
-    let checker_config = (options.checking, options.tools.clone()).into_config();
-    let (elab_config, pipeline) = (options.elaboration, options.tools).into_config();
+    let checker_config = (options.checking.clone(), options.tools.clone()).into_config();
+    let (elab_config, pipeline) =
+        (options.elaboration, options.tools, options.checking).into_config();
 
     check_and_elaborate(
         &problem,
@@ -189,8 +190,9 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         options.num_runs
     );
 
-    let checker_config = (options.checking, options.tools.clone()).into_config();
-    let (elab_config, pipeline) = (options.elaboration, options.tools).into_config();
+    let checker_config = (options.checking.clone(), options.tools.clone()).into_config();
+    let (elab_config, pipeline) =
+        (options.elaboration, options.tools, options.checking).into_config();
     let rare_file = match &options.rare_file {
         Some(path) => Some(std::fs::read_to_string(path).map_err(CliError::from)?),
         None => None,

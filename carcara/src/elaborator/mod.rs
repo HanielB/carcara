@@ -1,5 +1,6 @@
 mod core;
 pub mod error;
+mod hoist;
 mod hole;
 mod local;
 mod polyeq;
@@ -20,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     /// If `Some`, enables the elaboration of `lia_generic` steps using an external solver. When
     /// checking a proof, this means calling the solver to solve the linear integer arithmetic
@@ -35,10 +36,16 @@ pub struct Config {
     pub hole_solver: Option<ExternalTool>,
 
     pub sat_ref_tools: Option<SatTools>,
+
+    /// The rules that the checker was told to accept as holes, via `--allowed-rules`. The `hoist`
+    /// pass needs them to know which derivations it must not share, so that it cannot replace a
+    /// real derivation by a holey one.
+    pub allowed_rules: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ElaborationPass {
+    Hoist,
     Polyeq,
     Hole,
     Core,
@@ -65,7 +72,7 @@ impl<'e> Elaborator<'e> {
         proof: ProofNodeForest,
     ) -> Result<ProofNodeForest, Error> {
         use ElaborationPass::*;
-        let pipeline = vec![Polyeq, Hole, Local, Uncrowd, Reordering];
+        let pipeline = vec![Hoist, Polyeq, Hole, Local, Uncrowd, Reordering];
         self.elaborate(proof, pipeline)
     }
 
@@ -87,6 +94,9 @@ impl<'e> Elaborator<'e> {
         for pass in pipeline {
             let time = Instant::now();
             current = match pass {
+                ElaborationPass::Hoist => {
+                    hoist::hoist(self.pool, current, &self.config.allowed_rules)
+                }
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
                 ElaborationPass::Core => self.elaborate_core(current, false)?,
@@ -485,17 +495,29 @@ where
             }
             ProofNode::Subproof(s) => {
                 context.pop();
-                let outbound_premises =
-                    outbound_premises_stack.pop().unwrap().into_iter().collect();
-                let extra_steps = s
+                let mut outbound_premises = outbound_premises_stack.pop().unwrap();
+                let extra_steps: Vec<Rc<ProofNode>> = s
                     .extra_steps
                     .iter()
                     .map(|node| cache[node].clone())
                     .collect();
+
+                // A step of this subproof may have been replaced by one of an enclosing scope, as
+                // the `hoist` pass does when it lifts a closed derivation to depth 0. Such a step
+                // belongs outside the subproof, so it is recorded as an outbound premise even if
+                // nothing in the subproof uses it: that is what makes later traversals visit it
+                // under the right context, and the proof print it before the anchor
+                outbound_premises.extend(
+                    extra_steps
+                        .iter()
+                        .filter(|extra| extra.depth() <= node.depth())
+                        .cloned(),
+                );
+
                 Rc::new(ProofNode::Subproof(SubproofNode {
                     last_step: cache[&s.last_step].clone(),
                     args: s.args.clone(),
-                    outbound_premises,
+                    outbound_premises: outbound_premises.into_iter().collect(),
                     extra_steps,
                 }))
             }

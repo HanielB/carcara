@@ -515,6 +515,17 @@ impl PrimitivePool {
         self.free_vars_cache.get(term).unwrap().clone()
     }
 
+    /// Like [`TermPool::free_vars`], but returns the cached set instead of a copy of it.
+    ///
+    /// The set of a large term can itself be large, so a caller that only wants to look through it
+    /// should not pay for copying it.
+    pub fn free_vars_ref(&mut self, term: &Rc<Term>) -> &IndexSet<Rc<Term>> {
+        if !self.free_vars_cache.contains_key(term) {
+            self.free_vars_with_priorities(term, []);
+        }
+        &self.free_vars_cache[term]
+    }
+
     pub fn unwrap_sort(&mut self, arg: &Rc<Term>) -> Sort {
         match self.compute_sort(arg).as_sort().unwrap().clone() {
             Sort::RareList(inner) => inner.as_sort().unwrap().clone(),
