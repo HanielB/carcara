@@ -431,3 +431,13 @@ partition only.
 | `div_simplify`, `comp_simplify` | 9 | mostly; integer `div`/`mod` folding needs more evaluation operators |
 | `la_rw_eq` (alternative route), `abs` | 2 | yes; `la_rw_eq`'s preferred reduction now goes through the core's `la_disequality` instead |
 | ACI / `nary_elim` | 5 per operator | yes; normalization order must be replayed, not searched |
+
+A complementary analysis lives in the parent chapter's ["The trusted computing base,
+measured"](../core.md#the-trusted-computing-base-measured) section: if `rare_rewrite` itself is
+removed from the core over a *frozen* rule set, every rewrite above and every non-BV/array rule
+of cvc5's `rewrites.eo` needs a recipe in core terms instead of a RARE declaration. The
+lemma/axiom partition of this chapter survives that regime intact — the same rules stay lemmas,
+with the recipes materializing the derivations this chapter only argues exist — and the axiom
+partition acquires precise membership: the term-`ite` selection pair, `distinct_elim` as a
+definitional schema, the `*_intro` family with the division-by-zero fixings, and
+`la_mult_pos_pos`.

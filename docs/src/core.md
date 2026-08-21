@@ -1110,7 +1110,7 @@ has:
 |---|---|---:|---|
 | arithmetic atom equivalences | `arith-elim-lt/leq/gt`, `arith-leq-norm`, `arith-eq-elim-int/real`, `arith-geq-tighten`, `arith-geq-norm1-int/real` | 122 939 (67%) | the `poly_simp_rel` template: each direction one `la_generic` Farkas certificate (through `la_disequality` when a positive equality is produced), glued by the `equiv_intro` pattern — 8 steps for atom↔atom, ~20 when an equality is eliminated |
 | propositional equivalences | `bool-double-not-elim`, `eq-symm`, `eq-refl`, `bool-eq-false/true`, `bool-impl-*`, `bool-and/or-de-morgan`, `bool-implies-or-distrib`, `bool-or-and-distrib`, `bool-implies-de-morgan`, `or-not-refl`, `distinct-false`, `bool-or-taut`, `bool-and-conf` | 60 524 (33%) | two discharge subproofs over the CNF axioms closed by the `equiv_intro` pattern — the same shape as the `eq_*` reductions; constant-size for fixed-arity rules, linear in n for the 8 that declare `:list` |
-| `ite` selection | `ite-not-cond`, `ite-eq`, `ite-then-true`, `ite-else-false`, `ite-true-cond`, `ite-false-cond`, `ite-eq-branch`, `arith-geq-ite-lift` | 871 (0.5%) | `ite_pos1/2` + `ite_neg1/2` + resolution, constant-size |
+| `ite` selection | `ite-not-cond`, `ite-eq`, `ite-then-true`, `ite-else-false`, `ite-true-cond`, `ite-false-cond`, `ite-eq-branch`, `arith-geq-ite-lift` | 871 (0.5%) | constant-size; the Boolean-sorted members via `ite_pos1/2` + `ite_neg1/2` + resolution, the term-level members via the proposed selection axiom pair (next subsection) |
 
 So a **frozen** alternative exists: fix this rule set, give each member a recipe, and
 `rare_rewrite` moves from core to *reducible* — deleting the entire RARE subsystem *and* the
@@ -1119,13 +1119,95 @@ already in the core and the recipes themselves live in the untrusted elaborator.
 real but concentrated: the top four rules (`arith-elim-lt`, `eq-symm`, `arith-elim-leq`,
 `bool-double-not-elim`) are 78% of all instances, and 56% of instances are cross-subproof
 duplicates the `hoist` pass would absorb. What the frozen set gives up is exactly its name: any
-new producer rule requires a hand-written recipe rather than a declaration, the aggressive tier
-loses its designated reduction *target* (the `*_simplify` rules are compositions of elementary
-rewrites — that is, `rare_rewrite` chains), and the `ite_intro` recipe would need its two RARE
-steps re-expressed through the `ite` axioms. The classification therefore keeps `rare_rewrite`
-core — it is the extensibility point — but the frozen set is the measured answer to "what does
-that choice cost in trust": 1 233 lines of Rust plus 513 lines of trusted declarations, against
-36 recipes.
+new producer rule requires a hand-written recipe rather than a declaration, and the aggressive
+tier's designated reduction *target* changes meaning — the `*_simplify` rules are compositions
+of elementary rewrites, i.e. `rare_rewrite` chains, so removing `rare_rewrite` forces the
+question of whether the *whole* rewrite vocabulary reduces. That question is answered next; it
+turns out to sharpen rather than kill the plan. The classification keeps `rare_rewrite` core —
+it is the extensibility point — but the frozen set is the measured answer to "what does that
+choice cost in trust": 1 233 lines of Rust plus 513 lines of trusted declarations, against 36
+recipes.
+
+#### Dropping the `*_simplify` rules too: the whole file
+
+If the aggressive tier's `*_simplify` reductions are also to be carried out — each step
+replayed as a chain of per-rewrite lemmas glued by `cong`/`trans` — then under a no-`rare_rewrite`
+regime every rewrite those chains use needs a core recipe too, not just the 36 the corpus
+emits directly. The relevant scope is **every rule of `rewrites.eo` outside the bitvector and
+array theories: 101 active declarations** (of 107 active; the file also carries 12 commented-out
+declarations, ten of them the `bv-*` set), together with the ~30 catalogue-only rewrites the
+[`*_simplify` fixpoint systems](./core/rare-rules.md) need beyond the file (the n-ary
+`and`/`or` list rules, the `equiv`/`implies` simplification sets, the ring rules, the constant
+folds, the generic ACI rules). The catalogue extras add *no new recipe family* — a ring identity
+is one `poly_simp` step, a constant fold is the `evaluate` recipe above, an ACI step is one
+`aci_simp` — so the whole analysis is the classification of the 101 by recipe:
+
+| family | rules | recipe | size per instance |
+|---|---:|---|---|
+| linear-atom equivalences (`arith-elim-*`, `arith-leq-norm`, `arith-geq-tighten`, `arith-geq-norm1-*`, `arith-eq-elim-*`, `arith-int-eq-conflict`, `arith-int-geq-tighten`) | 13 | the `poly_simp_rel` template: one `la_generic` per direction (`la_disequality` for positive equalities), `equiv_intro` glue; integer tightening is `la_generic`'s strengthening | 8–20 steps |
+| propositional equivalences (`bool-*`) and equality logic (`eq-refl`, `eq-symm`, `eq-cond-deq`, `or-not-refl`) | 35 | two discharge subproofs over the CNF axioms closed by the `equiv_intro` pattern; `refl`/`trans`/`symm` for the equality ones; premise-carrying members (`bool-not-true/false`, `eq-cond-deq`) consume their premise via `cong` | constant; linear in *n* for the `:list` rules |
+| Boolean-sorted `ite` (`ite-then-true`, `ite-else-false`, `ite-expand`, the `lookahead-self` group, `ite-neg-branch`, `bool-not-ite-elim`, …) | 11 | `ite_pos1/2` + `ite_neg1/2` + resolution + `equiv_intro` | constant |
+| term-level `ite` (`ite-true-cond`, `ite-false-cond`, `ite-not-cond`, `ite-eq-branch`, the polymorphic lookaheads, `ite-eq`, `eq-ite-lift`) and its arithmetic lifts (`arith-*-ite-lift`, `arith-min-*`, `arith-max-*`) | 16 | **blocked** — see below; given the proposed selection axioms: excluded middle (3 core steps: `refl` + `equiv_pos2` + resolution) + `cong` + `trans`, plus `la_generic` for the min/max members | constant |
+| `abs` (`abs-elim-*`, `arith-abs-eq`, `arith-abs-*-gt`) | 5 | `abs_intro` definitional axiom + the term-`ite` machinery + a 4-way sign case split in `la_generic` | constant (~40 steps) |
+| `div`/`mod`/coercions (`arith-*-total*`, `arith-mod-over-mod*`, `mod-elim`, `arith-to-int-elim-to-real`, `arith-div-elim-to-real*`, `is_int-elim`) | 17 | the `*_intro` characterization axioms + `la_generic`/`poly_simp`; the division-by-zero rules are **axioms outright** — see below | constant *at literal divisors* (how cvc5 instantiates them); symbolic divisors would need nonlinear uniqueness arguments |
+| `distinct` (`distinct-binary-elim`, `distinct-false`) | 2 | `distinct_elim` as definitional + `refl` + CNF axioms — see below | linear in arity |
+| nonlinear tangent planes (`mult-tangent-lower/upper`) | 2 | the proposed `la_mult_pos_pos` [pos-cone] axiom + `poly_simp` + a 4-quadrant `la_generic` case split | constant (~40 steps) |
+
+Four families reduce today with no additions. The remaining four converge on a short list of
+**genuinely new axioms** — the honest price of the whole program, and the answer to "which
+rewrites deserve a rule instead of a recipe":
+
+1. **Term-`ite` selection** — the one outright gap. No core rule characterizes `ite` at
+   non-Boolean sorts: `ite_pos/neg` are formula-level, so `(= (ite true t s) t)` has *no
+   derivation at all* (which is exactly why the `ite_intro` recipe reaches for
+   `ite-true-cond`/`ite-false-cond` today). The fix is one definitional axiom pair in the
+   premise-free-clause style of `la_disequality`:
+   `▷ ¬c, (ite c t s) ≈ t` and `▷ c, (ite c t s) ≈ s`.
+   Both RARE rules become 2-step lemmas (instantiate, resolve against the `true`/`false`
+   axioms), the other fourteen term-`ite` rules derive by case split, and the `ite_intro`
+   recipe sheds its RARE dependency. This pair is to `ite` what the `bitblast_*` schemas are to
+   the bitvector operations.
+2. **`distinct_elim` promoted to a definitional computational schema.** Its aggressive-tier
+   blocker — an n-ary RARE rule needs an arity-dependent Eunoia program — is a
+   RARE-*expressiveness* blocker and dissolves under recipes, which can emit arity-dependent
+   derivations freely. But something must still *define* `distinct`, since no core rule mentions
+   it: the natural move is `distinct_elim` itself as the definitional primitive (checked by
+   recomputing the pairwise expansion, exactly like `bitblast_*`). The two RARE `distinct` rules
+   then reduce: `distinct-binary-elim` is one `distinct_elim` step plus Boolean glue, and
+   `distinct-false` is `distinct_elim` + `refl` on the repeated element + CNF axioms.
+3. **The `*_intro` definitional family**, most of it already proposed on the alethe-toolkit
+   branch: `div_intro` (the Euclidean characterization `s ≠ 0 → t = s·(div t s) + (mod t s) ∧
+   0 ≤ mod t s < |s|`), `to_int_intro` (floor bounds), an `abs_intro`, an `is_int` definition,
+   and a `to_real` coercion-erasure principle (or a subtyping-aware `refl`, which
+   `--allow-int-real-subtyping` already gestures at). On top of these, the four
+   **division-by-zero rules** (`arith-div-total-zero-*`, `arith-int-div-total-zero`,
+   `arith-int-mod-total-zero`) are not derivable from anything, even in principle: SMT-LIB
+   leaves `t/0` unspecified and cvc5's rewrites *fix* it (`(/ t 0) = 0`, `(mod t 0) = t`), so
+   adopting them is adopting the total semantics, and they can only enter as definitional
+   axioms alongside `div_intro`. A caveat scoped precisely: with these characterizations the
+   `div`/`mod` recipes are linear only when the divisor is a literal — which is how cvc5 emits
+   every instance, discharging the `≠ 0` premises by evaluation. At a *symbolic* divisor,
+   `arith-int-div-total-neg` and `arith-mod-over-mod` need the uniqueness of Euclidean division,
+   a nonlinear argument; the frozen fragment should restrict those rules to literal divisors
+   rather than buy the nonlinear machinery.
+4. **`la_mult_pos_pos`** — already the classification's proposed [pos-cone] axiom for the
+   `la_mult_*` schemes; the two tangent-plane rules are its only other clients here, with
+   constant-size recipes once it exists.
+
+Nothing else earns a rule on cost grounds: the worst recipes in the derivable families are the
+~40-step constant-size `abs`/tangent case splits, and the `:list` rules are linear with small
+constants. One catalogue rule deserves a flag rather than an axiom: `eq-const-diff`
+(`(= c₁ c₂) ≈ ⊥` for distinct literals) reduces via `la_generic` for *numeric* constants, but at
+other value sorts the core has no disequality introducer — outside this fragment's theories,
+which is where it should stay.
+
+The combined regime — `rare_rewrite` frozen out *and* the eight `*_simplify` rules reduced —
+would additionally delete most of `simplification.rs` (~750 of its 896 lines; `aci_simp` stays)
+and retire `distinct_elim`'s Eunoia blocker, at the price of the axiom list above and of
+`*_simplify` steps costing trace-length × recipe-size core steps, with the repeated
+literal-instance lemmas being exactly what the `hoist` pass deduplicates. The
+trace-instrumentation prerequisite of the aggressive tier (recording the fixpoint's rewrite
+order) is unchanged — recipes replace the chain's *links*, not the need to know the chain.
 
 ### `evaluate` without the evaluator
 
