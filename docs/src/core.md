@@ -1045,6 +1045,108 @@ check and zero new steps, or a RARE trace with syntactic checks at trace-length 
 reductions"); `nary_elim`'s chainable and non-commutative cases keep the binary-associativity
 `rare_rewrite` chain.
 
+## The trusted computing base, measured
+
+The point of reducing to a small core is that the *checker for the core* is all one has to
+trust. That claim can be made quantitative against Carcara's implementation: how many lines of
+Rust does the verdict on a core-fragment proof depend on, once every reducible rule has been
+elaborated away? Counted on the `coreAlethe` branch, at function granularity for rule checkers
+(a rule's entry function plus the helpers only its family uses) and at module granularity for
+infrastructure; test modules, the printer, and error *formatting* are excluded.
+
+**Fragment-independent infrastructure** — trusted no matter what the rule vocabulary is:
+
+| component | lines |
+|---|---:|
+| lexer + parser (`parser/`, minus the RARE grammar) | 3 456 |
+| terms, hash consing, proof AST (`ast/term, rc, pool, proof, problem, iter, macros`) | 2 726 |
+| polyequality / alpha-equivalence (`ast/polyeq.rs` — `assume`, premise matching) | 823 |
+| substitution + context (`ast/substitution.rs`, `ast/context.rs` — `refl`, the binder rules) | 895 |
+| checker driver (`checker/mod.rs`, `checker/shared.rs`, `rules/mod.rs` helpers) | 917 |
+| **subtotal** | **≈ 8 800** |
+
+**Core rule checkers.** The syntactic rules are strikingly small — the 19 CNF axioms are 138
+lines *in total*, `true`/`false`/`not_not` another 24 — and the bulk sits in exactly two places:
+the resolution family and the computational primitives.
+
+| group | lines |
+|---|---:|
+| resolution family (greedy + explicit-pivot + RUP; `rules/resolution.rs` part + `src/resolution.rs`) | 723 |
+| CNF axioms + `true`/`false`/`not_not` | 162 |
+| binder rules (`bind` incl. the generalized closure, `let`, `bind_let`, `subproof`, `sko_forall`, `forall_inst`) | 418 |
+| equality (`refl`/`strict_refl`, `trans`, `cong`, `symm`, `connective_def`) | 273 |
+| `la_disequality` | 11 |
+| **syntactic subtotal** | **≈ 1 600** |
+| `la_generic` (incl. `LinearComb`, strengthening, disequality splitting) | 267 |
+| `poly_simp` (incl. the `Polynomial` ring normalization) | 149 |
+| `aci_simp` | 144 |
+| `evaluate` (5-line rule + `ast/evaluate.rs`) | 585 |
+| `rare_rewrite` (`rules/rare.rs` + `src/rare/` matcher + RARE parser + `ast/rare_rules.rs`) | 1 233 |
+| **computational subtotal** | **≈ 2 400** |
+
+**Total: ≈ 12 800 lines** — about 8 800 of them the parser/AST skeleton any checker needs, and
+about 4 000 rule-specific. For comparison, Carcara's *full* rule vocabulary is ≈ 11 100 lines of
+rule code (the 8 510-line `checker/rules/` directory plus the resolution, RARE and evaluation
+modules) before counting the out-of-fragment theories (strings, pseudo-Boolean and cutting-planes
+add another 2 900). Elaborating to the core discharges roughly **two thirds of the rule-specific
+code from the TCB** — and, more importantly, the ≈ 9 500-line elaborator itself is *not* in it:
+its output is re-checked against the core vocabulary, so every reduction recipe, the sharing and
+hoisting machinery, and every pipeline pass can be wrong without compromising a verdict.
+(A fragment including bitblasting adds the 14 definitional `bitblast_*` schemas, ≈ 780 lines.)
+
+Two entries dominate the computational half, and both are, in principle, removable.
+
+### A frozen RARE set instead of a RARE engine
+
+`rare_rewrite` is the single largest core primitive: 1 233 lines of Rust — instantiation,
+`:list`/n-ary meta-normalization, its own parser — **plus the RARE rule file itself, which is
+trusted data** (`rewrites.eo`: 119 declarations, 513 lines). The evaluation corpus exercises
+**36 of the 119 rules** (184 334 steps over 494 cvc5 proofs; the elaborated outputs use the same
+36, since the `core` pass's recipes emit only `ite-true-cond`/`ite-false-cond`, already among
+them). They fall into three recipe families, each of which is machinery the `core` pass already
+has:
+
+| family | rules | steps | recipe in core terms |
+|---|---|---:|---|
+| arithmetic atom equivalences | `arith-elim-lt/leq/gt`, `arith-leq-norm`, `arith-eq-elim-int/real`, `arith-geq-tighten`, `arith-geq-norm1-int/real` | 122 939 (67%) | the `poly_simp_rel` template: each direction one `la_generic` Farkas certificate (through `la_disequality` when a positive equality is produced), glued by the `equiv_intro` pattern — 8 steps for atom↔atom, ~20 when an equality is eliminated |
+| propositional equivalences | `bool-double-not-elim`, `eq-symm`, `eq-refl`, `bool-eq-false/true`, `bool-impl-*`, `bool-and/or-de-morgan`, `bool-implies-or-distrib`, `bool-or-and-distrib`, `bool-implies-de-morgan`, `or-not-refl`, `distinct-false`, `bool-or-taut`, `bool-and-conf` | 60 524 (33%) | two discharge subproofs over the CNF axioms closed by the `equiv_intro` pattern — the same shape as the `eq_*` reductions; constant-size for fixed-arity rules, linear in n for the 8 that declare `:list` |
+| `ite` selection | `ite-not-cond`, `ite-eq`, `ite-then-true`, `ite-else-false`, `ite-true-cond`, `ite-false-cond`, `ite-eq-branch`, `arith-geq-ite-lift` | 871 (0.5%) | `ite_pos1/2` + `ite_neg1/2` + resolution, constant-size |
+
+So a **frozen** alternative exists: fix this rule set, give each member a recipe, and
+`rare_rewrite` moves from core to *reducible* — deleting the entire RARE subsystem *and* the
+trusted rule file from the TCB, with no new trusted code, since every recipe lands on rules
+already in the core and the recipes themselves live in the untrusted elaborator. The volume is
+real but concentrated: the top four rules (`arith-elim-lt`, `eq-symm`, `arith-elim-leq`,
+`bool-double-not-elim`) are 78% of all instances, and 56% of instances are cross-subproof
+duplicates the `hoist` pass would absorb. What the frozen set gives up is exactly its name: any
+new producer rule requires a hand-written recipe rather than a declaration, the aggressive tier
+loses its designated reduction *target* (the `*_simplify` rules are compositions of elementary
+rewrites — that is, `rare_rewrite` chains), and the `ite_intro` recipe would need its two RARE
+steps re-expressed through the `ite` axioms. The classification therefore keeps `rare_rewrite`
+core — it is the extensibility point — but the frozen set is the measured answer to "what does
+that choice cost in trust": 1 233 lines of Rust plus 513 lines of trusted declarations, against
+36 recipes.
+
+### `evaluate` without the evaluator
+
+The same question for `evaluate` has a sharper answer. Its checker is 5 lines of rule plus the
+580-line `ast/evaluate.rs` interpreter — rational arithmetic, all the comparison operators,
+Boolean connectives, `ite`, division conventions. The corpus's 248 964 instances (a sample of 36
+proofs, ~24 800 instances, classified by the evaluated term's head) are: ring identities over
+constants (`*` 33%, `+` 15%, `-`, `/`) — one `poly_simp` step each; constant relational atoms
+(`>=`, `<=`, `<`, `>`, integer `=`) — one `la_generic` certificate each (via `la_disequality`
+for a true equality), plus the ~7-step `equiv_intro` bridge from the proved atom `A` to the
+conclusion `(= A true)` or `(= A false)`; and Boolean evaluations (`not` 10%, `and`, `or`,
+`ite`) — CNF axioms and resolution, constant-size. Nothing in the corpus needs more; the one
+genuine gap is integer `div`/`mod` (absent here), which no core rule characterizes — reducing
+those needs the `div_intro`-style definitional axioms of the alethe-toolkit branch. So
+`evaluate` too could move to reducible with **zero new trusted code**, deleting 585 lines from
+the TCB; it stays core because the price is steps, not trust — ~90% of its instances are
+duplicates (the `hoist` pass's best customer), and re-deriving what a 20-line interpreter case
+decides in microseconds is the classification's cost criterion applied in reverse. Unlike
+`rare_rewrite`, though, nothing structural depends on it: `evaluate` is the first candidate to
+demote if the TCB is ever the binding constraint.
+
 ## Extra rules beyond the specification
 
 Carcara checks several rules that are not among the 120 specification rules. Classified the same
