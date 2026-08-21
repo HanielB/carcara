@@ -279,6 +279,9 @@ fn taut_only_cases() -> Vec<&'static str> {
             :args (\"ite-then-true\" p q))",
         "(step t1 (cl (= (or (not (= x x)) p q) (or p q))) :rule rare_rewrite
             :args (\"or-not-refl\" x (rare-list p q)))",
+        // the rule removes *one* occurrence, so a second copy survives on the right
+        "(step t1 (cl (= (or (not (= x x)) (not (= x x)) p) (or (not (= x x)) p)))
+            :rule rare_rewrite :args (\"or-not-refl\" x (rare-list (not (= x x)) p)))",
         "(step t1 (cl (= (distinct x y x) false)) :rule rare_rewrite
             :args (\"distinct-false\" x rare-list (rare-list y) rare-list))",
     ]
