@@ -78,20 +78,39 @@
       progress.style.height = y + "px";
       marker.style.top = (y - 3) + "px";
     }
-    var CARD_WIDTH = 220;
+    // The card sits left of the content column, in the page's own margin when that is wide
+    // enough. When it is not — the usual case on a laptop with the sidebar open, where the
+    // centred column leaves ~90px on each side — the `pagetoc-reserve` class carves a column
+    // out of the page wrapper instead, so the content simply shifts right rather than the
+    // table of contents disappearing. Below MIN_VIEWPORT there is no room for either and it
+    // hides, as before.
+    var MAX_WIDTH = 220;
+    var MIN_VIEWPORT = 1080;
+    var GAP = 12;
     function position() {
-      if (window.innerWidth < 1080) { toc.style.display = "none"; return; }
-      var rect = main.getBoundingClientRect();
+      var viewport = document.documentElement.clientWidth;
+      if (viewport < MIN_VIEWPORT) {
+        document.body.classList.remove("pagetoc-reserve");
+        toc.style.display = "none";
+        return;
+      }
+      // Decide from the *natural* layout, so that the reservation cannot feed back into the
+      // measurement that produced it and oscillate
+      document.body.classList.remove("pagetoc-reserve");
+      var natural = main.getBoundingClientRect();
       var sidebar = document.getElementById("sidebar");
       var sidebarRight = 0;
       if (sidebar) {
         var sr = sidebar.getBoundingClientRect();
         if (sr.right > 0) { sidebarRight = sr.right; }
       }
-      var left = rect.left - CARD_WIDTH - 16;
-      if (left < sidebarRight + 4) { toc.style.display = "none"; return; }
+      if (natural.left - sidebarRight - 2 * GAP < MAX_WIDTH) {
+        document.body.classList.add("pagetoc-reserve");
+      }
+      var rect = main.getBoundingClientRect();
       toc.style.display = "block";
-      toc.style.left = left + "px";
+      toc.style.width = MAX_WIDTH + "px";
+      toc.style.left = Math.max(sidebarRight + GAP, rect.left - MAX_WIDTH - GAP) + "px";
     }
     function onchange() { position(); update(); }
     document.addEventListener("scroll", onchange, { passive: true });

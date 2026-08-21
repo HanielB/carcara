@@ -17,6 +17,16 @@
   border-radius: 6px;
   z-index: 100;
 }
+/* When the page's own margin is too narrow for the floating toc, carve a column for it out
+   of the page wrapper: the content shifts right by the card's width instead of the toc being
+   dropped. pagetoc.js adds the class only when it is needed, and only above 1080px. */
+body.pagetoc-reserve .page-wrapper > .page {
+  padding-left: 244px;
+}
+body.pagetoc-reserve .nav-wide-wrapper {
+  display: none;
+}
+
 /* Compact the wide prev/next chevrons into bottom-corner buttons so the
    floating toc (vertically centered) never blocks them. */
 @media only screen and (min-width: 1080px) {
