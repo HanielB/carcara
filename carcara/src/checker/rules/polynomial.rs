@@ -165,6 +165,26 @@ impl Polynomial {
     }
 }
 
+/// The body of the `poly_simp` check, exposed so that elaboration passes can verify that a
+/// candidate `poly_simp` step would be accepted before emitting it.
+pub fn poly_simp_equal(
+    pool: &mut dyn crate::ast::TermPool,
+    t: &Rc<Term>,
+    s: &Rc<Term>,
+) -> RuleResult {
+    let (mut t_norm, mut s_norm) = (Polynomial::from_term(t), Polynomial::from_term(s));
+    if let Sort::BitVec(width) = pool.sort(t).as_sort().unwrap() {
+        let max = Integer::from(1) << width;
+        t_norm = t_norm.modulo(&max).unwrap();
+        s_norm = s_norm.modulo(&max).unwrap();
+    }
+    if !t_norm.sub(s_norm).is_zero() {
+        Err(PolynomialError::PolynomialsNotEqual(t.clone(), s.clone()).into())
+    } else {
+        Ok(())
+    }
+}
+
 pub fn poly_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t, s) = match_term_err!((= t s) = &conclusion[0])?;

@@ -43,8 +43,13 @@ pub struct ContextStack {
     /// because deciding whether a term mentions a bound variable is done per step: walking the
     /// whole stack for every step of a deeply nested proof is quadratic.
     bound_names: HashMap<String, usize>,
+    /// Like `bound_names`, but counting only `Assign` anchor arguments: the variables the
+    /// cumulative context substitution can actually rewrite. `Variable` arguments declare a name
+    /// without assigning it (and remove any outer assignment while in scope), so a term whose
+    /// free variables are merely *declared* is left alone by the substitution.
+    assigned_names: HashMap<String, usize>,
     /// The names each anchor in the stack added, so that popping it can take them back out.
-    bound_frames: Vec<Vec<String>>,
+    bound_frames: Vec<Vec<(String, bool)>>,
 }
 
 impl ContextStack {
@@ -67,6 +72,7 @@ impl ContextStack {
             stack: vec![],
             num_cumulative_calculated: 0,
             bound_names: HashMap::new(),
+            assigned_names: HashMap::new(),
             bound_frames: Vec::new(),
         }
     }
@@ -79,6 +85,7 @@ impl ContextStack {
             stack: vec![],
             num_cumulative_calculated: 0,
             bound_names: HashMap::new(),
+            assigned_names: HashMap::new(),
             bound_frames: Vec::new(),
         }
     }
@@ -137,14 +144,18 @@ impl ContextStack {
         // fully context construction
         self.stack.push(context_id);
 
-        let names: Vec<String> = args
+        let names: Vec<(String, bool)> = args
             .iter()
             .map(|arg| match arg {
-                AnchorArg::Variable((name, _)) | AnchorArg::Assign((name, _), _) => name.clone(),
+                AnchorArg::Variable((name, _)) => (name.clone(), false),
+                AnchorArg::Assign((name, _), _) => (name.clone(), true),
             })
             .collect();
-        for name in &names {
+        for (name, assigned) in &names {
             *self.bound_names.entry(name.clone()).or_insert(0) += 1;
+            if *assigned {
+                *self.assigned_names.entry(name.clone()).or_insert(0) += 1;
+            }
         }
         self.bound_frames.push(names);
     }
@@ -160,11 +171,32 @@ impl ContextStack {
         self.bound_names.contains_key(name)
     }
 
+    /// Returns `true` if no anchor in the stack *assigns* anything, so the cumulative context
+    /// substitution is the identity.
+    pub fn assigns_nothing(&self) -> bool {
+        self.assigned_names.is_empty()
+    }
+
+    /// Returns `true` if some anchor in the stack assigns a variable of this name.
+    pub fn assigns(&self, name: &str) -> bool {
+        self.assigned_names.contains_key(name)
+    }
+
     pub fn pop(&mut self) {
         use std::sync::atomic::Ordering;
 
         if let Some(id) = self.stack.pop() {
-            for name in self.bound_frames.pop().unwrap_or_default() {
+            for (name, assigned) in self.bound_frames.pop().unwrap_or_default() {
+                if assigned {
+                    if let hash_map::Entry::Occupied(mut e) =
+                        self.assigned_names.entry(name.clone())
+                    {
+                        *e.get_mut() -= 1;
+                        if *e.get() == 0 {
+                            e.remove();
+                        }
+                    }
+                }
                 if let hash_map::Entry::Occupied(mut e) = self.bound_names.entry(name) {
                     *e.get_mut() -= 1;
                     if *e.get() == 0 {

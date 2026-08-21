@@ -212,6 +212,8 @@ pub enum ElaborationPass {
     Hole,
     Core,
     CoreKeepEqCl,
+    CoreSimpRare,
+    CoreTaut,
     Local,
     Uncrowd,
     Reordering,
@@ -483,6 +485,8 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
                 ElaborationPass::Core => elaborator::ElaborationPass::Core,
                 ElaborationPass::CoreKeepEqCl => elaborator::ElaborationPass::CoreKeepEqCl,
+                ElaborationPass::CoreSimpRare => elaborator::ElaborationPass::CoreSimpRare,
+                ElaborationPass::CoreTaut => elaborator::ElaborationPass::CoreTaut,
                 ElaborationPass::Local => elaborator::ElaborationPass::Local,
                 ElaborationPass::Uncrowd => elaborator::ElaborationPass::Uncrowd,
                 ElaborationPass::Reordering => elaborator::ElaborationPass::Reordering,
@@ -496,6 +500,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
             hole_solver: t.smt_solver.clone(),
             sat_ref_tools: t.into_config(),
             allowed_rules: c.allowed_rules.unwrap_or_default().into_iter().collect(),
+            rare_rules: None,
         };
         (config, pipeline)
     }

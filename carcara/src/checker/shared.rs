@@ -275,6 +275,8 @@ pub fn get_rule(
         "ite_intro" => tautology::ite_intro,
         "contraction" => resolution::contraction,
         "connective_def" => tautology::connective_def,
+        "ite_then_intro" => tautology::ite_then_intro,
+        "ite_else_intro" => tautology::ite_else_intro,
         "ite_simplify" => simplification::ite_simplify,
         "eq_simplify" => simplification::eq_simplify,
         "and_simplify" => simplification::and_simplify,

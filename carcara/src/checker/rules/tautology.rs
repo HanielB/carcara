@@ -317,6 +317,22 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
     Ok(())
 }
 
+pub fn ite_then_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 2)?;
+    let cond = conclusion[0].remove_negation_err()?;
+    let (c, t, _, r) = match_term_err!((= (ite c t s) r) = &conclusion[1])?;
+    assert_eq(c, cond)?;
+    assert_eq(t, r)
+}
+
+pub fn ite_else_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 2)?;
+    let cond = &conclusion[0];
+    let (c, _, s, r) = match_term_err!((= (ite c t s) r) = &conclusion[1])?;
+    assert_eq(c, cond)?;
+    assert_eq(s, r)
+}
+
 pub fn connective_def(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 

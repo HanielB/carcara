@@ -41,6 +41,10 @@ pub struct Config {
     /// pass needs them to know which derivations it must not share, so that it cannot replace a
     /// real derivation by a holey one.
     pub allowed_rules: HashSet<String>,
+
+    /// The RARE rule set given to the checker (via `--rare-file`). The `core-simp-rare` pass
+    /// needs it to emit `rare_rewrite` lemmas when replaying the `*_simplify` rewrite chains.
+    pub rare_rules: Option<crate::ast::rare_rules::Rules>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,6 +54,12 @@ pub enum ElaborationPass {
     Hole,
     Core,
     CoreKeepEqCl,
+    /// The `core` pass, additionally replaying the `*_simplify` rules as chains of
+    /// `rare_rewrite`/`evaluate` lemmas (the rewrite vocabulary itself is kept).
+    CoreSimpRare,
+    /// The `core` pass, additionally reducing the whole rewrite vocabulary (`*_simplify`,
+    /// `evaluate`, `rare_rewrite`) to the core plus the term-`ite` selection axioms.
+    CoreTaut,
     Local,
     Uncrowd,
     Reordering,
@@ -99,8 +109,18 @@ impl<'e> Elaborator<'e> {
                 }
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
-                ElaborationPass::Core => self.elaborate_core(current, false)?,
-                ElaborationPass::CoreKeepEqCl => self.elaborate_core(current, true)?,
+                ElaborationPass::Core => {
+                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::Keep)?
+                }
+                ElaborationPass::CoreKeepEqCl => {
+                    self.elaborate_core(current, true, core::rewrites::RewriteReduction::Keep)?
+                }
+                ElaborationPass::CoreSimpRare => {
+                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::ToRare)?
+                }
+                ElaborationPass::CoreTaut => {
+                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::ToCore)?
+                }
                 ElaborationPass::Local => self.elaborate_local(current)?,
                 ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
                     ProofNode::Step(s)
@@ -198,25 +218,51 @@ impl<'e> Elaborator<'e> {
         &mut self,
         proof: ProofNodeForest,
         keep_equality: bool,
+        rewrites: core::rewrites::RewriteReduction,
     ) -> Result<ProofNodeForest, Error> {
+        use core::rewrites::RewriteReduction;
+
         let mut sharing = core::share::Sharing::new(&proof);
+        let rare_rules = self.config.rare_rules.clone();
         let result = proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
-                    if let Some(func) = core::get_elaboration_function(&s.rule, keep_equality) {
-                        match func(self.pool, context, s) {
-                            Ok(new_node) => {
-                                return Ok(sharing.share(self.pool, context, s, new_node));
+                    let attempt = if rewrites != RewriteReduction::Keep
+                        && core::rewrites::is_rewrite_rule(&s.rule)
+                    {
+                        match s.rule.as_str() {
+                            "evaluate" if rewrites == RewriteReduction::ToCore => {
+                                Some(core::rewrites::elaborate_evaluate(self.pool, context, s))
                             }
-                            Err(e) => {
-                                log::warn!(
-                                    "core elaboration of '{}' ({}) failed, keeping step: {}",
-                                    s.id,
-                                    s.rule,
-                                    e
-                                );
-                            }
+                            "rare_rewrite" if rewrites == RewriteReduction::ToCore => Some(
+                                core::rewrites::elaborate_rare_rewrite(self.pool, context, s),
+                            ),
+                            "evaluate" | "rare_rewrite" => None,
+                            _ => Some(core::rewrites::elaborate_simplify(
+                                self.pool,
+                                context,
+                                s,
+                                rewrites,
+                                rare_rules.as_ref(),
+                            )),
                         }
+                    } else {
+                        core::get_elaboration_function(&s.rule, keep_equality)
+                            .map(|func| func(self.pool, context, s))
+                    };
+                    match attempt {
+                        Some(Ok(new_node)) => {
+                            return Ok(sharing.share(self.pool, context, s, new_node));
+                        }
+                        Some(Err(e)) => {
+                            log::warn!(
+                                "core elaboration of '{}' ({}) failed, keeping step: {}",
+                                s.id,
+                                s.rule,
+                                e
+                            );
+                        }
+                        None => (),
                     }
                 }
                 ProofNode::Subproof(_) => unreachable!(),

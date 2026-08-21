@@ -424,6 +424,51 @@ fn equiv_neg2() {
 }
 
 #[test]
+fn ite_then_intro() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun a () Int)
+            (declare-fun b () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (not p) (= (ite p a b) a)) :rule ite_then_intro)": true,
+            "(step t1 (cl (not (< a b)) (= (ite (< a b) a b) a)) :rule ite_then_intro)": true,
+        }
+        "Wrong branch selected" {
+            "(step t1 (cl (not p) (= (ite p a b) b)) :rule ite_then_intro)": false,
+        }
+        "Condition doesn't match" {
+            "(step t1 (cl p (= (ite p a b) a)) :rule ite_then_intro)": false,
+            "(step t1 (cl (not (< a b)) (= (ite p a b) a)) :rule ite_then_intro)": false,
+        }
+        "Flipped equality is rejected" {
+            "(step t1 (cl (not p) (= a (ite p a b))) :rule ite_then_intro)": false,
+        }
+    }
+}
+
+#[test]
+fn ite_else_intro() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun a () Int)
+            (declare-fun b () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl p (= (ite p a b) b)) :rule ite_else_intro)": true,
+        }
+        "Wrong branch selected" {
+            "(step t1 (cl p (= (ite p a b) a)) :rule ite_else_intro)": false,
+        }
+        "Condition doesn't match" {
+            "(step t1 (cl (not p) (= (ite p a b) b)) :rule ite_else_intro)": false,
+        }
+    }
+}
+
+#[test]
 fn ite_pos1() {
     test_cases! {
         definitions = "

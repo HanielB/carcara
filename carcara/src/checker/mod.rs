@@ -24,8 +24,13 @@ use std::{
 // The elaborator needs to use this function to elaborate `bfun_elim` steps
 pub(crate) use rules::clausification::apply_bfun_elim;
 pub(crate) use rules::linear_arithmetic::la_generic_partial;
+pub(crate) use rules::polynomial::poly_simp_equal;
 pub(crate) use rules::quantifier::{conjunctive_normal_form, negation_normal_form, prenex_forall};
 pub(crate) use rules::simplification::aci_simp_equal;
+pub(crate) use rules::simplification::{
+    bool_simplify_step, comp_simplify_step, eq_simplify_step, equiv_simplify_step,
+    implies_simplify_step, ite_simplify_step, not_simplify_step, RewriteLabel, SimplifyStepFn,
+};
 
 #[derive(Clone)]
 pub struct CheckerStatistics<'s, CR: CollectResults + Send + Default> {

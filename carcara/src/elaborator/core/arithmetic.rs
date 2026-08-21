@@ -136,7 +136,7 @@ pub fn la_rw_eq(
 /// the recipes below safe: the coefficients are computed from the shape of the step, so a shape
 /// the recipe did not anticipate makes the reduction fail (and the original step be kept) instead
 /// of producing a derivation that does not check.
-fn farkas(
+pub(super) fn farkas(
     b: &mut Builder,
     literals: Vec<Rc<Term>>,
     coefficients: Vec<Rational>,

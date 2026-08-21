@@ -23,6 +23,7 @@ pub mod equality;
 pub mod legacy;
 #[allow(clippy::unnecessary_wraps)]
 pub mod onepoint;
+pub mod rewrites;
 pub mod share;
 #[allow(clippy::unnecessary_wraps)]
 pub mod simplification;
@@ -351,17 +352,25 @@ impl<'a> Builder<'a> {
             .collect();
         let and_term = self.pool.add(Term::Op(Operator::And, conjuncts.clone()));
         let mut clause = vec![and_term];
-        let mut pivots = Vec::new();
-        for c in conjuncts {
-            let negated = self.not(&c);
+        for c in &conjuncts {
+            let negated = self.not(c);
             clause.push(negated);
-            // The negated conjunct is in the `and_neg` clause, and the conjunct itself is in the
-            // corresponding premise
-            pivots.push((c, false));
         }
         let and_neg = self.step(clause, "and_neg", Vec::new(), Vec::new());
-        let premises = std::iter::once(and_neg).chain(premises).collect();
-        self.resolve(premises, pivots)
+        // Resolution has set semantics, so a duplicated conjunct's negation occurs only once in
+        // the resolvent: resolve each *distinct* conjunct once, against its first premise
+        let mut seen = IndexSet::new();
+        let mut used = vec![and_neg];
+        let mut pivots = Vec::new();
+        for (c, premise) in conjuncts.into_iter().zip(premises) {
+            if seen.insert(c.clone()) {
+                used.push(premise);
+                // The negated conjunct is in the `and_neg` clause, and the conjunct itself is in
+                // the corresponding premise
+                pivots.push((c, false));
+            }
+        }
+        self.resolve(used, pivots)
     }
 
     /// Emits the derivation of `or_intro`: from a clause `(cl l₁ … lₙ)`, derives the unit clause

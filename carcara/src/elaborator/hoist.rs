@@ -86,6 +86,10 @@ pub fn hoist(
     allowed_rules: &HashSet<String>,
 ) -> ProofNodeForest {
     let mut hoisting = Hoisting::new(&proof, allowed_rules);
+    // With no conclusion proved twice there is nothing to share: skip the whole rebuild
+    if hoisting.duplicated.is_empty() && std::env::var_os("CARCARA_HOIST_NO_PREFILTER").is_none() {
+        return proof;
+    }
     let result = proof
         .mutate(|context, node, _| {
             Ok::<_, std::convert::Infallible>(hoisting.rewrite(pool, context, node))
@@ -121,6 +125,12 @@ struct Hoisting<'a> {
     /// step's implicit premise. Neither can leave its subproof.
     pinned: HashSet<String>,
 
+    /// The digests of the conclusions that more than one step of the input proves. Only those can
+    /// ever produce a reuse, so every other candidate skips the memo — and with it the derivation
+    /// walk, the context check, and the memo insertion, which on proofs with little duplication
+    /// (veriT's) were nearly all of the pass's cost.
+    duplicated: HashSet<u64>,
+
     /// The rules that the checker was told to accept as holes.
     allowed_rules: &'a HashSet<String>,
 
@@ -136,11 +146,19 @@ impl<'a> Hoisting<'a> {
     /// and collects the steps that cannot be moved out of their subproof.
     fn new(proof: &ProofNodeForest, allowed_rules: &'a HashSet<String>) -> Self {
         let mut pinned = HashSet::new();
+        let mut seen_digests = HashSet::new();
+        let mut duplicated = HashSet::new();
         for node in visit_all(proof) {
             match node.as_ref() {
                 ProofNode::Step(s) => {
                     if let Some(previous) = &s.previous_step {
                         pinned.insert(previous.id().to_owned());
+                    }
+                    if s.discharge.is_empty() && s.previous_step.is_none() {
+                        let d = digest(&s.clause);
+                        if !seen_digests.insert(d) {
+                            duplicated.insert(d);
+                        }
                     }
                 }
                 ProofNode::Subproof(s) => {
@@ -156,6 +174,7 @@ impl<'a> Hoisting<'a> {
             prefix: fresh_prefix(proof, "ho"),
             emitted: 0,
             pinned,
+            duplicated,
             allowed_rules,
             lifted: 0,
             reused: 0,
@@ -188,6 +207,14 @@ impl<'a> Hoisting<'a> {
         if self.pinned.contains(&s.id) {
             return node.clone();
         }
+        // A conclusion no other step of the proof proves can never be reused, so nothing needs to
+        // be recorded or checked for it
+        let digest = digest(&s.clause);
+        if !self.duplicated.contains(&digest)
+            && std::env::var_os("CARCARA_HOIST_NO_PREFILTER").is_none()
+        {
+            return node.clone();
+        }
         // A candidate whose conclusion mentions a variable that an anchor in scope binds cannot be
         // replaced by a derivation from outside that anchor, even if the two clauses are equal: an
         // anchor may shadow a symbol of the problem, and then the same term means different things
@@ -196,7 +223,6 @@ impl<'a> Hoisting<'a> {
             return node.clone();
         }
 
-        let digest = digest(&s.clause);
         let bucket = self.cache.entry(digest).or_default();
         let found = bucket.iter().position(|e| e.clause() == s.clause);
         let hit = match found.map(|i| &bucket[i]) {

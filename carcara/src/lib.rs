@@ -266,6 +266,8 @@ pub fn check_and_elaborate<'s>(
     // Elaborating
     let elaboration = Instant::now();
 
+    let mut elaborator_config = elaborator_config;
+    elaborator_config.rare_rules = Some(rules.clone());
     let node = ast::ProofNodeForest::from_commands(proof.commands);
     let (elaborated, pipeline_durations) =
         elaborator::Elaborator::new(&mut pool, &problem, elaborator_config)

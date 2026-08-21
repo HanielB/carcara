@@ -75,7 +75,9 @@ fn run_job<T: CollectResults + Default + Send>(
     let checking_result = checker.check_with_stats(&problem, &proof, &mut checker_stats);
     let checking = checking.elapsed();
 
-    let (elaboration, pipeline_durations) = if let Some((config, pipeline)) = elaborator_config {
+    let (elaboration, pipeline_durations) = if let Some((mut config, pipeline)) = elaborator_config
+    {
+        config.rare_rules = Some(rules.clone());
         let elaboration = Instant::now();
         let node = ast::ProofNodeForest::from_commands(proof.commands);
         let (elaborated, pipeline_durations) =
