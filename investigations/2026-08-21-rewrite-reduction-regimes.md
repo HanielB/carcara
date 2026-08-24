@@ -84,6 +84,28 @@ section of `docs/src/core.md`.
    so direction clauses use collapsed literals (`c` for `¬c`) and the equivalence assembly
    resolves on the complement pairs directly.
 
+## The rename survey: what else a computational primitive subsumes
+
+The `and/or_simplify` → `aci_simp` move (2026-08-24, now *reducible*) prompted a systematic
+check: which rewrites are single-step instances of a computational primitive already in the
+core? The criterion is the one that promoted `shuffle` and `nary_elim`: a one-step rename onto
+a core primitive, check coarsening accepted, validated by the primitive's own checker before
+emission.
+
+| primitive | subsumes | status |
+|---|---|---|
+| `aci_simp` | `shuffle`; `nary_elim` (AC operators); `ac_simp` (per layer); **`and_simplify`/`or_simplify`** (every non-short-circuiting instance) | all implemented; the last two now *reducible* |
+| `poly_simp` | `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` (whole rules); `div_simplify`'s real-division cases | implemented in the regimes as renames; the rules sit in the *expensive* tier ("check-power upgrade") — by the criterion that just moved `and`/`or`, they are reclassification candidates, but that is a tier decision, not an implementation one |
+| `evaluate` | `mod_simplify` (its whole check *is* constant evaluation; zero corpus instances); `div_simplify`'s **integer** cases (closing the one `poly_simp` gap — `Rc<Term>::evaluate` covers `div`, `mod` and `to_int`); the constant-folding instances of `eq`/`not`/`comp`/`ite_simplify` | implemented: whole-step renames in the regimes that keep `evaluate`, the evaluation recipe in `core-taut` |
+| `la_generic` | `la_tautology`, `la_totality` (plus `or_intro` packaging) | long done, *reducible* |
+
+Checked and *not* subsumable by any single core rule: `eq-symm` (an equivalence between the two
+orientations — needs the two-subproof recipe), the De Morgan and implication/equivalence
+shapes, the `distinct` rules (the definitional gap), and the arithmetic atom flips (Farkas
+pairs, two steps by construction). The pattern that remains is the one the classification
+already states: a rewrite reduces to a *check* when some core primitive's normalization is the
+rewrite's own semantics, and to a *derivation* otherwise.
+
 ## Sizing the frozen set
 
 The `core-simp-rare` outputs answer the question the analysis left open: **53 distinct rewrite
