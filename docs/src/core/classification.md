@@ -831,7 +831,7 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 | rule | reduction scheme | cost | missing prerequisite / blocker |
 |---|---|---|---|
-| `and_simplify`, `or_simplify`, `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint | O(trace) | instrumenting the simplification checkers to record traces (or oracle via the hole pass); RARE coverage of each rewrite |
+| `and_simplify`, `or_simplify`, `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint (**done** — the `core-simp-rare`/`core-taut` regimes, whose traces come from the checkers' own labeled step functions rather than from instrumentation). The *aci-compatible* instances of `and_simplify`/`or_simplify` — flattening, neutral-element removal, duplicate removal, i.e. everything but the short-circuit to a constant — are **renames to `aci_simp`**, like `shuffle` and `nary_elim`: one step, no growth, validated by the `aci_simp` checker before emission. This matters at scale: without the rename, a wide conjunction pays a linear-in-arity chain per removed constant | O(trace); 1 for the aci-compatible instances | none remaining for the trace route; the `to_int`/floor folds of `eq_simplify` fall back to `evaluate` |
 | `distinct_elim` | single `rare_rewrite` instance | 1 | an n-ary RARE rule for `distinct` needs a recursive Eunoia *program* (arity-dependent output), including the Bool special case (> 2 Bool arguments → ⊥) |
 
 ## Arithmetic

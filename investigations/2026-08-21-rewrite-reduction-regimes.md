@@ -88,10 +88,14 @@ of `simplify-rules.eo`; veriT's proofs need 32, cvc5's 45. Two rewrites of the `
 fixpoint systems are not expressible in RARE at all (the singleton collapse and the flatten),
 since the list semantics normalize the rule's own left-hand side away.
 
-The one blow-up worth recording: QF_LIA/veriT reaches 10.58 aggregate under `core-taut` (from
-4.07), entirely from two `Averest` proofs with ~18 000 `and_simplify` steps over conjunctions of
-hundreds of arguments — the n-ary recipes are linear in the arity. A dedicated packing recipe
-for wide n-ary simplifications is the prerequisite for making this regime the default.
+The one blow-up found — QF_LIA/veriT at 10.58 aggregate under `core-taut` (from 4.07), entirely
+from two `Averest` proofs with ~18 000 `and_simplify` steps over hundred-argument conjunctions,
+where the n-ary recipes are linear in the arity — is **fixed by renaming the aci-compatible
+`and_simplify`/`or_simplify` instances to `aci_simp`** (Haniel's suggestion): the
+non-short-circuiting part of those rules is exactly the `aci_simp` computational check, so the
+step is a rename like `shuffle`/`nary_elim`, validated by `aci_simp_equal` before emission. The
+Averest file drops from 1.88 M steps back to ~551 k, the base pipeline's size (commit
+`049aa322`).
 
 ## Validation
 
