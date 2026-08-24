@@ -234,11 +234,36 @@ fn simplify_cases() -> Vec<&'static str> {
         "(step t1 (cl (= (or p true q) true)) :rule or_simplify)",
         "(step t1 (cl (= (or p p q) (or p q))) :rule or_simplify)",
         "(step t1 (cl (= (or false p) p)) :rule or_simplify)",
-        // the arithmetic bundles rename to poly_simp
+        // the arithmetic bundles rename to poly_simp; the integer div case to evaluate
         "(step t1 (cl (= (* 1 (* 2 x)) (* 2 x))) :rule prod_simplify)",
         "(step t1 (cl (= (+ x 0 y) (+ x y))) :rule sum_simplify)",
         "(step t1 (cl (= (- x x) 0)) :rule minus_simplify)",
+        "(step t1 (cl (= (div 7 2) 3)) :rule div_simplify)",
     ]
+}
+
+/// `and_simplify`/`or_simplify` are *reducible*: the plain `core` pass reduces them, mostly as
+/// `aci_simp` renames.
+#[test]
+fn plain_core_reduces_and_or_simplify() {
+    let cases = [
+        "(step t1 (cl (= (and p true q) (and p q))) :rule and_simplify)",
+        "(step t1 (cl (= (and p (not p)) false)) :rule and_simplify)",
+        "(step t1 (cl (= (and p p) p)) :rule and_simplify)",
+        "(step t1 (cl (= (or p false q) (or p q))) :rule or_simplify)",
+        "(step t1 (cl (= (or p (not p)) true)) :rule or_simplify)",
+        "(step t1 (cl (= (or (or p q)) (or p q))) :rule or_simplify)",
+    ];
+    for case in cases {
+        let case = &format!("{case}\n(step end (cl) :rule hole)");
+        let rules = run_pass(elaborator::ElaborationPass::Core, DEFINITIONS, case);
+        for rule in &rules {
+            assert!(
+                rule != "and_simplify" && rule != "or_simplify",
+                "'{rule}' left in the output of: {case}"
+            );
+        }
+    }
 }
 
 fn taut_only_cases() -> Vec<&'static str> {

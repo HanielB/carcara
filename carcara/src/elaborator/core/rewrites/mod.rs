@@ -124,9 +124,19 @@ pub fn elaborate_simplify(
     let (lhs, rhs) = match_term_err!((= l r) = conclusion)?;
     let (lhs, rhs) = (lhs.clone(), rhs.clone());
 
+    let rename = |rule: &str| {
+        Ok(Rc::new(ProofNode::Step(StepNode {
+            rule: rule.to_owned(),
+            premises: Vec::new(),
+            args: Vec::new(),
+            ..step.clone()
+        })))
+    };
+
     // The arithmetic bundles `prod`/`sum`/`minus`/`unary_minus`/`div_simplify` conclude ring
     // identities: they are *renames* of the `poly_simp` computational primitive, in both regimes.
-    // The one exception is integer `div`/`mod`, which the ring normalization cannot express.
+    // The integer `div` cases, which the ring normalization cannot express, are constant
+    // evaluations instead, and rename to `evaluate` (or reduce through its recipe).
     if matches!(
         step.rule.as_str(),
         "prod_simplify"
@@ -135,13 +145,39 @@ pub fn elaborate_simplify(
             | "unary_minus_simplify"
             | "div_simplify"
     ) {
+        if crate::checker::poly_simp_equal(pool, &lhs, &rhs).is_ok() {
+            return rename("poly_simp");
+        }
+        if lhs != rhs && lhs.evaluate(pool) == rhs {
+            if reduction == RewriteReduction::ToCore {
+                let mut b = Builder::new(pool, step);
+                let node = ground::evaluation(&mut b, &lhs, &rhs)?;
+                return Ok(b.relabel(step, node));
+            }
+            return rename("evaluate");
+        }
         crate::checker::poly_simp_equal(pool, &lhs, &rhs)?;
-        return Ok(Rc::new(ProofNode::Step(StepNode {
-            rule: "poly_simp".to_owned(),
-            premises: Vec::new(),
-            args: Vec::new(),
-            ..step.clone()
-        })));
+        unreachable!();
+    }
+
+    // A step whose conclusion is a constant evaluation — the constant-folding instances of
+    // `eq`/`not`/`comp`/`ite_simplify` — is an `evaluate` instance outright. In the regime that
+    // keeps `evaluate` it renames; in `core-taut` the evaluation recipe applies directly, which
+    // is smaller than replaying the fold as a chain
+    if !matches!(step.rule.as_str(), "and_simplify" | "or_simplify")
+        && reduction != RewriteReduction::Keep
+        && lhs != rhs
+        && lhs.evaluate(pool) == rhs
+        && rhs.evaluate(pool) == rhs
+    {
+        if reduction == RewriteReduction::ToCore {
+            let mut b = Builder::new(pool, step);
+            if let Ok(node) = ground::evaluation(&mut b, &lhs, &rhs) {
+                return Ok(b.relabel(step, node));
+            }
+        } else {
+            return rename("evaluate");
+        }
     }
 
     // The non-short-circuiting part of `and_simplify`/`or_simplify` — flattening, removing the
@@ -169,10 +205,17 @@ pub fn elaborate_simplify(
         ));
     }
 
+    // In the plain `core` pass (which reduces only `and_simplify`/`or_simplify`), the chain's
+    // lemmas are core derivations
+    let lemma_reduction = if reduction == RewriteReduction::Keep {
+        RewriteReduction::ToCore
+    } else {
+        reduction
+    };
     let mut b = Builder::new(pool, step);
     let mut nodes = Vec::with_capacity(links.len());
     for link in &links {
-        nodes.push(lemma(&mut b, link, reduction, rules)?);
+        nodes.push(lemma(&mut b, link, lemma_reduction, rules)?);
     }
     let chained = glue(&mut b, nodes);
     let node = if flipped { b.symm(&chained) } else { chained };
