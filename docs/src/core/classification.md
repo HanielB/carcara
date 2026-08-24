@@ -37,11 +37,11 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
+| equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **54** | **43** | **8** | **10** | **5** |
+| **total** | **120** | **54** | **45** | **8** | **8** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -211,7 +211,7 @@ own variable and reintroduced by generalization.
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
 | `forall_inst` | polyeq elaboration already normalizes it; independent of Skolemization — some arbitrary-term principle must be primitive (see parent chapter) |
 
-### Reducible (7)
+### Reducible (11)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
@@ -665,7 +665,7 @@ the context mechanism — `refl` is the one rule that applies the context substi
 system. The clausal `eq_*` forms are the same system repackaged as premise-free clauses through
 `subproof` discharge.
 
-25 rules: 6 core, 9 reducible, 0 expensive, 10 aggressive.
+25 rules: 7 core, 11 reducible, 0 expensive, 7 aggressive.
 
 ### Core (7)
 
@@ -679,7 +679,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition |
 
-### Reducible (7)
+### Reducible (11)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
@@ -691,6 +691,8 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `not_symm` | subproof + `symm` + `resolution` | 4 | syntactic | **done** (`core` pass) |
 | `shuffle` | `aci_simp` (rename) | 0 | ACI | **done** (`core` pass); the check coarsens from multiset comparison to full ACI normalization — sound, and `aci_simp` is the designated ACI primitive |
 | `nary_elim` | `aci_simp` (rename), for the assoc-comm operators | 0 | ACI | **done** (`core` pass); chainable (`=`) and non-commutative (`→`, `-`) cases keep the binary-associativity `rare_rewrite` chain (below) and are left unchanged |
+| `and_simplify` | `aci_simp` (rename) for the aci-compatible instances — flattening, `true`-removal, duplicate removal, i.e. everything the rule does short of short-circuiting; a constant-size chain over the CNF axioms for the short-circuit to `false` (absorbing element by `and_pos` + the `false` axiom, complementary pair by two `and_pos` + resolution, stacked-negation parity by the double-negation recipe under `cong`) | 0 / O(1) | ACI / syntactic | **done** (`core` pass). Same check coarsening as `shuffle`/`nary_elim`, accepted for the same reason; without the rename, the recipe route is linear in the arity per removed constant, which two Averest QF_LIA proofs (hundred-argument conjunctions, ~18 000 instances) turn into a 4× logic-wide blowup |
+| `or_simplify` | dual: `aci_simp` rename / short-circuit to `true` via `or_neg` + the `true` axiom and the complementary-pair template | 0 / O(1) | ACI / syntactic | **done** (`core` pass) |
 | `multi_rare_rewrite` | `rare_rewrite` chain + `trans`/`cong` | O(k·depth) | syntactic | planned; validate rule-position semantics first |
 
 <details id="ex-eq-transitive">
@@ -827,11 +829,11 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Aggressive (9)
+### Aggressive (7)
 
 | rule | reduction scheme | cost | missing prerequisite / blocker |
 |---|---|---|---|
-| `and_simplify`, `or_simplify`, `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint (**done** — the `core-simp-rare`/`core-taut` regimes, whose traces come from the checkers' own labeled step functions rather than from instrumentation). The *aci-compatible* instances of `and_simplify`/`or_simplify` — flattening, neutral-element removal, duplicate removal, i.e. everything but the short-circuit to a constant — are **renames to `aci_simp`**, like `shuffle` and `nary_elim`: one step, no growth, validated by the `aci_simp` checker before emission. This matters at scale: without the rename, a wide conjunction pays a linear-in-arity chain per removed constant | O(trace); 1 for the aci-compatible instances | none remaining for the trace route; the `to_int`/floor folds of `eq_simplify` fall back to `evaluate` |
+| `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint (**done** — the `core-simp-rare`/`core-taut` regimes, whose traces come from the checkers' own labeled step functions rather than from instrumentation). Their constant-folding instances are `evaluate` instances outright and rename to it (`core-taut` applies the evaluation recipe instead). `and_simplify`/`or_simplify` used to head this row; the `aci_simp` rename moved them to the *reducible* tier above | O(trace); 1 for the constant folds | none remaining for the trace route |
 | `distinct_elim` | single `rare_rewrite` instance | 1 | an n-ary RARE rule for `distinct` needs a recursive Eunoia *program* (arity-dependent output), including the Bool special case (> 2 Bool arguments → ⊥) |
 
 ## Arithmetic

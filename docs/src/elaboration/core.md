@@ -110,8 +110,11 @@ iff-introduction pattern).
 `la_disequality` axiom unpacked by `or_pos` and crossed with `and_pos` for ←).
 
 **ACI.** `shuffle` (rename to `aci_simp`), `nary_elim` for the associative-commutative operators
-(also a rename to `aci_simp` — both sides flatten to the same argument multiset), and the legacy
-`ac_simp` (decomposed into one `aci_simp` step per connective layer, glued by `cong`/`trans`,
+(also a rename to `aci_simp` — both sides flatten to the same argument multiset),
+`and_simplify`/`or_simplify` (an `aci_simp` rename whenever the instance is aci-compatible —
+flattening, neutral-element removal, duplicate removal, which the pass decides by running the
+`aci_simp` check itself — and a constant-size chain over the CNF axioms for the short-circuits
+to a constant), and the legacy `ac_simp` (decomposed into one `aci_simp` step per connective layer, glued by `cong`/`trans`,
 memoized over the term DAG so shared subterms are derived once). veriT emits `ac_simp` in two
 forms: the specification's premise-free flattening, and a premise-carrying form — congruence
 over previously derived flattenings of subterms, which is how rewrites *under a binder* reach

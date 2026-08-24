@@ -42,15 +42,15 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **54 core**, **43 reducible**,
-**8 expensive**, **10 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **54 core**, **45 reducible**,
+**8 expensive**, **8 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 7 | 9 | 0 | 9 | 0 |
+| equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
@@ -1024,11 +1024,16 @@ Two caveats initially kept `onepoint` in the core; both are resolved:
 ## The expensive and aggressive levels, and their trajectory
 
 The aggressive level is dominated by the **rewrite equalities**: the Boolean/ite/equality
-`*_simplify` rules and `aci_simp`. Each is in principle a composition of elementary rewrites
-glued by `refl`/`trans`/`cong`/`bind` — exactly what `rare_rewrite` chains express. Reducing them
-requires either an external oracle (as the hole elaboration already does for `all_simplify` and
-`rare_rewrite`) or instrumenting the deterministic simplification checkers to record rewrite
-traces. Deterministic, no search — but a large engineering effort, hence deferred.
+`*_simplify` rules. Each is a composition of elementary rewrites glued by
+`refl`/`trans`/`cong` — exactly what `rare_rewrite` chains express — and the trace replay is now
+implemented (the `core-simp-rare` and `core-taut` regimes), with the traces read off the
+checkers' own labeled step functions rather than recovered by instrumentation. Two of the eight
+have since left this tier entirely: `and_simplify` and `or_simplify` are *reducible*, because
+their non-short-circuiting instances are `aci_simp` **renames** — the ACI normalization is
+precisely what those rules do — and the short-circuiting ones constant-size CNF-axiom chains.
+The same rename criterion (a one-step move onto a computational primitive already in the core,
+with the check coarsening accepted) is what earlier promoted `shuffle` and `nary_elim`, and it
+also gives the constant-folding instances of the remaining six an `evaluate` route.
 
 The quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the miniscoping
 rules) are *not* in this tier: although they rewrite the binder itself — which `bind` +

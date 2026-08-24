@@ -71,7 +71,8 @@ digraph core_alethe {
     multi_rare_rewrite [URL="classification.html#ex-multi-rare-rewrite", target="_self", tooltip="Γ ▷ t ≈ u\nby several RARE rules applied at given positions", color="#1baf7a", penwidth=1.6];
     shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}", color="#1baf7a", penwidth=1.6];
     nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#1baf7a", penwidth=1.6];
-    bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(and/or/not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (8)", color="#4a3aa7", penwidth=1.8,
+    andor_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\naci-compatible instances are aci_simp renames;\nshort-circuits are constant-size CNF-axiom chains", label="and/or\nsimplify (2)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
+    bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (6)", color="#4a3aa7", penwidth=1.8,
                style="rounded,filled,dotted"];
     aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence\n(computational primitive)", color="#2a78d6", penwidth=2.4];
     distinct_elim [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ distinct(t1 … tn) ≈ pairwise disequalities\nBool, 2 args:  ≈ ¬(φ ≈ ψ);  Bool, ≥3 args:  ≈ ⊥", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
@@ -142,6 +143,7 @@ digraph core_alethe {
 
   // ---- aggressive edges (dotted: trace/program/trust-reduction) ----
   bool_simp -> rare_rewrite [style=dotted, label="trace"];
+  andor_simp -> aci_simp [label="rename /\nCNF chain"];
   aci_simp -> rare_rewrite [style=dotted];
   comp_simplify -> rare_rewrite [style=dotted];
   poly_simp -> rare_rewrite [style=dotted, label="trust-\nreduction"];

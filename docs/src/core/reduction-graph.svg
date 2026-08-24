@@ -9,8 +9,8 @@
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_clausal</title>
-<path fill="#f7f6f3" stroke="#d8d6cf" d="M23,-673C23,-673 358,-673 358,-673 364,-673 370,-679 370,-685 370,-685 370,-1221 370,-1221 370,-1227 364,-1233 358,-1233 358,-1233 23,-1233 23,-1233 17,-1233 11,-1227 11,-1221 11,-1221 11,-685 11,-685 11,-679 17,-673 23,-673"/>
-<text text-anchor="middle" x="190.5" y="-1218.6" font-family="Helvetica,sans-Serif" font-size="13.00">clausal</text>
+<path fill="#f7f6f3" stroke="#d8d6cf" d="M23,-674C23,-674 358,-674 358,-674 364,-674 370,-680 370,-686 370,-686 370,-1222 370,-1222 370,-1228 364,-1234 358,-1234 358,-1234 23,-1234 23,-1234 17,-1234 11,-1228 11,-1222 11,-1222 11,-686 11,-686 11,-680 17,-674 23,-674"/>
+<text text-anchor="middle" x="190.5" y="-1219.6" font-family="Helvetica,sans-Serif" font-size="13.00">clausal</text>
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_binder</title>
@@ -29,8 +29,8 @@
 </g>
 <g id="clust6" class="cluster">
 <title>cluster_bv</title>
-<path fill="#f7f6f3" stroke="#d8d6cf" d="M20,-1417C20,-1417 111,-1417 111,-1417 117,-1417 123,-1423 123,-1429 123,-1429 123,-1479 123,-1479 123,-1485 117,-1491 111,-1491 111,-1491 20,-1491 20,-1491 14,-1491 8,-1485 8,-1479 8,-1479 8,-1429 8,-1429 8,-1423 14,-1417 20,-1417"/>
-<text text-anchor="middle" x="65.5" y="-1476.6" font-family="Helvetica,sans-Serif" font-size="13.00">bitvector</text>
+<path fill="#f7f6f3" stroke="#d8d6cf" d="M20,-1415C20,-1415 111,-1415 111,-1415 117,-1415 123,-1421 123,-1427 123,-1427 123,-1477 123,-1477 123,-1483 117,-1489 111,-1489 111,-1489 20,-1489 20,-1489 14,-1489 8,-1483 8,-1477 8,-1477 8,-1427 8,-1427 8,-1421 14,-1415 20,-1415"/>
+<text text-anchor="middle" x="65.5" y="-1474.6" font-family="Helvetica,sans-Serif" font-size="13.00">bitvector</text>
 </g>
 <g id="clust7" class="cluster">
 <title>cluster_legacy</title>
@@ -73,9 +73,9 @@
 <g id="node4" class="node">
 <title>resolution</title>
 <g id="a_node4"><a xlink:href="classification.html#clausal" xlink:title="i1 ▷ C1; &#160;…; &#160;in ▷ Cn&#10;⟹ &#160;▷ C, a chain of binary resolutions over the premises&#10;RUP reading: ¬C unit&#45;propagates to a conflict" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M337.5,-785C337.5,-785 263.5,-785 263.5,-785 257.5,-785 251.5,-779 251.5,-773 251.5,-773 251.5,-761 251.5,-761 251.5,-755 257.5,-749 263.5,-749 263.5,-749 337.5,-749 337.5,-749 343.5,-749 349.5,-755 349.5,-761 349.5,-761 349.5,-773 349.5,-773 349.5,-779 343.5,-785 337.5,-785"/>
-<text text-anchor="middle" x="300.5" y="-770.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">resolution</text>
-<text text-anchor="middle" x="300.5" y="-758.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(chain + RUP)</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M337.5,-794C337.5,-794 263.5,-794 263.5,-794 257.5,-794 251.5,-788 251.5,-782 251.5,-782 251.5,-770 251.5,-770 251.5,-764 257.5,-758 263.5,-758 263.5,-758 337.5,-758 337.5,-758 343.5,-758 349.5,-764 349.5,-770 349.5,-770 349.5,-782 349.5,-782 349.5,-788 343.5,-794 337.5,-794"/>
+<text text-anchor="middle" x="300.5" y="-779.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">resolution</text>
+<text text-anchor="middle" x="300.5" y="-767.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(chain + RUP)</text>
 </a>
 </g>
 </g>
@@ -83,8 +83,8 @@
 <g id="node5" class="node">
 <title>true_r</title>
 <g id="a_node5"><a xlink:href="classification.html#clausal" xlink:title="▷ ⊤" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M315.5,-1095C315.5,-1095 285.5,-1095 285.5,-1095 279.5,-1095 273.5,-1089 273.5,-1083 273.5,-1083 273.5,-1071 273.5,-1071 273.5,-1065 279.5,-1059 285.5,-1059 285.5,-1059 315.5,-1059 315.5,-1059 321.5,-1059 327.5,-1065 327.5,-1071 327.5,-1071 327.5,-1083 327.5,-1083 327.5,-1089 321.5,-1095 315.5,-1095"/>
-<text text-anchor="middle" x="300.5" y="-1074.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">true</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M315.5,-1096C315.5,-1096 285.5,-1096 285.5,-1096 279.5,-1096 273.5,-1090 273.5,-1084 273.5,-1084 273.5,-1072 273.5,-1072 273.5,-1066 279.5,-1060 285.5,-1060 285.5,-1060 315.5,-1060 315.5,-1060 321.5,-1060 327.5,-1066 327.5,-1072 327.5,-1072 327.5,-1084 327.5,-1084 327.5,-1090 321.5,-1096 315.5,-1096"/>
+<text text-anchor="middle" x="300.5" y="-1075.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">true</text>
 </a>
 </g>
 </g>
@@ -92,8 +92,8 @@
 <g id="node6" class="node">
 <title>false_r</title>
 <g id="a_node6"><a xlink:href="classification.html#clausal" xlink:title="▷ ¬⊥" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M80.5,-1203C80.5,-1203 50.5,-1203 50.5,-1203 44.5,-1203 38.5,-1197 38.5,-1191 38.5,-1191 38.5,-1179 38.5,-1179 38.5,-1173 44.5,-1167 50.5,-1167 50.5,-1167 80.5,-1167 80.5,-1167 86.5,-1167 92.5,-1173 92.5,-1179 92.5,-1179 92.5,-1191 92.5,-1191 92.5,-1197 86.5,-1203 80.5,-1203"/>
-<text text-anchor="middle" x="65.5" y="-1182.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">false</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M80.5,-1204C80.5,-1204 50.5,-1204 50.5,-1204 44.5,-1204 38.5,-1198 38.5,-1192 38.5,-1192 38.5,-1180 38.5,-1180 38.5,-1174 44.5,-1168 50.5,-1168 50.5,-1168 80.5,-1168 80.5,-1168 86.5,-1168 92.5,-1174 92.5,-1180 92.5,-1180 92.5,-1192 92.5,-1192 92.5,-1198 86.5,-1204 80.5,-1204"/>
+<text text-anchor="middle" x="65.5" y="-1183.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">false</text>
 </a>
 </g>
 </g>
@@ -101,8 +101,8 @@
 <g id="node7" class="node">
 <title>not_not</title>
 <g id="a_node7"><a xlink:href="classification.html#clausal" xlink:title="▷ ¬(¬¬φ), φ" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M84.5,-1149C84.5,-1149 46.5,-1149 46.5,-1149 40.5,-1149 34.5,-1143 34.5,-1137 34.5,-1137 34.5,-1125 34.5,-1125 34.5,-1119 40.5,-1113 46.5,-1113 46.5,-1113 84.5,-1113 84.5,-1113 90.5,-1113 96.5,-1119 96.5,-1125 96.5,-1125 96.5,-1137 96.5,-1137 96.5,-1143 90.5,-1149 84.5,-1149"/>
-<text text-anchor="middle" x="65.5" y="-1128.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">not_not</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M84.5,-1150C84.5,-1150 46.5,-1150 46.5,-1150 40.5,-1150 34.5,-1144 34.5,-1138 34.5,-1138 34.5,-1126 34.5,-1126 34.5,-1120 40.5,-1114 46.5,-1114 46.5,-1114 84.5,-1114 84.5,-1114 90.5,-1114 96.5,-1120 96.5,-1126 96.5,-1126 96.5,-1138 96.5,-1138 96.5,-1144 90.5,-1150 84.5,-1150"/>
+<text text-anchor="middle" x="65.5" y="-1129.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">not_not</text>
 </a>
 </g>
 </g>
@@ -110,8 +110,8 @@
 <g id="node8" class="node">
 <title>andor_ax</title>
 <g id="a_node8"><a xlink:href="classification.html#clausal" xlink:title="and_pos: &#160;▷ ¬(φ0 ∧ … ∧ φn), φk&#10;and_neg: &#160;▷ (φ1 ∧ … ∧ φn), ¬φ1, …, ¬φn&#10;or_pos: &#160;&#160;▷ ¬(φ1 ∨ … ∨ φn), φ1, …, φn&#10;or_neg: &#160;&#160;▷ (φ0 ∨ … ∨ φn), ¬φk" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M348,-879C348,-879 253,-879 253,-879 247,-879 241,-873 241,-867 241,-867 241,-855 241,-855 241,-849 247,-843 253,-843 253,-843 348,-843 348,-843 354,-843 360,-849 360,-855 360,-855 360,-867 360,-867 360,-873 354,-879 348,-879"/>
-<text text-anchor="middle" x="300.5" y="-858.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">and/or axioms (4)</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M348,-880C348,-880 253,-880 253,-880 247,-880 241,-874 241,-868 241,-868 241,-856 241,-856 241,-850 247,-844 253,-844 253,-844 348,-844 348,-844 354,-844 360,-850 360,-856 360,-856 360,-868 360,-868 360,-874 354,-880 348,-880"/>
+<text text-anchor="middle" x="300.5" y="-859.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">and/or axioms (4)</text>
 </a>
 </g>
 </g>
@@ -119,9 +119,9 @@
 <g id="node9" class="node">
 <title>equiv_ax</title>
 <g id="a_node9"><a xlink:href="classification.html#clausal" xlink:title="equiv_pos1: &#160;▷ ¬(φ1 ≈ φ2), φ1, ¬φ2&#10;equiv_pos2: &#160;▷ ¬(φ1 ≈ φ2), ¬φ1, φ2&#10;equiv_neg1: &#160;▷ (φ1 ≈ φ2), ¬φ1, ¬φ2&#10;equiv_neg2: &#160;▷ (φ1 ≈ φ2), φ1, φ2" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M345.5,-1041C345.5,-1041 255.5,-1041 255.5,-1041 249.5,-1041 243.5,-1035 243.5,-1029 243.5,-1029 243.5,-1017 243.5,-1017 243.5,-1011 249.5,-1005 255.5,-1005 255.5,-1005 345.5,-1005 345.5,-1005 351.5,-1005 357.5,-1011 357.5,-1017 357.5,-1017 357.5,-1029 357.5,-1029 357.5,-1035 351.5,-1041 345.5,-1041"/>
-<text text-anchor="middle" x="300.5" y="-1026.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">equiv axioms (4)</text>
-<text text-anchor="middle" x="300.5" y="-1014.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(bootstrap)</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M345.5,-1042C345.5,-1042 255.5,-1042 255.5,-1042 249.5,-1042 243.5,-1036 243.5,-1030 243.5,-1030 243.5,-1018 243.5,-1018 243.5,-1012 249.5,-1006 255.5,-1006 255.5,-1006 345.5,-1006 345.5,-1006 351.5,-1006 357.5,-1012 357.5,-1018 357.5,-1018 357.5,-1030 357.5,-1030 357.5,-1036 351.5,-1042 345.5,-1042"/>
+<text text-anchor="middle" x="300.5" y="-1027.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">equiv axioms (4)</text>
+<text text-anchor="middle" x="300.5" y="-1015.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(bootstrap)</text>
 </a>
 </g>
 </g>
@@ -129,100 +129,100 @@
 <g id="node10" class="node">
 <title>th_resolution</title>
 <g id="a_node10"><a xlink:href="classification.html#clausal" xlink:title="the same rule as resolution&#10;(the name marks a theory&#45;solver origin)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M99.5,-771C99.5,-771 31.5,-771 31.5,-771 25.5,-771 19.5,-765 19.5,-759 19.5,-759 19.5,-747 19.5,-747 19.5,-741 25.5,-735 31.5,-735 31.5,-735 99.5,-735 99.5,-735 105.5,-735 111.5,-741 111.5,-747 111.5,-747 111.5,-759 111.5,-759 111.5,-765 105.5,-771 99.5,-771"/>
-<text text-anchor="middle" x="65.5" y="-750.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">th_resolution</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M99.5,-772C99.5,-772 31.5,-772 31.5,-772 25.5,-772 19.5,-766 19.5,-760 19.5,-760 19.5,-748 19.5,-748 19.5,-742 25.5,-736 31.5,-736 31.5,-736 99.5,-736 99.5,-736 105.5,-736 111.5,-742 111.5,-748 111.5,-748 111.5,-760 111.5,-760 111.5,-766 105.5,-772 99.5,-772"/>
+<text text-anchor="middle" x="65.5" y="-751.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">th_resolution</text>
 </a>
 </g>
 </g>
 <!-- th_resolution&#45;&gt;resolution -->
 <g id="edge1" class="edge">
 <title>th_resolution&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" d="M111.7,-755.72C149.84,-758.01 204.55,-761.29 245.09,-763.73"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="245.1,-765.83 251.21,-764.1 245.35,-761.64 245.1,-765.83"/>
+<path fill="none" stroke="#8a887f" d="M111.83,-757.45C142.64,-759.89 184.3,-763.35 221,-767 228.83,-767.78 237.1,-768.66 245.21,-769.56"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="245.17,-771.67 251.37,-770.25 245.64,-767.49 245.17,-771.67"/>
 </g>
 <!-- tautology -->
 <g id="node11" class="node">
 <title>tautology</title>
 <g id="a_node11"><a xlink:href="classification.html#clausal" xlink:title="i ▷ l1, …, ln &#160;with lk = ¬^o φ, lm = ¬^p φ, o/p of opposite parity&#10;⟹ &#160;▷ ⊤" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M90,-1095C90,-1095 41,-1095 41,-1095 35,-1095 29,-1089 29,-1083 29,-1083 29,-1071 29,-1071 29,-1065 35,-1059 41,-1059 41,-1059 90,-1059 90,-1059 96,-1059 102,-1065 102,-1071 102,-1071 102,-1083 102,-1083 102,-1089 96,-1095 90,-1095"/>
-<text text-anchor="middle" x="65.5" y="-1074.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">tautology</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M90,-1096C90,-1096 41,-1096 41,-1096 35,-1096 29,-1090 29,-1084 29,-1084 29,-1072 29,-1072 29,-1066 35,-1060 41,-1060 41,-1060 90,-1060 90,-1060 96,-1060 102,-1066 102,-1072 102,-1072 102,-1084 102,-1084 102,-1090 96,-1096 90,-1096"/>
+<text text-anchor="middle" x="65.5" y="-1075.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">tautology</text>
 </a>
 </g>
 </g>
 <!-- tautology&#45;&gt;true_r -->
 <g id="edge4" class="edge">
 <title>tautology&#45;&gt;true_r</title>
-<path fill="none" stroke="#8a887f" d="M102.14,-1077C147.1,-1077 223.76,-1077 267.11,-1077"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="267.26,-1079.1 273.26,-1077 267.26,-1074.9 267.26,-1079.1"/>
+<path fill="none" stroke="#8a887f" d="M102.14,-1078C147.1,-1078 223.76,-1078 267.11,-1078"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="267.26,-1080.1 273.26,-1078 267.26,-1075.9 267.26,-1080.1"/>
 </g>
 <!-- reordering -->
 <g id="node12" class="node">
 <title>reordering</title>
 <g id="a_node12"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ a permutation of C" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M92.5,-879C92.5,-879 38.5,-879 38.5,-879 32.5,-879 26.5,-873 26.5,-867 26.5,-867 26.5,-855 26.5,-855 26.5,-849 32.5,-843 38.5,-843 38.5,-843 92.5,-843 92.5,-843 98.5,-843 104.5,-849 104.5,-855 104.5,-855 104.5,-867 104.5,-867 104.5,-873 98.5,-879 92.5,-879"/>
-<text text-anchor="middle" x="65.5" y="-858.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">reordering</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M92.5,-880C92.5,-880 38.5,-880 38.5,-880 32.5,-880 26.5,-874 26.5,-868 26.5,-868 26.5,-856 26.5,-856 26.5,-850 32.5,-844 38.5,-844 38.5,-844 92.5,-844 92.5,-844 98.5,-844 104.5,-850 104.5,-856 104.5,-856 104.5,-868 104.5,-868 104.5,-874 98.5,-880 92.5,-880"/>
+<text text-anchor="middle" x="65.5" y="-859.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">reordering</text>
 </a>
 </g>
 </g>
 <!-- reordering&#45;&gt;resolution -->
 <g id="edge5" class="edge">
 <title>reordering&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M104.62,-850.11C136.3,-840.6 182.29,-825.73 221,-809 235.03,-802.94 249.93,-795.29 262.94,-788.19"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="264.15,-789.92 268.39,-785.19 262.12,-786.24 264.15,-789.92"/>
-<text text-anchor="middle" x="177" y="-852.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">recomputed</text>
-<text text-anchor="middle" x="177" y="-842.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">away</text>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M104.71,-850.99C136.25,-841.59 181.99,-827.2 221,-812 232.77,-807.42 245.29,-801.95 256.79,-796.68"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="257.78,-798.54 262.35,-794.12 256.02,-794.73 257.78,-798.54"/>
+<text text-anchor="middle" x="177" y="-854.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">recomputed</text>
+<text text-anchor="middle" x="177" y="-844.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">away</text>
 </g>
 <!-- clausif -->
 <g id="node13" class="node">
 <title>clausif</title>
 <g id="a_node13"><a xlink:href="classification.html#ex-clausification" xlink:title="e.g. &#160;and: &#160;i ▷ φ0 ∧ … ∧ φn &#160;⟹ &#160;▷ φk&#10;or: &#160;i ▷ φ1 ∨ … ∨ φn &#160;⟹ &#160;▷ φ1, …, φn&#10;implies: &#160;i ▷ φ1 → φ2 &#160;⟹ &#160;▷ ¬φ1, φ2&#10;(19 rules deconstructing a premise connective)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M100,-987C100,-987 31,-987 31,-987 25,-987 19,-981 19,-975 19,-975 19,-963 19,-963 19,-957 25,-951 31,-951 31,-951 100,-951 100,-951 106,-951 112,-957 112,-963 112,-963 112,-975 112,-975 112,-981 106,-987 100,-987"/>
-<text text-anchor="middle" x="65.5" y="-972.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">clausification</text>
-<text text-anchor="middle" x="65.5" y="-960.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">rules (19)</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M100,-988C100,-988 31,-988 31,-988 25,-988 19,-982 19,-976 19,-976 19,-964 19,-964 19,-958 25,-952 31,-952 31,-952 100,-952 100,-952 106,-952 112,-958 112,-964 112,-964 112,-976 112,-976 112,-982 106,-988 100,-988"/>
+<text text-anchor="middle" x="65.5" y="-973.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">clausification</text>
+<text text-anchor="middle" x="65.5" y="-961.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">rules (19)</text>
 </a>
 </g>
 </g>
 <!-- clausif&#45;&gt;andor_ax -->
 <g id="edge6" class="edge">
 <title>clausif&#45;&gt;andor_ax</title>
-<path fill="none" stroke="#8a887f" d="M105.65,-950.89C111.51,-948 117.45,-944.98 123,-942 127.57,-939.55 128.41,-938.41 133,-936 178.8,-911.99 191.83,-909.2 239,-888 243.6,-885.93 248.4,-883.78 253.19,-881.64"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="254.19,-883.49 258.81,-879.12 252.47,-879.66 254.19,-883.49"/>
+<path fill="none" stroke="#8a887f" d="M109.63,-951.84C114.32,-949.15 118.88,-946.2 123,-943 128.48,-938.74 127.41,-935.12 133,-931 163.49,-908.56 202.34,-891.92 234.84,-880.61"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="235.84,-882.49 240.84,-878.56 234.48,-878.52 235.84,-882.49"/>
 </g>
 <!-- clausif&#45;&gt;equiv_ax -->
 <g id="edge7" class="edge">
 <title>clausif&#45;&gt;equiv_ax</title>
-<path fill="none" stroke="#8a887f" d="M112.26,-979.6C147.86,-987.86 197.64,-999.39 236.93,-1008.5"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="236.82,-1010.63 243.14,-1009.94 237.77,-1006.54 236.82,-1010.63"/>
+<path fill="none" stroke="#8a887f" d="M112.26,-980.6C147.86,-988.86 197.64,-1000.39 236.93,-1009.5"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="236.82,-1011.63 243.14,-1010.94 237.77,-1007.54 236.82,-1011.63"/>
 </g>
 <!-- xorite_ax -->
 <g id="node14" class="node">
 <title>xorite_ax</title>
 <g id="a_node14"><a xlink:href="classification.html#clausal" xlink:title="xor_pos1: &#160;▷ ¬(xor φ1 φ2), φ1, φ2&#10;xor_neg1: &#160;▷ (xor φ1 φ2), φ1, ¬φ2&#10;ite_pos1: &#160;▷ ¬(ite φ1 φ2 φ3), φ1, φ3&#10;ite_neg1: &#160;▷ (ite φ1 φ2 φ3), φ1, ¬φ3&#10;(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M348,-933C348,-933 253,-933 253,-933 247,-933 241,-927 241,-921 241,-921 241,-909 241,-909 241,-903 247,-897 253,-897 253,-897 348,-897 348,-897 354,-897 360,-903 360,-909 360,-909 360,-921 360,-921 360,-927 354,-933 348,-933"/>
-<text text-anchor="middle" x="300.5" y="-912.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">xor/ite axioms (8)</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M348,-934C348,-934 253,-934 253,-934 247,-934 241,-928 241,-922 241,-922 241,-910 241,-910 241,-904 247,-898 253,-898 253,-898 348,-898 348,-898 354,-898 360,-904 360,-910 360,-910 360,-922 360,-922 360,-928 354,-934 348,-934"/>
+<text text-anchor="middle" x="300.5" y="-913.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">xor/ite axioms (8)</text>
 </a>
 </g>
 </g>
 <!-- clausif&#45;&gt;xorite_ax -->
 <g id="edge8" class="edge">
 <title>clausif&#45;&gt;xorite_ax</title>
-<path fill="none" stroke="#8a887f" d="M112.27,-959.86C143.09,-953.55 184.6,-944.75 221,-936 225.53,-934.91 230.2,-933.75 234.9,-932.56"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="235.56,-934.56 240.86,-931.04 234.52,-930.49 235.56,-934.56"/>
+<path fill="none" stroke="#8a887f" d="M112.26,-959.4C147.1,-951.32 195.54,-940.09 234.42,-931.08"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="235.2,-933.06 240.57,-929.66 234.25,-928.97 235.2,-933.06"/>
 </g>
 <!-- implies_ax -->
 <g id="node15" class="node">
 <title>implies_ax</title>
 <g id="a_node15"><a xlink:href="classification.html#clausal" xlink:title="implies_pos: &#160;&#160;▷ ¬(φ1 → φ2), ¬φ1, φ2&#10;implies_neg1: &#160;▷ (φ1 → φ2), φ1&#10;implies_neg2: &#160;▷ (φ1 → φ2), ¬φ2" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M350,-987C350,-987 251,-987 251,-987 245,-987 239,-981 239,-975 239,-975 239,-963 239,-963 239,-957 245,-951 251,-951 251,-951 350,-951 350,-951 356,-951 362,-957 362,-963 362,-963 362,-975 362,-975 362,-981 356,-987 350,-987"/>
-<text text-anchor="middle" x="300.5" y="-966.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">implies axioms (3)</text>
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M350,-988C350,-988 251,-988 251,-988 245,-988 239,-982 239,-976 239,-976 239,-964 239,-964 239,-958 245,-952 251,-952 251,-952 350,-952 350,-952 356,-952 362,-958 362,-964 362,-964 362,-976 362,-976 362,-982 356,-988 350,-988"/>
+<text text-anchor="middle" x="300.5" y="-967.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">implies axioms (3)</text>
 </a>
 </g>
 </g>
 <!-- clausif&#45;&gt;implies_ax -->
 <g id="edge9" class="edge">
 <title>clausif&#45;&gt;implies_ax</title>
-<path fill="none" stroke="#8a887f" d="M112.26,-969C146.6,-969 194.14,-969 232.73,-969"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="232.84,-971.1 238.84,-969 232.84,-966.9 232.84,-971.1"/>
+<path fill="none" stroke="#8a887f" d="M112.26,-970C146.6,-970 194.14,-970 232.73,-970"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="232.84,-972.1 238.84,-970 232.84,-967.9 232.84,-972.1"/>
 </g>
 <!-- connective_def -->
 <g id="node32" class="node">
@@ -236,16 +236,16 @@
 <!-- xorite_ax&#45;&gt;connective_def -->
 <g id="edge10" class="edge">
 <title>xorite_ax&#45;&gt;connective_def</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M360.28,-916.83C391.21,-918.15 429.72,-920.37 464,-924 482.88,-926 503.39,-928.97 521.77,-931.93"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="521.66,-934.03 527.92,-932.93 522.33,-929.89 521.66,-934.03"/>
-<text text-anchor="middle" x="422" y="-936.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">agreement</text>
-<text text-anchor="middle" x="422" y="-926.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">lemma</text>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M360.29,-916.81C391.22,-917.68 429.73,-919.43 464,-923 482.91,-924.97 503.43,-928.07 521.81,-931.19"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="521.68,-933.3 527.95,-932.25 522.39,-929.16 521.68,-933.3"/>
+<text text-anchor="middle" x="422" y="-935.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">agreement</text>
+<text text-anchor="middle" x="422" y="-925.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">lemma</text>
 </g>
 <!-- implies_ax&#45;&gt;connective_def -->
 <g id="edge11" class="edge">
 <title>implies_ax&#45;&gt;connective_def</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M362.29,-963.07C409.69,-958.45 475.05,-952.08 521.46,-947.56"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="521.83,-949.63 527.6,-946.96 521.42,-945.45 521.83,-949.63"/>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M362.29,-963.86C409.69,-959.06 475.05,-952.46 521.46,-947.77"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="521.84,-949.84 527.6,-947.15 521.42,-945.66 521.84,-949.84"/>
 <text text-anchor="middle" x="422" y="-973.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">lemma, → ext</text>
 <text text-anchor="middle" x="422" y="-963.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">(div. 6)</text>
 </g>
@@ -253,65 +253,65 @@
 <g id="node16" class="node">
 <title>equiv_intro</title>
 <g id="a_node16"><a xlink:href="classification.html#ex-equiv-or-intro" xlink:title="(proposed) &#160;i ▷ ¬A, B; &#160;&#160;j ▷ A, ¬B&#10;⟹ &#160;▷ A ≈ B" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" stroke-dasharray="5,2" d="M94,-1041C94,-1041 37,-1041 37,-1041 31,-1041 25,-1035 25,-1029 25,-1029 25,-1017 25,-1017 25,-1011 31,-1005 37,-1005 37,-1005 94,-1005 94,-1005 100,-1005 106,-1011 106,-1017 106,-1017 106,-1029 106,-1029 106,-1035 100,-1041 94,-1041"/>
-<text text-anchor="middle" x="65.5" y="-1026.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">equiv_intro</text>
-<text text-anchor="middle" x="65.5" y="-1014.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(proposed)</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" stroke-dasharray="5,2" d="M94,-1042C94,-1042 37,-1042 37,-1042 31,-1042 25,-1036 25,-1030 25,-1030 25,-1018 25,-1018 25,-1012 31,-1006 37,-1006 37,-1006 94,-1006 94,-1006 100,-1006 106,-1012 106,-1018 106,-1018 106,-1030 106,-1030 106,-1036 100,-1042 94,-1042"/>
+<text text-anchor="middle" x="65.5" y="-1027.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">equiv_intro</text>
+<text text-anchor="middle" x="65.5" y="-1015.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(proposed)</text>
 </a>
 </g>
 </g>
 <!-- equiv_intro&#45;&gt;equiv_ax -->
 <g id="edge2" class="edge">
 <title>equiv_intro&#45;&gt;equiv_ax</title>
-<path fill="none" stroke="#8a887f" d="M106.03,-1023C141.91,-1023 195.44,-1023 237.1,-1023"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="237.16,-1025.1 243.16,-1023 237.16,-1020.9 237.16,-1025.1"/>
+<path fill="none" stroke="#8a887f" d="M106.03,-1024C141.91,-1024 195.44,-1024 237.1,-1024"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="237.16,-1026.1 243.16,-1024 237.16,-1021.9 237.16,-1026.1"/>
 </g>
 <!-- or_intro -->
 <g id="node17" class="node">
 <title>or_intro</title>
 <g id="a_node17"><a xlink:href="classification.html#ex-equiv-or-intro" xlink:title="(proposed) &#160;i ▷ l1, …, ln&#10;⟹ &#160;▷ (l1 ∨ … ∨ ln)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" stroke-dasharray="5,2" d="M94,-933C94,-933 37,-933 37,-933 31,-933 25,-927 25,-921 25,-921 25,-909 25,-909 25,-903 31,-897 37,-897 37,-897 94,-897 94,-897 100,-897 106,-903 106,-909 106,-909 106,-921 106,-921 106,-927 100,-933 94,-933"/>
-<text text-anchor="middle" x="65.5" y="-918.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">or_intro</text>
-<text text-anchor="middle" x="65.5" y="-906.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(proposed)</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" stroke-dasharray="5,2" d="M94,-934C94,-934 37,-934 37,-934 31,-934 25,-928 25,-922 25,-922 25,-910 25,-910 25,-904 31,-898 37,-898 37,-898 94,-898 94,-898 100,-898 106,-904 106,-910 106,-910 106,-922 106,-922 106,-928 100,-934 94,-934"/>
+<text text-anchor="middle" x="65.5" y="-919.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">or_intro</text>
+<text text-anchor="middle" x="65.5" y="-907.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(proposed)</text>
 </a>
 </g>
 </g>
 <!-- or_intro&#45;&gt;andor_ax -->
 <g id="edge3" class="edge">
 <title>or_intro&#45;&gt;andor_ax</title>
-<path fill="none" stroke="#8a887f" d="M106.03,-905.84C141.29,-897.67 193.6,-885.54 234.94,-875.96"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="235.58,-877.97 240.95,-874.57 234.63,-873.88 235.58,-877.97"/>
+<path fill="none" stroke="#8a887f" d="M101.69,-897.91C111.61,-893.43 122.54,-889.05 133,-886 165.86,-876.43 203.52,-870.59 234.71,-867.07"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="235.12,-869.14 240.86,-866.4 234.66,-864.97 235.12,-869.14"/>
 </g>
 <!-- weakening -->
 <g id="node18" class="node">
 <title>weakening</title>
 <g id="a_node18"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C, D &#160;(arbitrary literals appended)&#10;(rename to resolution under its RUP reading)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M93,-825C93,-825 38,-825 38,-825 32,-825 26,-819 26,-813 26,-813 26,-801 26,-801 26,-795 32,-789 38,-789 38,-789 93,-789 93,-789 99,-789 105,-795 105,-801 105,-801 105,-813 105,-813 105,-819 99,-825 93,-825"/>
-<text text-anchor="middle" x="65.5" y="-804.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">weakening</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M93,-826C93,-826 38,-826 38,-826 32,-826 26,-820 26,-814 26,-814 26,-802 26,-802 26,-796 32,-790 38,-790 38,-790 93,-790 93,-790 99,-790 105,-796 105,-802 105,-802 105,-814 105,-814 105,-820 99,-826 93,-826"/>
+<text text-anchor="middle" x="65.5" y="-805.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">weakening</text>
 </a>
 </g>
 </g>
 <!-- weakening&#45;&gt;resolution -->
 <g id="edge26" class="edge">
 <title>weakening&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" d="M105.24,-800.35C143.55,-793.77 202.51,-783.65 245.43,-776.28"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="245.82,-778.35 251.38,-775.26 245.11,-774.21 245.82,-778.35"/>
-<text text-anchor="middle" x="177" y="-797.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
+<path fill="none" stroke="#8a887f" d="M105.24,-802.68C143.55,-797.42 202.51,-789.32 245.43,-783.43"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="245.72,-785.51 251.38,-782.61 245.15,-781.35 245.72,-785.51"/>
+<text text-anchor="middle" x="177" y="-800.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
 </g>
 <!-- contraction -->
 <g id="node19" class="node">
 <title>contraction</title>
 <g id="a_node19"><a xlink:href="classification.html#clausal" xlink:title="i ▷ C&#10;⟹ &#160;▷ C with duplicate literals removed&#10;(rename to resolution under its RUP reading)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M95,-717C95,-717 36,-717 36,-717 30,-717 24,-711 24,-705 24,-705 24,-693 24,-693 24,-687 30,-681 36,-681 36,-681 95,-681 95,-681 101,-681 107,-687 107,-693 107,-693 107,-705 107,-705 107,-711 101,-717 95,-717"/>
-<text text-anchor="middle" x="65.5" y="-696.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">contraction</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M95,-718C95,-718 36,-718 36,-718 30,-718 24,-712 24,-706 24,-706 24,-694 24,-694 24,-688 30,-682 36,-682 36,-682 95,-682 95,-682 101,-682 107,-688 107,-694 107,-694 107,-706 107,-706 107,-712 101,-718 95,-718"/>
+<text text-anchor="middle" x="65.5" y="-697.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">contraction</text>
 </a>
 </g>
 </g>
 <!-- contraction&#45;&gt;resolution -->
 <g id="edge27" class="edge">
 <title>contraction&#45;&gt;resolution</title>
-<path fill="none" stroke="#8a887f" d="M107.22,-710.37C138.41,-719.13 182.48,-731.63 221,-743 228.84,-745.32 237.11,-747.8 245.22,-750.26"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="245.04,-752.39 251.39,-752.13 246.26,-748.38 245.04,-752.39"/>
-<text text-anchor="middle" x="177" y="-745.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
+<path fill="none" stroke="#8a887f" d="M107.16,-710.73C138.5,-719.28 182.81,-731.93 221,-745 230.5,-748.25 240.54,-751.99 250.16,-755.71"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="249.4,-757.67 255.76,-757.9 250.93,-753.76 249.4,-757.67"/>
+<text text-anchor="middle" x="177" y="-747.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">RUP</text>
 </g>
 <!-- bind -->
 <g id="node20" class="node">
@@ -536,9 +536,9 @@
 </g>
 </g>
 <!-- aci_simp -->
-<g id="node39" class="node">
+<g id="node40" class="node">
 <title>aci_simp</title>
-<g id="a_node39"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="▷ t1 ≈ t2&#10;equivalent modulo associativity, commutativity,&#10;identity elements and idempotence&#10;(computational primitive)" target="_self">
+<g id="a_node40"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="▷ t1 ≈ t2&#10;equivalent modulo associativity, commutativity,&#10;identity elements and idempotence&#10;(computational primitive)" target="_self">
 <path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M888,-688C888,-688 844,-688 844,-688 838,-688 832,-682 832,-676 832,-676 832,-664 832,-664 832,-658 838,-652 844,-652 844,-652 888,-652 888,-652 894,-652 900,-658 900,-664 900,-664 900,-676 900,-676 900,-682 894,-688 888,-688"/>
 <text text-anchor="middle" x="866" y="-667.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">aci_simp</text>
 </a>
@@ -547,22 +547,22 @@
 <!-- shuffle&#45;&gt;aci_simp -->
 <g id="edge28" class="edge">
 <title>shuffle&#45;&gt;aci_simp</title>
-<path fill="none" stroke="#8a887f" d="M608.26,-718.64C631.44,-714.16 665.37,-707.64 695,-702 739.72,-693.5 791.07,-683.84 825.53,-677.39"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="826.26,-679.39 831.77,-676.22 825.48,-675.26 826.26,-679.39"/>
+<path fill="none" stroke="#8a887f" d="M608.1,-723.53C631.22,-721.73 663.76,-715.69 685,-697 693.98,-689.1 685.13,-678.77 695,-672 733.2,-645.81 788.44,-650.97 825.48,-658.9"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="825.41,-661.03 831.72,-660.29 826.33,-656.93 825.41,-661.03"/>
 </g>
 <!-- nary_elim -->
 <g id="node37" class="node">
 <title>nary_elim</title>
 <g id="a_node37"><a xlink:href="classification.html#ex-nary-elim" xlink:title="Γ ▷ ∘(t1 … tn) ≈ its binary nesting" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M604.5,-796C604.5,-796 554.5,-796 554.5,-796 548.5,-796 542.5,-790 542.5,-784 542.5,-784 542.5,-772 542.5,-772 542.5,-766 548.5,-760 554.5,-760 554.5,-760 604.5,-760 604.5,-760 610.5,-760 616.5,-766 616.5,-772 616.5,-772 616.5,-784 616.5,-784 616.5,-790 610.5,-796 604.5,-796"/>
-<text text-anchor="middle" x="579.5" y="-775.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">nary_elim</text>
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M604.5,-850C604.5,-850 554.5,-850 554.5,-850 548.5,-850 542.5,-844 542.5,-838 542.5,-838 542.5,-826 542.5,-826 542.5,-820 548.5,-814 554.5,-814 554.5,-814 604.5,-814 604.5,-814 610.5,-814 616.5,-820 616.5,-826 616.5,-826 616.5,-838 616.5,-838 616.5,-844 610.5,-850 604.5,-850"/>
+<text text-anchor="middle" x="579.5" y="-829.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">nary_elim</text>
 </a>
 </g>
 </g>
 <!-- nary_elim&#45;&gt;rare_rewrite -->
 <g id="edge30" class="edge">
 <title>nary_elim&#45;&gt;rare_rewrite</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M616.7,-768.17C695.12,-747.71 878.04,-704.7 932.5,-733 1008.36,-772.42 1036.12,-882.21 1044.91,-931.05"/>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M616.63,-825.31C637.14,-820.87 663.03,-814.15 685,-805 742.76,-780.93 745.66,-749.59 806,-733 860.21,-718.09 882.61,-707.08 932.5,-733 1008.36,-772.42 1036.12,-882.21 1044.91,-931.05"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="1042.85,-931.42 1045.94,-936.97 1046.99,-930.7 1042.85,-931.42"/>
 <text text-anchor="middle" x="866" y="-745.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">non&#45;comm.</text>
 <text text-anchor="middle" x="866" y="-735.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">cases</text>
@@ -570,16 +570,34 @@
 <!-- nary_elim&#45;&gt;aci_simp -->
 <g id="edge29" class="edge">
 <title>nary_elim&#45;&gt;aci_simp</title>
-<path fill="none" stroke="#8a887f" d="M616.68,-777.24C639.03,-774.89 666.81,-768.31 685,-751 695.8,-740.73 684.05,-729.1 695,-719 726.15,-690.27 747.34,-709.93 788,-698 800.55,-694.32 814.02,-689.67 826.13,-685.22"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="827.06,-687.12 831.95,-683.06 825.6,-683.18 827.06,-687.12"/>
+<path fill="none" stroke="#8a887f" d="M616.54,-832.42C639.56,-830.65 668.16,-824.25 685,-805 709.47,-777.04 668.56,-748.1 695,-722 709.79,-707.4 768.19,-718.28 788,-712 796.72,-709.23 797.98,-706.4 806,-702 812.54,-698.41 819.51,-694.61 826.27,-690.93"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="827.62,-692.59 831.89,-687.88 825.62,-688.9 827.62,-692.59"/>
+</g>
+<!-- andor_simp -->
+<g id="node38" class="node">
+<title>andor_simp</title>
+<g id="a_node38"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="Γ ▷ φ ≈ ψ&#10;aci&#45;compatible instances are aci_simp renames;&#10;short&#45;circuits are constant&#45;size CNF&#45;axiom chains" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.8" d="M609,-796C609,-796 550,-796 550,-796 544,-796 538,-790 538,-784 538,-784 538,-772 538,-772 538,-766 544,-760 550,-760 550,-760 609,-760 609,-760 615,-760 621,-766 621,-772 621,-772 621,-784 621,-784 621,-790 615,-796 609,-796"/>
+<text text-anchor="middle" x="579.5" y="-781.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">and/or</text>
+<text text-anchor="middle" x="579.5" y="-769.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">simplify (2)</text>
+</a>
+</g>
+</g>
+<!-- andor_simp&#45;&gt;aci_simp -->
+<g id="edge41" class="edge">
+<title>andor_simp&#45;&gt;aci_simp</title>
+<path fill="none" stroke="#8a887f" d="M621.1,-777.69C643.06,-775.31 668.9,-768.53 685,-751 702.99,-731.41 675.83,-710.43 695,-692 713.13,-674.57 781.45,-670.56 825.76,-669.86"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="825.88,-671.95 831.85,-669.78 825.82,-667.76 825.88,-671.95"/>
+<text text-anchor="middle" x="741.5" y="-704.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">rename /</text>
+<text text-anchor="middle" x="741.5" y="-694.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">CNF chain</text>
 </g>
 <!-- bool_simp -->
-<g id="node38" class="node">
+<g id="node39" class="node">
 <title>bool_simp</title>
-<g id="a_node38"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="Γ ▷ φ ≈ ψ&#10;ψ a fixpoint of the rule&#39;s rewrite system&#10;(and/or/not/implies/equiv/bool/ite/eq_simplify)" target="_self">
+<g id="a_node39"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="Γ ▷ φ ≈ ψ&#10;ψ a fixpoint of the rule&#39;s rewrite system&#10;(not/implies/equiv/bool/ite/eq_simplify)" target="_self">
 <path fill="#ffffff" stroke="#4a3aa7" stroke-width="1.8" stroke-dasharray="1,5" d="M904,-852C904,-852 828,-852 828,-852 822,-852 816,-846 816,-840 816,-840 816,-828 816,-828 816,-822 822,-816 828,-816 828,-816 904,-816 904,-816 910,-816 916,-822 916,-828 916,-828 916,-840 916,-840 916,-846 910,-852 904,-852"/>
 <text text-anchor="middle" x="866" y="-837.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">Boolean/ite/eq</text>
-<text text-anchor="middle" x="866" y="-825.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">simplify (8)</text>
+<text text-anchor="middle" x="866" y="-825.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">simplify (6)</text>
 </a>
 </g>
 </g>
@@ -591,40 +609,40 @@
 <text text-anchor="middle" x="966" y="-900.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">trace</text>
 </g>
 <!-- aci_simp&#45;&gt;rare_rewrite -->
-<g id="edge41" class="edge">
+<g id="edge42" class="edge">
 <title>aci_simp&#45;&gt;rare_rewrite</title>
 <path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M900.27,-675.02C927.67,-680.9 965.55,-693.32 988,-719 1041.85,-780.58 1048.86,-883.81 1049.08,-930.62"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="1046.98,-930.83 1049.06,-936.83 1051.18,-930.84 1046.98,-930.83"/>
 </g>
 <!-- distinct_elim -->
-<g id="node40" class="node">
+<g id="node41" class="node">
 <title>distinct_elim</title>
-<g id="a_node40"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="▷ distinct(t1 … tn) ≈ pairwise disequalities&#10;Bool, 2 args: &#160;≈ ¬(φ ≈ ψ); &#160;Bool, ≥3 args: &#160;≈ ⊥" target="_self">
+<g id="a_node41"><a xlink:href="classification.html#equality-and-rewriting" xlink:title="▷ distinct(t1 … tn) ≈ pairwise disequalities&#10;Bool, 2 args: &#160;≈ ¬(φ ≈ ψ); &#160;Bool, ≥3 args: &#160;≈ ⊥" target="_self">
 <path fill="#ffffff" stroke="#4a3aa7" stroke-width="1.8" stroke-dasharray="1,5" d="M612.5,-688C612.5,-688 546.5,-688 546.5,-688 540.5,-688 534.5,-682 534.5,-676 534.5,-676 534.5,-664 534.5,-664 534.5,-658 540.5,-652 546.5,-652 546.5,-652 612.5,-652 612.5,-652 618.5,-652 624.5,-658 624.5,-664 624.5,-664 624.5,-676 624.5,-676 624.5,-682 618.5,-688 612.5,-688"/>
 <text text-anchor="middle" x="579.5" y="-667.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">distinct_elim</text>
 </a>
 </g>
 </g>
 <!-- la_generic -->
-<g id="node41" class="node">
+<g id="node42" class="node">
 <title>la_generic</title>
-<g id="a_node41"><a xlink:href="classification.html#arithmetic" xlink:title="▷ φ1, …, φn &#160;&#160;(linear (in)equalities)&#10;negations refuted by a positive Farkas combination (:args coefficients)" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M892,-1448C892,-1448 840,-1448 840,-1448 834,-1448 828,-1442 828,-1436 828,-1436 828,-1424 828,-1424 828,-1418 834,-1412 840,-1412 840,-1412 892,-1412 892,-1412 898,-1412 904,-1418 904,-1424 904,-1424 904,-1436 904,-1436 904,-1442 898,-1448 892,-1448"/>
-<text text-anchor="middle" x="866" y="-1427.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_generic</text>
+<g id="a_node42"><a xlink:href="classification.html#arithmetic" xlink:title="▷ φ1, …, φn &#160;&#160;(linear (in)equalities)&#10;negations refuted by a positive Farkas combination (:args coefficients)" target="_self">
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M892,-1410C892,-1410 840,-1410 840,-1410 834,-1410 828,-1404 828,-1398 828,-1398 828,-1386 828,-1386 828,-1380 834,-1374 840,-1374 840,-1374 892,-1374 892,-1374 898,-1374 904,-1380 904,-1386 904,-1386 904,-1398 904,-1398 904,-1404 898,-1410 892,-1410"/>
+<text text-anchor="middle" x="866" y="-1389.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_generic</text>
 </a>
 </g>
 </g>
 <!-- poly_simp -->
-<g id="node42" class="node">
+<g id="node43" class="node">
 <title>poly_simp</title>
-<g id="a_node42"><a xlink:href="classification.html#arithmetic" xlink:title="(extra) &#160;▷ t ≈ u&#10;both sides ring&#45;normalize to the same polynomial" target="_self">
+<g id="a_node43"><a xlink:href="classification.html#arithmetic" xlink:title="(extra) &#160;▷ t ≈ u&#10;both sides ring&#45;normalize to the same polynomial" target="_self">
 <path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M912.5,-1340C912.5,-1340 819.5,-1340 819.5,-1340 813.5,-1340 807.5,-1334 807.5,-1328 807.5,-1328 807.5,-1316 807.5,-1316 807.5,-1310 813.5,-1304 819.5,-1304 819.5,-1304 912.5,-1304 912.5,-1304 918.5,-1304 924.5,-1310 924.5,-1316 924.5,-1316 924.5,-1328 924.5,-1328 924.5,-1334 918.5,-1340 912.5,-1340"/>
 <text text-anchor="middle" x="866" y="-1319.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">poly_simp (extra)</text>
 </a>
 </g>
 </g>
 <!-- poly_simp&#45;&gt;rare_rewrite -->
-<g id="edge43" class="edge">
+<g id="edge44" class="edge">
 <title>poly_simp&#45;&gt;rare_rewrite</title>
 <path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M921.95,-1303.81C925.8,-1301.24 929.38,-1298.32 932.5,-1295 1019.86,-1202.03 1041.67,-1040.57 1046.91,-979.42"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="1049.03,-979.29 1047.42,-973.14 1044.84,-978.95 1049.03,-979.29"/>
@@ -632,9 +650,9 @@
 <text text-anchor="middle" x="966" y="-1282.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">reduction</text>
 </g>
 <!-- la_mult_pos_pos -->
-<g id="node43" class="node">
+<g id="node44" class="node">
 <title>la_mult_pos_pos</title>
-<g id="a_node43"><a xlink:href="classification.html#arithmetic" xlink:title="(proposed) &#160;▷ (x &gt; 0 ∧ y &gt; 0) → x·y &gt; 0" target="_self">
+<g id="a_node44"><a xlink:href="classification.html#arithmetic" xlink:title="(proposed) &#160;▷ (x &gt; 0 ∧ y &gt; 0) → x·y &gt; 0" target="_self">
 <path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" stroke-dasharray="5,2" d="M909,-1286C909,-1286 823,-1286 823,-1286 817,-1286 811,-1280 811,-1274 811,-1274 811,-1262 811,-1262 811,-1256 817,-1250 823,-1250 823,-1250 909,-1250 909,-1250 915,-1250 921,-1256 921,-1262 921,-1262 921,-1274 921,-1274 921,-1280 915,-1286 909,-1286"/>
 <text text-anchor="middle" x="866" y="-1271.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_mult_pos_pos</text>
 <text text-anchor="middle" x="866" y="-1259.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">(proposed)</text>
@@ -642,39 +660,39 @@
 </g>
 </g>
 <!-- la_totality -->
-<g id="node44" class="node">
+<g id="node45" class="node">
 <title>la_totality</title>
-<g id="a_node44"><a xlink:href="classification.html#ex-la-totality" xlink:title="▷ (t1 ≤ t2 ∨ t2 ≤ t1) &#160;&#160;(unit or&#45;clause)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M605,-1556C605,-1556 554,-1556 554,-1556 548,-1556 542,-1550 542,-1544 542,-1544 542,-1532 542,-1532 542,-1526 548,-1520 554,-1520 554,-1520 605,-1520 605,-1520 611,-1520 617,-1526 617,-1532 617,-1532 617,-1544 617,-1544 617,-1550 611,-1556 605,-1556"/>
-<text text-anchor="middle" x="579.5" y="-1535.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_totality</text>
+<g id="a_node45"><a xlink:href="classification.html#ex-la-totality" xlink:title="▷ (t1 ≤ t2 ∨ t2 ≤ t1) &#160;&#160;(unit or&#45;clause)" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M605,-1502C605,-1502 554,-1502 554,-1502 548,-1502 542,-1496 542,-1490 542,-1490 542,-1478 542,-1478 542,-1472 548,-1466 554,-1466 554,-1466 605,-1466 605,-1466 611,-1466 617,-1472 617,-1478 617,-1478 617,-1490 617,-1490 617,-1496 611,-1502 605,-1502"/>
+<text text-anchor="middle" x="579.5" y="-1481.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_totality</text>
 </a>
 </g>
 </g>
 <!-- la_totality&#45;&gt;la_generic -->
 <g id="edge24" class="edge">
 <title>la_totality&#45;&gt;la_generic</title>
-<path fill="none" stroke="#8a887f" d="M617.23,-1530.12C637.47,-1525.38 662.9,-1518.76 685,-1511 733.95,-1493.8 787.96,-1468.62 823.92,-1450.9"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="825.09,-1452.67 829.53,-1448.13 823.23,-1448.91 825.09,-1452.67"/>
+<path fill="none" stroke="#8a887f" d="M617.06,-1480.21C638.2,-1476.69 664.58,-1469.93 685,-1457 690.87,-1453.29 689.23,-1448.86 695,-1445 733.63,-1419.18 785.5,-1405.41 821.75,-1398.44"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="822.36,-1400.46 827.88,-1397.3 821.59,-1396.33 822.36,-1400.46"/>
 </g>
 <!-- la_tautology -->
-<g id="node45" class="node">
+<g id="node46" class="node">
 <title>la_tautology</title>
-<g id="a_node45"><a xlink:href="classification.html#ex-la-totality" xlink:title="▷ φ, a trivial LA tautology&#10;or the unit or&#45;clause of a bound pair &#160;[1.0, 1.0]" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M611.5,-1502C611.5,-1502 547.5,-1502 547.5,-1502 541.5,-1502 535.5,-1496 535.5,-1490 535.5,-1490 535.5,-1478 535.5,-1478 535.5,-1472 541.5,-1466 547.5,-1466 547.5,-1466 611.5,-1466 611.5,-1466 617.5,-1466 623.5,-1472 623.5,-1478 623.5,-1478 623.5,-1490 623.5,-1490 623.5,-1496 617.5,-1502 611.5,-1502"/>
-<text text-anchor="middle" x="579.5" y="-1481.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_tautology</text>
+<g id="a_node46"><a xlink:href="classification.html#ex-la-totality" xlink:title="▷ φ, a trivial LA tautology&#10;or the unit or&#45;clause of a bound pair &#160;[1.0, 1.0]" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M611.5,-1448C611.5,-1448 547.5,-1448 547.5,-1448 541.5,-1448 535.5,-1442 535.5,-1436 535.5,-1436 535.5,-1424 535.5,-1424 535.5,-1418 541.5,-1412 547.5,-1412 547.5,-1412 611.5,-1412 611.5,-1412 617.5,-1412 623.5,-1418 623.5,-1424 623.5,-1424 623.5,-1436 623.5,-1436 623.5,-1442 617.5,-1448 611.5,-1448"/>
+<text text-anchor="middle" x="579.5" y="-1427.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_tautology</text>
 </a>
 </g>
 </g>
 <!-- la_tautology&#45;&gt;la_generic -->
 <g id="edge25" class="edge">
 <title>la_tautology&#45;&gt;la_generic</title>
-<path fill="none" stroke="#8a887f" d="M623.56,-1473.05C644.96,-1467.81 671.25,-1461.68 695,-1457 737.78,-1448.57 787.03,-1440.98 821.46,-1436.01"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="822.08,-1438.04 827.72,-1435.11 821.48,-1433.88 822.08,-1438.04"/>
+<path fill="none" stroke="#8a887f" d="M623.67,-1418.02C644.97,-1412.57 671.16,-1406.56 695,-1403 737.68,-1396.63 786.94,-1393.95 821.41,-1392.82"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="821.74,-1394.91 827.67,-1392.63 821.61,-1390.71 821.74,-1394.91"/>
 </g>
 <!-- la_mult -->
-<g id="node46" class="node">
+<g id="node47" class="node">
 <title>la_mult</title>
-<g id="a_node46"><a xlink:href="classification.html#ex-la-mult-pos" xlink:title="la_mult_pos: &#160;▷ (t1 &gt; 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3&#10;la_mult_neg: &#160;▷ (t1 &lt; 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3" target="_self">
+<g id="a_node47"><a xlink:href="classification.html#ex-la-mult-pos" xlink:title="la_mult_pos: &#160;▷ (t1 &gt; 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3&#10;la_mult_neg: &#160;▷ (t1 &lt; 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3" target="_self">
 <path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M622,-1286C622,-1286 537,-1286 537,-1286 531,-1286 525,-1280 525,-1274 525,-1274 525,-1262 525,-1262 525,-1256 531,-1250 537,-1250 537,-1250 622,-1250 622,-1250 628,-1250 634,-1256 634,-1262 634,-1262 634,-1274 634,-1274 634,-1280 628,-1286 622,-1286"/>
 <text text-anchor="middle" x="579.5" y="-1265.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_mult_pos/neg</text>
 </a>
@@ -683,8 +701,8 @@
 <!-- la_mult&#45;&gt;la_generic -->
 <g id="edge33" class="edge">
 <title>la_mult&#45;&gt;la_generic</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="5,2" d="M634.15,-1276.71C651.06,-1280.79 669.38,-1286.65 685,-1295 748.58,-1328.97 745.66,-1363.56 806,-1403 811.09,-1406.33 816.66,-1409.45 822.28,-1412.31"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="821.59,-1414.31 827.9,-1415.08 823.44,-1410.55 821.59,-1414.31"/>
+<path fill="none" stroke="#8a887f" stroke-dasharray="5,2" d="M634.18,-1279.23C650.74,-1283.4 668.86,-1288.67 685,-1295 738.33,-1315.9 795.95,-1349 831.26,-1370.6"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="830.52,-1372.62 836.73,-1373.97 832.72,-1369.04 830.52,-1372.62"/>
 </g>
 <!-- la_mult&#45;&gt;poly_simp -->
 <g id="edge32" class="edge">
@@ -699,45 +717,45 @@
 <polygon fill="#8a887f" stroke="#8a887f" points="804.76,-1270.1 810.76,-1268 804.76,-1265.9 804.76,-1270.1"/>
 </g>
 <!-- la_disequality -->
-<g id="node47" class="node">
+<g id="node48" class="node">
 <title>la_disequality</title>
-<g id="a_node47"><a xlink:href="classification.html#arithmetic" xlink:title="▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)&#10;the [antisym] order&#45;antisymmetry axiom" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M902,-1394C902,-1394 830,-1394 830,-1394 824,-1394 818,-1388 818,-1382 818,-1382 818,-1370 818,-1370 818,-1364 824,-1358 830,-1358 830,-1358 902,-1358 902,-1358 908,-1358 914,-1364 914,-1370 914,-1370 914,-1382 914,-1382 914,-1388 908,-1394 902,-1394"/>
-<text text-anchor="middle" x="866" y="-1373.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_disequality</text>
+<g id="a_node48"><a xlink:href="classification.html#arithmetic" xlink:title="▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)&#10;the [antisym] order&#45;antisymmetry axiom" target="_self">
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M902,-1464C902,-1464 830,-1464 830,-1464 824,-1464 818,-1458 818,-1452 818,-1452 818,-1440 818,-1440 818,-1434 824,-1428 830,-1428 830,-1428 902,-1428 902,-1428 908,-1428 914,-1434 914,-1440 914,-1440 914,-1452 914,-1452 914,-1458 908,-1464 902,-1464"/>
+<text text-anchor="middle" x="866" y="-1443.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_disequality</text>
 </a>
 </g>
 </g>
 <!-- la_rw_eq -->
-<g id="node48" class="node">
+<g id="node49" class="node">
 <title>la_rw_eq</title>
-<g id="a_node48"><a xlink:href="classification.html#ex-la-rw-eq" xlink:title="▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)" target="_self">
-<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M601.5,-1448C601.5,-1448 557.5,-1448 557.5,-1448 551.5,-1448 545.5,-1442 545.5,-1436 545.5,-1436 545.5,-1424 545.5,-1424 545.5,-1418 551.5,-1412 557.5,-1412 557.5,-1412 601.5,-1412 601.5,-1412 607.5,-1412 613.5,-1418 613.5,-1424 613.5,-1424 613.5,-1436 613.5,-1436 613.5,-1442 607.5,-1448 601.5,-1448"/>
-<text text-anchor="middle" x="579.5" y="-1427.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_rw_eq</text>
+<g id="a_node49"><a xlink:href="classification.html#ex-la-rw-eq" xlink:title="▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)" target="_self">
+<path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M601.5,-1556C601.5,-1556 557.5,-1556 557.5,-1556 551.5,-1556 545.5,-1550 545.5,-1544 545.5,-1544 545.5,-1532 545.5,-1532 545.5,-1526 551.5,-1520 557.5,-1520 557.5,-1520 601.5,-1520 601.5,-1520 607.5,-1520 613.5,-1526 613.5,-1532 613.5,-1532 613.5,-1544 613.5,-1544 613.5,-1550 607.5,-1556 601.5,-1556"/>
+<text text-anchor="middle" x="579.5" y="-1535.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">la_rw_eq</text>
 </a>
 </g>
 </g>
 <!-- la_rw_eq&#45;&gt;rare_rewrite -->
 <g id="edge36" class="edge">
 <title>la_rw_eq&#45;&gt;rare_rewrite</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M613.56,-1438.08C634.18,-1443.23 661.22,-1450.2 685,-1457 792,-1487.6 833.59,-1546.01 932.5,-1495 970.31,-1475.5 972.44,-1456.6 988,-1417 1019.96,-1335.64 1041.08,-1062.38 1046.88,-979.22"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="1048.98,-979.24 1047.3,-973.11 1044.79,-978.95 1048.98,-979.24"/>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M613.5,-1544.13C679.18,-1554.54 828.82,-1569.21 932.5,-1510 969.76,-1488.72 972.51,-1471.01 988,-1431 1020.58,-1346.87 1041.34,-1064.33 1046.96,-979.37"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="1049.07,-979.26 1047.37,-973.14 1044.88,-978.99 1049.07,-979.26"/>
 </g>
 <!-- la_rw_eq&#45;&gt;la_generic -->
 <g id="edge35" class="edge">
 <title>la_rw_eq&#45;&gt;la_generic</title>
-<path fill="none" stroke="#8a887f" d="M613.69,-1430C665.31,-1430 764.82,-1430 821.91,-1430"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="821.98,-1432.1 827.98,-1430 821.98,-1427.9 821.98,-1432.1"/>
+<path fill="none" stroke="#8a887f" d="M613.97,-1537.79C636.9,-1535.85 666.41,-1529.51 685,-1511 697.38,-1498.68 683.78,-1486.39 695,-1473 724.25,-1438.1 747.84,-1451.46 788,-1430 796.27,-1425.58 797.72,-1423.4 806,-1419 811.22,-1416.22 816.78,-1413.45 822.32,-1410.79"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="823.32,-1412.65 827.85,-1408.18 821.52,-1408.85 823.32,-1412.65"/>
 </g>
 <!-- la_rw_eq&#45;&gt;la_disequality -->
 <g id="edge34" class="edge">
 <title>la_rw_eq&#45;&gt;la_disequality</title>
-<path fill="none" stroke="#8a887f" d="M613.69,-1423.7C662.34,-1414.47 753.53,-1397.16 811.65,-1386.13"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="812.37,-1388.13 817.87,-1384.95 811.58,-1384 812.37,-1388.13"/>
+<path fill="none" stroke="#8a887f" d="M613.67,-1530.27C634.32,-1525.25 661.37,-1518.3 685,-1511 728.69,-1497.5 777.43,-1479.73 813.16,-1466.18"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="813.92,-1468.14 818.79,-1464.04 812.43,-1464.21 813.92,-1468.14"/>
 </g>
 <!-- arith_simp -->
-<g id="node49" class="node">
+<g id="node50" class="node">
 <title>arith_simp</title>
-<g id="a_node49"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ t ≈ u&#10;constant folding and collection for +, *, unary/binary −" target="_self">
+<g id="a_node50"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ t ≈ u&#10;constant folding and collection for +, *, unary/binary −" target="_self">
 <path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M623.5,-1394C623.5,-1394 535.5,-1394 535.5,-1394 529.5,-1394 523.5,-1388 523.5,-1382 523.5,-1382 523.5,-1370 523.5,-1370 523.5,-1364 529.5,-1358 535.5,-1358 535.5,-1358 623.5,-1358 623.5,-1358 629.5,-1358 635.5,-1364 635.5,-1370 635.5,-1370 635.5,-1382 635.5,-1382 635.5,-1388 629.5,-1394 623.5,-1394"/>
 <text text-anchor="middle" x="579.5" y="-1373.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">arith simplify (4)</text>
 </a>
@@ -746,9 +764,9 @@
 <!-- arith_simp&#45;&gt;rare_rewrite -->
 <g id="edge38" class="edge">
 <title>arith_simp&#45;&gt;rare_rewrite</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M635.52,-1388.38C651.63,-1392.5 669.17,-1397.47 685,-1403 791.28,-1440.15 840.31,-1521.63 932.5,-1457 1012.88,-1400.65 1040.7,-1071.93 1047,-979.29"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="1049.11,-979.16 1047.42,-973.04 1044.92,-978.88 1049.11,-979.16"/>
-<text text-anchor="middle" x="866" y="-1483.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">alt: trace</text>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M635.65,-1387.27C651.84,-1391.38 669.39,-1396.61 685,-1403 790.79,-1446.32 839.91,-1540.05 932.5,-1473 1014.59,-1413.56 1041.25,-1073.89 1047.13,-979.39"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="1049.23,-979.39 1047.5,-973.27 1045.04,-979.13 1049.23,-979.39"/>
+<text text-anchor="middle" x="866" y="-1498.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">alt: trace</text>
 </g>
 <!-- arith_simp&#45;&gt;poly_simp -->
 <g id="edge37" class="edge">
@@ -757,9 +775,9 @@
 <polygon fill="#8a887f" stroke="#8a887f" points="801.53,-1336.19 807.03,-1333 800.74,-1332.06 801.53,-1336.19"/>
 </g>
 <!-- div_simplify -->
-<g id="node50" class="node">
+<g id="node51" class="node">
 <title>div_simplify</title>
-<g id="a_node50"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ t/t ≈ 1; &#160;t/1 ≈ t; &#160;constant division evaluated" target="_self">
+<g id="a_node51"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ t/t ≈ 1; &#160;t/1 ≈ t; &#160;constant division evaluated" target="_self">
 <path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M610,-1340C610,-1340 549,-1340 549,-1340 543,-1340 537,-1334 537,-1328 537,-1328 537,-1316 537,-1316 537,-1310 543,-1304 549,-1304 549,-1304 610,-1304 610,-1304 616,-1304 622,-1310 622,-1316 622,-1316 622,-1328 622,-1328 622,-1334 616,-1340 610,-1340"/>
 <text text-anchor="middle" x="579.5" y="-1319.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">div_simplify</text>
 </a>
@@ -772,33 +790,33 @@
 <polygon fill="#8a887f" stroke="#8a887f" points="801.45,-1324.1 807.45,-1322 801.45,-1319.9 801.45,-1324.1"/>
 </g>
 <!-- comp_simplify -->
-<g id="node51" class="node">
+<g id="node52" class="node">
 <title>comp_simplify</title>
-<g id="a_node51"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ (t1 ⋈ t2) ≈ ψ&#10;fixpoint of the comparison rewrites (⋈ ∈ {&lt;, &gt;, ≤, ≥})" target="_self">
+<g id="a_node52"><a xlink:href="classification.html#arithmetic" xlink:title="Γ ▷ (t1 ⋈ t2) ≈ ψ&#10;fixpoint of the comparison rewrites (⋈ ∈ {&lt;, &gt;, ≤, ≥})" target="_self">
 <path fill="#ffffff" stroke="#4a3aa7" stroke-width="1.8" stroke-dasharray="1,5" d="M617,-1610C617,-1610 542,-1610 542,-1610 536,-1610 530,-1604 530,-1598 530,-1598 530,-1586 530,-1586 530,-1580 536,-1574 542,-1574 542,-1574 617,-1574 617,-1574 623,-1574 629,-1580 629,-1586 629,-1586 629,-1598 629,-1598 629,-1604 623,-1610 617,-1610"/>
 <text text-anchor="middle" x="579.5" y="-1589.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">comp_simplify</text>
 </a>
 </g>
 </g>
 <!-- comp_simplify&#45;&gt;rare_rewrite -->
-<g id="edge42" class="edge">
+<g id="edge43" class="edge">
 <title>comp_simplify&#45;&gt;rare_rewrite</title>
-<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M629.33,-1596.02C722.89,-1600.61 923.82,-1594.53 988,-1466 1031.6,-1378.68 1044.85,-1068.14 1047.79,-979.05"/>
-<polygon fill="#8a887f" stroke="#8a887f" points="1049.89,-979.09 1047.99,-973.03 1045.69,-978.96 1049.89,-979.09"/>
+<path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M629.35,-1598.26C724.38,-1607.29 929.94,-1610.56 988,-1480 1028.78,-1388.31 1044.04,-1069.98 1047.62,-979.29"/>
+<polygon fill="#8a887f" stroke="#8a887f" points="1049.72,-979.23 1047.86,-973.16 1045.53,-979.07 1049.72,-979.23"/>
 </g>
 <!-- bitblast -->
-<g id="node52" class="node">
+<g id="node53" class="node">
 <title>bitblast</title>
-<g id="a_node52"><a xlink:href="classification.html#bitvector" xlink:title="▷ ∘bv(x̄) ≈ its bit&#45;level Boolean definition&#10;(14 operations: extract, concat, sext, =, ult, slt,&#10;add, neg, mult, and, or, xor, xnor, not)" target="_self">
-<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M103,-1461C103,-1461 28,-1461 28,-1461 22,-1461 16,-1455 16,-1449 16,-1449 16,-1437 16,-1437 16,-1431 22,-1425 28,-1425 28,-1425 103,-1425 103,-1425 109,-1425 115,-1431 115,-1437 115,-1437 115,-1449 115,-1449 115,-1455 109,-1461 103,-1461"/>
-<text text-anchor="middle" x="65.5" y="-1440.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">bitblast_* (14)</text>
+<g id="a_node53"><a xlink:href="classification.html#bitvector" xlink:title="▷ ∘bv(x̄) ≈ its bit&#45;level Boolean definition&#10;(14 operations: extract, concat, sext, =, ult, slt,&#10;add, neg, mult, and, or, xor, xnor, not)" target="_self">
+<path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M103,-1459C103,-1459 28,-1459 28,-1459 22,-1459 16,-1453 16,-1447 16,-1447 16,-1435 16,-1435 16,-1429 22,-1423 28,-1423 28,-1423 103,-1423 103,-1423 109,-1423 115,-1429 115,-1435 115,-1435 115,-1447 115,-1447 115,-1453 109,-1459 103,-1459"/>
+<text text-anchor="middle" x="65.5" y="-1438.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">bitblast_* (14)</text>
 </a>
 </g>
 </g>
 <!-- lia_generic -->
-<g id="node53" class="node">
+<g id="node54" class="node">
 <title>lia_generic</title>
-<g id="a_node53"><a xlink:href="classification.html#legacy" xlink:title="▷ φ1, …, φn &#160;&#160;(linear integer (in)equalities)&#10;no certificate — not checkable without an oracle" target="_self">
+<g id="a_node54"><a xlink:href="classification.html#legacy" xlink:title="▷ φ1, …, φn &#160;&#160;(linear integer (in)equalities)&#10;no certificate — not checkable without an oracle" target="_self">
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M607,-602C607,-602 552,-602 552,-602 546,-602 540,-596 540,-590 540,-590 540,-578 540,-578 540,-572 546,-566 552,-566 552,-566 607,-566 607,-566 613,-566 619,-572 619,-578 619,-578 619,-590 619,-590 619,-596 613,-602 607,-602"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M611,-606C611,-606 548,-606 548,-606 542,-606 536,-600 536,-594 536,-594 536,-574 536,-574 536,-568 542,-562 548,-562 548,-562 611,-562 611,-562 617,-562 623,-568 623,-574 623,-574 623,-594 623,-594 623,-600 617,-606 611,-606"/>
 <text text-anchor="middle" x="579.5" y="-587.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">lia_generic</text>
@@ -807,9 +825,9 @@
 </g>
 </g>
 <!-- qnt_cnf -->
-<g id="node54" class="node">
+<g id="node55" class="node">
 <title>qnt_cnf</title>
-<g id="a_node54"><a xlink:href="classification.html#legacy" xlink:title="▷ ¬(∀x̄.φ) ∨ ∀x̄ₖ.φ′&#10;clausification placeholder (no precise semantics)" target="_self">
+<g id="a_node55"><a xlink:href="classification.html#legacy" xlink:title="▷ ¬(∀x̄.φ) ∨ ∀x̄ₖ.φ′&#10;clausification placeholder (no precise semantics)" target="_self">
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M597.5,-540C597.5,-540 561.5,-540 561.5,-540 555.5,-540 549.5,-534 549.5,-528 549.5,-528 549.5,-516 549.5,-516 549.5,-510 555.5,-504 561.5,-504 561.5,-504 597.5,-504 597.5,-504 603.5,-504 609.5,-510 609.5,-516 609.5,-516 609.5,-528 609.5,-528 609.5,-534 603.5,-540 597.5,-540"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M601.5,-544C601.5,-544 557.5,-544 557.5,-544 551.5,-544 545.5,-538 545.5,-532 545.5,-532 545.5,-512 545.5,-512 545.5,-506 551.5,-500 557.5,-500 557.5,-500 601.5,-500 601.5,-500 607.5,-500 613.5,-506 613.5,-512 613.5,-512 613.5,-532 613.5,-532 613.5,-538 607.5,-544 601.5,-544"/>
 <text text-anchor="middle" x="579.5" y="-519.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">qnt_cnf</text>
@@ -817,9 +835,9 @@
 </g>
 </g>
 <!-- ite_intro -->
-<g id="node55" class="node">
+<g id="node56" class="node">
 <title>ite_intro</title>
-<g id="a_node55"><a xlink:href="classification.html#legacy" xlink:title="▷ t ≈ (t′ ∧ ite&#45;definitions)&#10;artifact of veriT&#39;s internal ite constants" target="_self">
+<g id="a_node56"><a xlink:href="classification.html#legacy" xlink:title="▷ t ≈ (t′ ∧ ite&#45;definitions)&#10;artifact of veriT&#39;s internal ite constants" target="_self">
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M600.5,-478C600.5,-478 558.5,-478 558.5,-478 552.5,-478 546.5,-472 546.5,-466 546.5,-466 546.5,-454 546.5,-454 546.5,-448 552.5,-442 558.5,-442 558.5,-442 600.5,-442 600.5,-442 606.5,-442 612.5,-448 612.5,-454 612.5,-454 612.5,-466 612.5,-466 612.5,-472 606.5,-478 600.5,-478"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M604.5,-482C604.5,-482 554.5,-482 554.5,-482 548.5,-482 542.5,-476 542.5,-470 542.5,-470 542.5,-450 542.5,-450 542.5,-444 548.5,-438 554.5,-438 554.5,-438 604.5,-438 604.5,-438 610.5,-438 616.5,-444 616.5,-450 616.5,-450 616.5,-470 616.5,-470 616.5,-476 610.5,-482 604.5,-482"/>
 <text text-anchor="middle" x="579.5" y="-457.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">ite_intro</text>
@@ -827,9 +845,9 @@
 </g>
 </g>
 <!-- bfun_elim -->
-<g id="node56" class="node">
+<g id="node57" class="node">
 <title>bfun_elim</title>
-<g id="a_node56"><a xlink:href="classification.html#legacy" xlink:title="i ▷ ψ&#10;⟹ &#160;▷ ψ′ with Boolean arguments case&#45;expanded" target="_self">
+<g id="a_node57"><a xlink:href="classification.html#legacy" xlink:title="i ▷ ψ&#10;⟹ &#160;▷ ψ′ with Boolean arguments case&#45;expanded" target="_self">
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M604,-416C604,-416 555,-416 555,-416 549,-416 543,-410 543,-404 543,-404 543,-392 543,-392 543,-386 549,-380 555,-380 555,-380 604,-380 604,-380 610,-380 616,-386 616,-392 616,-392 616,-404 616,-404 616,-410 610,-416 604,-416"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M608,-420C608,-420 551,-420 551,-420 545,-420 539,-414 539,-408 539,-408 539,-388 539,-388 539,-382 545,-376 551,-376 551,-376 608,-376 608,-376 614,-376 620,-382 620,-388 620,-388 620,-408 620,-408 620,-414 614,-420 608,-420"/>
 <text text-anchor="middle" x="579.5" y="-395.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">bfun_elim</text>
@@ -837,9 +855,9 @@
 </g>
 </g>
 <!-- ac_simp -->
-<g id="node57" class="node">
+<g id="node58" class="node">
 <title>ac_simp</title>
-<g id="a_node57"><a xlink:href="classification.html#legacy" xlink:title="Γ ▷ ψ ≈ φ1 ∘ … ∘ φn&#10;flattening of nested ∘ ∈ {∧, ∨} with duplicates removed" target="_self">
+<g id="a_node58"><a xlink:href="classification.html#legacy" xlink:title="Γ ▷ ψ ≈ φ1 ∘ … ∘ φn&#10;flattening of nested ∘ ∈ {∧, ∨} with duplicates removed" target="_self">
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M600,-354C600,-354 559,-354 559,-354 553,-354 547,-348 547,-342 547,-342 547,-330 547,-330 547,-324 553,-318 559,-318 559,-318 600,-318 600,-318 606,-318 612,-324 612,-330 612,-330 612,-342 612,-342 612,-348 606,-354 600,-354"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M604,-358C604,-358 555,-358 555,-358 549,-358 543,-352 543,-346 543,-346 543,-326 543,-326 543,-320 549,-314 555,-314 555,-314 604,-314 604,-314 610,-314 616,-320 616,-326 616,-326 616,-346 616,-346 616,-352 610,-358 604,-358"/>
 <text text-anchor="middle" x="579.5" y="-333.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">ac_simp</text>
@@ -847,52 +865,52 @@
 </g>
 </g>
 <!-- ac_simp&#45;&gt;aci_simp -->
-<g id="edge44" class="edge">
+<g id="edge45" class="edge">
 <title>ac_simp&#45;&gt;aci_simp</title>
 <path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M616.43,-339.97C638.12,-343.89 665.29,-351.65 685,-367 782.82,-443.16 838.55,-588.57 857.54,-645.9"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="855.61,-646.76 859.47,-651.81 859.61,-645.46 855.61,-646.76"/>
 <text text-anchor="middle" x="741.5" y="-484.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">fallback</text>
 </g>
 <!-- l_core -->
-<g id="node58" class="node">
+<g id="node59" class="node">
 <title>l_core</title>
 <path fill="#ffffff" stroke="#2a78d6" stroke-width="2.4" d="M80.5,-1696C80.5,-1696 50.5,-1696 50.5,-1696 44.5,-1696 38.5,-1690 38.5,-1684 38.5,-1684 38.5,-1672 38.5,-1672 38.5,-1666 44.5,-1660 50.5,-1660 50.5,-1660 80.5,-1660 80.5,-1660 86.5,-1660 92.5,-1666 92.5,-1672 92.5,-1672 92.5,-1684 92.5,-1684 92.5,-1690 86.5,-1696 80.5,-1696"/>
 <text text-anchor="middle" x="65.5" y="-1675.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">core</text>
 </g>
 <!-- l_red -->
-<g id="node59" class="node">
+<g id="node60" class="node">
 <title>l_red</title>
 <path fill="#ffffff" stroke="#1baf7a" stroke-width="1.6" d="M324,-1696C324,-1696 277,-1696 277,-1696 271,-1696 265,-1690 265,-1684 265,-1684 265,-1672 265,-1672 265,-1666 271,-1660 277,-1660 277,-1660 324,-1660 324,-1660 330,-1660 336,-1666 336,-1672 336,-1672 336,-1684 336,-1684 336,-1690 330,-1696 324,-1696"/>
 <text text-anchor="middle" x="300.5" y="-1675.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">reducible</text>
 </g>
 <!-- l_core&#45;&gt;l_red -->
-<g id="edge45" class="edge">
+<g id="edge46" class="edge">
 <title>l_core&#45;&gt;l_red</title>
 <path fill="none" stroke="#8a887f" d="M92.78,-1678C133.1,-1678 210.57,-1678 258.37,-1678"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="258.63,-1680.1 264.63,-1678 258.63,-1675.9 258.63,-1680.1"/>
 <text text-anchor="middle" x="177" y="-1680.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">reduces to (R1–R4)</text>
 </g>
 <!-- l_exp -->
-<g id="node60" class="node">
+<g id="node61" class="node">
 <title>l_exp</title>
 <path fill="#ffffff" stroke="#eda100" stroke-width="1.8" stroke-dasharray="5,2" d="M606,-1696C606,-1696 553,-1696 553,-1696 547,-1696 541,-1690 541,-1684 541,-1684 541,-1672 541,-1672 541,-1666 547,-1660 553,-1660 553,-1660 606,-1660 606,-1660 612,-1660 618,-1666 618,-1672 618,-1672 618,-1684 618,-1684 618,-1690 612,-1696 606,-1696"/>
 <text text-anchor="middle" x="579.5" y="-1675.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">expensive</text>
 </g>
 <!-- l_red&#45;&gt;l_exp -->
-<g id="edge46" class="edge">
+<g id="edge47" class="edge">
 <title>l_red&#45;&gt;l_exp</title>
 <path fill="none" stroke="#8a887f" stroke-dasharray="5,2" d="M336.02,-1678C386.3,-1678 479.64,-1678 534.69,-1678"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="534.88,-1680.1 540.88,-1678 534.88,-1675.9 534.88,-1680.1"/>
 <text text-anchor="middle" x="422" y="-1680.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">expensive scheme</text>
 </g>
 <!-- l_agg -->
-<g id="node61" class="node">
+<g id="node62" class="node">
 <title>l_agg</title>
 <path fill="#ffffff" stroke="#4a3aa7" stroke-width="1.8" stroke-dasharray="1,5" d="M894.5,-1696C894.5,-1696 837.5,-1696 837.5,-1696 831.5,-1696 825.5,-1690 825.5,-1684 825.5,-1684 825.5,-1672 825.5,-1672 825.5,-1666 831.5,-1660 837.5,-1660 837.5,-1660 894.5,-1660 894.5,-1660 900.5,-1660 906.5,-1666 906.5,-1672 906.5,-1672 906.5,-1684 906.5,-1684 906.5,-1690 900.5,-1696 894.5,-1696"/>
 <text text-anchor="middle" x="866" y="-1675.2" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#0b0b0b">aggressive</text>
 </g>
 <!-- l_exp&#45;&gt;l_agg -->
-<g id="edge47" class="edge">
+<g id="edge48" class="edge">
 <title>l_exp&#45;&gt;l_agg</title>
 <path fill="none" stroke="#8a887f" stroke-dasharray="1,5" d="M618.28,-1678C670.09,-1678 763.12,-1678 818.95,-1678"/>
 <polygon fill="#8a887f" stroke="#8a887f" points="819.23,-1680.1 825.23,-1678 819.23,-1675.9 819.23,-1680.1"/>
@@ -900,7 +918,7 @@
 <text text-anchor="middle" x="741.5" y="-1680.8" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#52514e">fallback</text>
 </g>
 <!-- l_rem -->
-<g id="node62" class="node">
+<g id="node63" class="node">
 <title>l_rem</title>
 <path fill="#ffffff" stroke="#e34948" stroke-width="1.4" d="M1070.5,-1696C1070.5,-1696 1028.5,-1696 1028.5,-1696 1022.5,-1696 1016.5,-1690 1016.5,-1684 1016.5,-1684 1016.5,-1672 1016.5,-1672 1016.5,-1666 1022.5,-1660 1028.5,-1660 1028.5,-1660 1070.5,-1660 1070.5,-1660 1076.5,-1660 1082.5,-1666 1082.5,-1672 1082.5,-1672 1082.5,-1684 1082.5,-1684 1082.5,-1690 1076.5,-1696 1070.5,-1696"/>
 <path fill="none" stroke="#e34948" stroke-width="1.4" d="M1074.5,-1700C1074.5,-1700 1024.5,-1700 1024.5,-1700 1018.5,-1700 1012.5,-1694 1012.5,-1688 1012.5,-1688 1012.5,-1668 1012.5,-1668 1012.5,-1662 1018.5,-1656 1024.5,-1656 1024.5,-1656 1074.5,-1656 1074.5,-1656 1080.5,-1656 1086.5,-1662 1086.5,-1668 1086.5,-1668 1086.5,-1688 1086.5,-1688 1086.5,-1694 1080.5,-1700 1074.5,-1700"/>
