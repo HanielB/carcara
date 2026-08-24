@@ -5,12 +5,16 @@
 aggressive tier's `*_simplify` rules reduce — to `rare_rewrite`/`evaluate` chains
 (`core-simp-rare`) or all the way to the core plus one new axiom pair (`core-taut`), which also
 reduces every `evaluate` and `rare_rewrite` step. **Eliminating the whole rewrite vocabulary
-costs 8% of proof size on cvc5's proofs (aggregate 0.93 → 1.08, still smaller than the input),
-33% on veriT's, and ~7% of checking time on both**; `rare_rewrite` goes 98 692 → 8 285 steps and
+costs 1.9% of aggregate proof size on veriT's proofs (2.49 → 2.53) and 15% on cvc5's
+(0.93 → 1.08, still smaller than the input), with checking within 3% and 12% of the base
+configuration**; `rare_rewrite` goes 98 692 → 8 285 steps on cvc5 and to zero on veriT, and
 `evaluate` 26 084 → 156, the remainder being the `to_int`/floor family that needs a
-`to_int_intro` axiom. Keeping the RARE engine is *not* the cheaper option: `core-simp-rare`
-produces baseline-sized proofs that check slower than `core-taut`'s 32%-larger ones (17.1 s vs
-15.4 s on veriT), because a `rare_rewrite` step costs ~1.9 µs against ~0.07 µs for a `refl`.
+`to_int_intro` axiom. The `aci_simp` rename of the aci-compatible `and`/`or_simplify` instances
+(297 020 steps of veriT's output) is what makes it this cheap. Keeping the RARE engine buys
+nothing: `core-simp-rare` produces base-sized proofs that check in the same time as
+`core-taut`'s — and before the rename its rewrite chains checked *slower* than `core-taut`'s
+32%-larger output (17.1 s vs 15.4 s), a `rare_rewrite` step costing ~1.9 µs against ~0.07 µs
+for a `refl`.
 Full numbers in the evaluation report; the design analysis is the "trusted computing base"
 section of `docs/src/core.md`.
 
@@ -82,9 +86,10 @@ section of `docs/src/core.md`.
 
 ## Sizing the frozen set
 
-The `core-simp-rare` outputs answer the question the analysis left open: **55 distinct rewrite
-rules** over the corpus — 40 of the 101 active non-BV/array rules of `rewrites.eo` plus the 15
-of `simplify-rules.eo`; veriT's proofs need 32, cvc5's 45. Two rewrites of the `*_simplify`
+The `core-simp-rare` outputs answer the question the analysis left open: **53 distinct rewrite
+rules** over the corpus — 40 of the 101 active non-BV/array rules of `rewrites.eo` plus 13 of
+`simplify-rules.eo`; veriT's proofs need 28, cvc5's 45 (before the `aci_simp` renames the
+counts were 55/32/45, the difference being the duplicate-removal rules the renames absorb). Two rewrites of the `*_simplify`
 fixpoint systems are not expressible in RARE at all (the singleton collapse and the flatten),
 since the list semantics normalize the rule's own left-hand side away.
 
