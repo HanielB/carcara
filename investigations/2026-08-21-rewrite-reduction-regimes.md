@@ -95,9 +95,29 @@ emission.
 | primitive | subsumes | status |
 |---|---|---|
 | `aci_simp` | `shuffle`; `nary_elim` (AC operators); `ac_simp` (per layer); **`and_simplify`/`or_simplify`** (every non-short-circuiting instance) | all implemented; the last two now *reducible* |
-| `poly_simp` | `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` (whole rules); `div_simplify`'s real-division cases | implemented in the regimes as renames; the rules sit in the *expensive* tier ("check-power upgrade") — by the criterion that just moved `and`/`or`, they are reclassification candidates, but that is a tier decision, not an implementation one |
+| `poly_simp` | `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` (whole rules); `div_simplify`'s real-division cases | implemented in the regimes as renames; the rules sit in the *expensive* tier ("check-power upgrade") — by the criterion that just moved `and`/`or` they are reclassification candidates, and the measurement below says what that would cost |
 | `evaluate` | `mod_simplify` (its whole check *is* constant evaluation; zero corpus instances); `div_simplify`'s **integer** cases (closing the one `poly_simp` gap — `Rc<Term>::evaluate` covers `div`, `mod` and `to_int`); the constant-folding instances of `eq`/`not`/`comp`/`ite_simplify` | implemented: whole-step renames in the regimes that keep `evaluate`, the evaluation recipe in `core-taut` |
 | `la_generic` | `la_tautology`, `la_totality` (plus `or_intro` packaging) | long done, *reducible* |
+
+**What the `poly_simp` rename actually costs.** The tier's objection to it is that the rule's own
+check (fold the constants of an n-ary product, O(n)) is replaced by ring normalization. Measured
+on `clock_synchro__clocksynchro_9clocks` (QF_LRA/veriT, the corpus's most
+`prod_simplify`-dense proof), full pipeline, three runs:
+
+| | steps/run | median | total/run | share of the file's checking |
+|---|---:|---:|---:|---:|
+| original `prod`/`sum`/`minus_simplify` | 572 | 0.37 µs | 0.23 ms | 0.14% |
+| renamed `poly_simp` | 580 | 3.95 µs | 2.73 ms | 1.7% |
+
+So the upgrade is real — **12× per step** — but it is 1.5 percentage points of that file's
+164.8 ms check, and corpus-wide the four rules are only ~4 000 steps. For calibration, the
+`and`/`or` → `aci_simp` rename that was just accepted costs the same order (0.44 µs → ~3 µs
+median, ~7×), over 27 000 steps. The honest distinction is not the constant factor but the
+worst case: ACI normalization is near-linear in the arguments, while ring normalization
+distributes over nested products and can blow up on terms no `prod_simplify` instance would have
+strained. Nothing in the corpus exhibits that (p99 of the renamed steps is 14 µs), so the
+decision rests on how much weight the classification gives an unexercised worst case —
+a tier judgement, left to the maintainer rather than taken here.
 
 Checked and *not* subsumable by any single core rule: `eq-symm` (an equivalence between the two
 orientations — needs the two-subproof recipe), the De Morgan and implication/equivalence
