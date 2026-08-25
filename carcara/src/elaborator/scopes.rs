@@ -317,23 +317,6 @@ fn merge_hyps(into: &mut Vec<Rc<Term>>, from: &[Rc<Term>]) {
     }
 }
 
-/// The clause of a replayed node: the original literals followed by the negated hypotheses that
-/// are not already present.
-fn replayed_clause(
-    pool: &mut PrimitivePool,
-    original: &[Rc<Term>],
-    hyps: &[Rc<Term>],
-) -> Vec<Rc<Term>> {
-    let mut clause: Vec<Rc<Term>> = original.to_vec();
-    for h in hyps {
-        let nh = build_term!(pool, (not {h.clone()}));
-        if !clause.contains(&nh) {
-            clause.push(nh);
-        }
-    }
-    clause
-}
-
 /// Replays the body of a lemma scope outside of it, returning the node that takes the subproof's
 /// place. `None` means the scope has a shape the replay does not cover, and is kept.
 pub(super) fn replay(
@@ -375,9 +358,51 @@ pub(super) fn replay(
         return None;
     };
 
+    // A negated hypothesis `h = ¬φ` used as a resolution unit leaves the residual `φ` in the
+    // replayed clause where the discharged clause states `¬¬φ`; excluded middle on `h` —
+    // `(cl ¬h h)`, from `refl` and `equiv_pos2` — bridges the two
+    let mut fin = fin;
+    let target = last.clause.clone();
+    for h in &hyps {
+        let Some(inner) = h.remove_negation() else {
+            continue;
+        };
+        let inner = inner.clone();
+        let nh = build_term!(replay.pool, (not {h.clone()}));
+        if !fin.clause().contains(&inner) || !target.contains(&nh) || target.contains(&inner) {
+            continue;
+        }
+        let em = {
+            let eq = build_term!(replay.pool, (= {h.clone()} {h.clone()}));
+            let refl = replay.emitter.step(vec![eq.clone()], "refl", Vec::new(), Vec::new());
+            let not_eq = build_term!(replay.pool, (not {eq.clone()}));
+            let pos2 = replay.emitter.step(
+                vec![not_eq, nh.clone(), h.clone()],
+                "equiv_pos2",
+                Vec::new(),
+                Vec::new(),
+            );
+            let clause = vec![nh.clone(), h.clone()];
+            replay
+                .emitter
+                .step(clause, "resolution", vec![pos2, refl], Vec::new())
+        };
+        let mut clause: Vec<Rc<Term>> = fin
+            .clause()
+            .iter()
+            .filter(|l| **l != inner)
+            .cloned()
+            .collect();
+        if !clause.contains(&nh) {
+            clause.push(nh);
+        }
+        fin = replay
+            .emitter
+            .step(clause, "resolution", vec![fin, em], Vec::new());
+    }
+
     // Adjust the final clause to exactly what the scope discharged: `weakening` appends the unused
     // hypotheses (and any literal-count difference), `reordering` puts everything in place
-    let target = last.clause.clone();
     let current = fin.clause().to_vec();
     if current == target {
         return Some(fin);
@@ -547,27 +572,44 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
     }
 
     /// Resolves the non-hypothesis premises into an instance clause, merging their hypotheses.
+    /// Each part is a premise whose conclusion `term` cancels the instance's `¬term` literal.
     fn close_over(
         &mut self,
         instance: Rc<ProofNode>,
         parts: Vec<(Rc<Term>, Replayed)>,
     ) -> Option<Replayed> {
+        let parts = parts
+            .into_iter()
+            .map(|(term, r)| {
+                let nt = build_term!(self.pool, (not {term.clone()}));
+                (nt, term, r)
+            })
+            .collect();
+        self.close_over_lits(instance, parts)
+    }
+
+    /// The general form: each part names the literal of the instance clause it discharges and the
+    /// (complementary) literal of the premise's clause that discharges it.
+    fn close_over_lits(
+        &mut self,
+        instance: Rc<ProofNode>,
+        parts: Vec<(Rc<Term>, Rc<Term>, Replayed)>,
+    ) -> Option<Replayed> {
         let mut node = instance;
         let mut hyps: Vec<Rc<Term>> = Vec::new();
-        for (term, r) in parts {
+        for (instance_lit, premise_lit, r) in parts {
             match r {
-                Replayed::Hyp(h) => merge_hyps(&mut hyps, &[h]),
+                Replayed::Hyp(h) => merge_hyps(&mut hyps, std::slice::from_ref(&h)),
                 Replayed::Node { node: p, hyps: ph } => {
                     merge_hyps(&mut hyps, &ph);
-                    let nt = build_term!(self.pool, (not {term.clone()}));
                     let mut clause: Vec<Rc<Term>> = node
                         .clause()
                         .iter()
-                        .filter(|l| **l != nt)
+                        .filter(|l| **l != instance_lit)
                         .cloned()
                         .collect();
                     for l in p.clause() {
-                        if *l != term && !clause.contains(l) {
+                        if *l != premise_lit && !clause.contains(l) {
                             clause.push(l.clone());
                         }
                     }
@@ -671,9 +713,13 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
     fn resolution(&mut self, s: &StepNode) -> Option<Replayed> {
         let mut nodes: Vec<Rc<ProofNode>> = Vec::new();
         let mut hyps: Vec<Rc<Term>> = Vec::new();
+        let mut dropped: Vec<Rc<Term>> = Vec::new();
         for p in &s.premises {
             match self.node(p)? {
-                Replayed::Hyp(h) => merge_hyps(&mut hyps, &[h]),
+                Replayed::Hyp(h) => {
+                    merge_hyps(&mut hyps, std::slice::from_ref(&h));
+                    dropped.push(h);
+                }
                 Replayed::Node { node, hyps: ph } => {
                     merge_hyps(&mut hyps, &ph);
                     nodes.push(node);
@@ -683,12 +729,44 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
         if nodes.is_empty() {
             return None;
         }
+        // The conclusion is the original one plus whatever the translated premises carry beyond
+        // their originals (hypothesis literals or their residuals — a premise resolved against a
+        // negated hypothesis `h = ¬φ` carries the residual `φ` rather than `¬h`; the final fix-up
+        // in `replay` bridges the two where the discharged clause demands it), plus the residual
+        // of each dropped assume unit: `¬h` if some premise still carries it to cancel, the
+        // stripped `φ` where the pivot ran the other way
+        let mut clause: Vec<Rc<Term>> = s.clause.to_vec();
+        for (orig, translated) in s
+            .premises
+            .iter()
+            .filter(|p| !matches!(self.memo.get(*p), Some(Replayed::Hyp(_))))
+            .zip(&nodes)
+        {
+            for l in translated.clause() {
+                if !orig.clause().contains(l) && !clause.contains(l) {
+                    clause.push(l.clone());
+                }
+            }
+        }
+        for h in &dropped {
+            let nh = build_term!(self.pool, (not {h.clone()}));
+            let residual = match h.remove_negation() {
+                Some(inner)
+                    if !nodes.iter().any(|n| n.clause().contains(&nh))
+                        && nodes.iter().any(|n| n.clause().contains(inner)) =>
+                {
+                    inner.clone()
+                }
+                _ => nh,
+            };
+            if !clause.contains(&residual) {
+                clause.push(residual);
+            }
+        }
         if nodes.len() == 1 {
-            // The other premises were all hypothesis units, whose pivots stay in the clause: the
-            // remaining premise already concludes the right set
+            // A single remaining premise: nothing to resolve, its clause already covers the set
             return Some(Replayed::Node { node: nodes.remove(0), hyps });
         }
-        let clause = replayed_clause(self.pool, &s.clause, &hyps);
         let node = self.emit(clause, &s.rule, nodes, Vec::new())?;
         Some(Replayed::Node { node, hyps })
     }
@@ -700,18 +778,24 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
         let Replayed::Node { node, hyps } = self.node(p)? else {
             return None;
         };
-        // The premise's clause gained the hypothesis literals, so the conclusion is recomputed.
-        // For contraction and reordering the original conclusion plus those literals still stands
-        // in the required relation to the translated premise (the hypothesis literals appear once
-        // on each side); weakening instead extends the translated premise with whatever the
-        // original step appended, since its conclusion must keep the premise as a prefix
+        // The premise's clause gained extra literals (hypotheses or their residuals), so the
+        // conclusion is recomputed: for contraction and reordering, the original conclusion plus
+        // exactly those extras keeps the required multiset relation to the translated premise;
+        // weakening instead extends the translated premise with whatever the original step
+        // appended, since its conclusion must keep the premise as a prefix
         let clause = if s.rule == "weakening" {
             let appended = s.clause.get(p.clause().len()..).unwrap_or(&[]);
             let mut clause = node.clause().to_vec();
             clause.extend(appended.iter().cloned());
             clause
         } else {
-            replayed_clause(self.pool, &s.clause, &hyps)
+            let mut clause = s.clause.to_vec();
+            for l in node.clause() {
+                if !p.clause().contains(l) && !clause.contains(l) {
+                    clause.push(l.clone());
+                }
+            }
+            clause
         };
         let node = self.emit(clause, &s.rule, vec![node], Vec::new())?;
         Some(Replayed::Node { node, hyps })
@@ -743,17 +827,25 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
             return None;
         };
         let (term, r) = self.premise_parts(p)?;
-        let first = match axiom {
-            // The `_neg` axioms carry the premise term positively
-            "equiv_neg1" | "equiv_neg2" | "implies_neg1" | "implies_neg2" | "and_neg"
-            | "or_neg" => term.clone(),
-            _ => build_term!(self.pool, (not {term.clone()})),
+        // The `_neg` axioms serve the `not_*` rules, whose premise is a *negated* connective term;
+        // the axiom itself carries the connective term positively, so the premise's negation is
+        // stripped. The premise then discharges that literal by resolution (a derived premise
+        // concluding `¬φ` against the axiom's `φ`); a hypothesis premise leaves it in place, and
+        // the final fix-up bridges `φ` to the `¬¬φ` the discharged clause states
+        let negated_premise = matches!(
+            axiom,
+            "equiv_neg1" | "equiv_neg2" | "implies_neg1" | "implies_neg2" | "and_neg" | "or_neg"
+        );
+        let (instance_lit, premise_lit) = if negated_premise {
+            (term.remove_negation()?.clone(), term.clone())
+        } else {
+            (build_term!(self.pool, (not {term.clone()})), term.clone())
         };
-        let mut clause = vec![first];
+        let mut clause = vec![instance_lit.clone()];
         clause.extend(s.clause.iter().cloned());
         check_premise_free_rule(self.pool, axiom, &clause, &[]).ok()?;
         let instance = self.emit(clause, axiom, Vec::new(), Vec::new())?;
-        self.close_over(instance, vec![(term, r)])
+        self.close_over_lits(instance, vec![(instance_lit, premise_lit, r)])
     }
 
     /// Like [`Self::clausification`], for the axioms that take the selected index as an argument.
@@ -769,15 +861,17 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
             _ => s.clause.first()?.remove_negation()?.clone(),
         };
         let index = args.iter().position(|t| *t == selected)?;
-        let first = match axiom {
-            "or_neg" => term.clone(),
-            _ => build_term!(self.pool, (not {term.clone()})),
+        let negated_premise = axiom == "or_neg";
+        let (instance_lit, premise_lit) = if negated_premise {
+            (term.remove_negation()?.clone(), term.clone())
+        } else {
+            (build_term!(self.pool, (not {term.clone()})), term.clone())
         };
-        let mut clause = vec![first];
+        let mut clause = vec![instance_lit.clone()];
         clause.extend(s.clause.iter().cloned());
         let index_arg = vec![self.pool.add(Term::new_int(index))];
         check_premise_free_rule(self.pool, axiom, &clause, &index_arg).ok()?;
         let instance = self.emit(clause, axiom, Vec::new(), index_arg.clone())?;
-        self.close_over(instance, vec![(term, r)])
+        self.close_over_lits(instance, vec![(instance_lit, premise_lit, r)])
     }
 }

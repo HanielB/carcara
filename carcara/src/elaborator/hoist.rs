@@ -360,7 +360,6 @@ impl<'a> Hoisting<'a> {
                     let replaced = super::scopes::replay(pool, subproof, &mut emitter, &is_hole);
                     let steps = emitter.emitted;
                     drop(emitter);
-                    drop(next_id);
                     if let Some(replacement) = replaced {
                         self.emitted += counter.get();
                         *self.replayed.entry("replayed".to_owned()).or_default() += 1;

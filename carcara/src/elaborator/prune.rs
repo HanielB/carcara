@@ -11,9 +11,10 @@
 //! the roots concluding the empty clause, and every subproof reachable from them drops the extra
 //! steps that its own last step does not (transitively) use. Soundness is immediate — checking is
 //! per-step, so a valid proof stays valid under deleting steps nothing depends on — and the
-//! conclusion is untouched, so the verdict is preserved. The one thing deliberately *not* dropped
-//! is an unused `assume`: the specification ties the `assume` commands to the problem's premises,
-//! not to their use, and dropping one changes what the proof declares itself to be about.
+//! conclusion is untouched, so the verdict is preserved. Unused `assume` commands are dropped
+//! along with everything else: what checking requires of the assumes is that each is among the
+//! problem's premises — a subset, not the full list — so a proof that assumes less proves the
+//! same refutation from less.
 //!
 //! A proof with no empty-clause root — a partial proof, or one truncated by the solver — is
 //! returned unchanged: there is no conclusion to prune towards.
@@ -37,15 +38,9 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
 
     let before = count_commands(&proof);
 
-    // Unused top-level assumes are kept (see the module docs); everything else must be reachable
-    // from a goal
-    let mut roots: Vec<Rc<ProofNode>> = proof
-        .0
-        .iter()
-        .filter(|node| matches!(node.as_ref(), ProofNode::Assume { .. }))
-        .cloned()
-        .collect();
-    roots.extend(goals);
+    // Everything must be reachable from a goal — including the assumes: an `assume` is checked
+    // against the problem's premises individually, so the used subset stands on its own
+    let roots = goals;
 
     // Rebuild bottom-up, dropping each subproof's dead extra steps. Only subproofs (and the nodes
     // above one) change, so unaffected subgraphs are passed through as they are
