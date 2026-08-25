@@ -352,6 +352,30 @@ pub(super) fn replay(
         assumes,
         memo: HashMap::new(),
     };
+    // Translate the body bottom-up, so that every premise is memoized before its consumer asks
+    // for it: `translate` would otherwise recurse through the body, and solver bodies run
+    // thousands of steps deep
+    let mut order: Vec<Rc<ProofNode>> = Vec::new();
+    {
+        let mut seen: HashSet<Rc<ProofNode>> = HashSet::new();
+        let mut todo: Vec<(Rc<ProofNode>, bool)> = vec![(body_root.clone(), false)];
+        while let Some((node, done)) = todo.pop() {
+            if done {
+                order.push(node);
+                continue;
+            }
+            if node.depth() < scope_depth || !seen.insert(node.clone()) {
+                continue;
+            }
+            todo.push((node.clone(), true));
+            if let ProofNode::Step(step) = node.as_ref() {
+                todo.extend(step.premises.iter().map(|p| (p.clone(), false)));
+            }
+        }
+    }
+    for node in &order {
+        let _ = replay.node(node);
+    }
     let fin = replay.node(body_root)?;
     let Replayed::Node { node: fin, hyps } = fin else {
         // A body that is literally one of the assumptions has nothing to replay

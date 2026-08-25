@@ -21,6 +21,22 @@ use std::{
 use clap::Parser;
 
 fn main() {
+    // The parser, the checker's polyequality and the proof-node conversions all recurse on the
+    // structure of terms and proofs, and solver output nests deeply enough to overflow the main
+    // thread's fixed-size stack (a QF_LIA corpus proof segfaulted parsing at the default 8 MiB).
+    // Running the real work on a spawned thread with a large stack is the standard way out: unlike
+    // the main thread's, a spawned thread's stack size is ours to choose.
+    let child = std::thread::Builder::new()
+        .stack_size(512 * 1024 * 1024)
+        .spawn(run)
+        .expect("failed to spawn the main thread");
+    match child.join() {
+        Ok(()) => (),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn run() {
     let cli = Cli::parse();
     let colors_enabled = !cli.no_color && std::io::stderr().is_terminal();
 
