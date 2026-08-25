@@ -17,6 +17,7 @@ pub mod arithmetic;
 pub mod binder;
 #[allow(clippy::unnecessary_wraps)]
 pub mod clausification;
+mod connective;
 #[allow(clippy::unnecessary_wraps)]
 pub mod equality;
 #[allow(clippy::unnecessary_wraps)]
@@ -456,6 +457,52 @@ impl<'a> Builder<'a> {
 /// emit identity assignments constantly — veriT's `bind` anchors are of the form
 /// `(:= (veriT_vr582 Int) veriT_vr582)` — and asking the coarser question skipped 8 983 steps of
 /// the evaluation corpus whose substitution is the identity, against 30 where it is not.
+/// The number of commands a freshly built derivation contains — steps at its own depth, plus the
+/// whole body of any subproof it opens.
+pub(super) fn derivation_size(root: &Rc<ProofNode>) -> usize {
+    let depth = root.depth();
+    let mut seen: std::collections::HashSet<Rc<ProofNode>> = std::collections::HashSet::new();
+    let mut todo = vec![root.clone()];
+    let mut n = 0;
+    while let Some(node) = todo.pop() {
+        if node.depth() < depth || !seen.insert(node.clone()) {
+            continue;
+        }
+        n += 1;
+        match node.as_ref() {
+            ProofNode::Step(s) => todo.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(&s.previous_step)
+                    .cloned(),
+            ),
+            ProofNode::Subproof(s) => {
+                n += s.extra_steps.len() + 1; // the body, plus the anchor
+                todo.push(s.last_step.clone());
+                todo.extend(s.outbound_premises.iter().cloned());
+            }
+            ProofNode::Assume { .. } => (),
+        }
+    }
+    n
+}
+
+/// Picks the smaller of two derivations of the same clause.
+///
+/// Several rules admit both a *clausal* reduction — resolution over the premise-free axioms, no
+/// anchor — and a *subproof* one, discharging assumptions. Neither style wins everywhere: the
+/// clausal route pays a fixed axiom-and-resolution overhead per connective, the subproof route pays
+/// an anchor and grows with the number of assumptions. The rule of thumb is therefore to build both
+/// where both exist and keep whichever is smaller, counting a subproof's whole body and its anchor.
+pub(super) fn smaller_of(a: Rc<ProofNode>, b: Rc<ProofNode>) -> Rc<ProofNode> {
+    if derivation_size(&b) < derivation_size(&a) {
+        b
+    } else {
+        a
+    }
+}
+
 pub(super) fn context_is_safe(
     pool: &mut PrimitivePool,
     context: &mut ContextStack,
@@ -496,7 +543,9 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         // steps alone and the recipes stay unregistered. The two that remain reducible are renames
         // onto them: `eq_reflexive` onto `refl`, and `eq_congruent_pred` onto `eq_congruent`
         // through one `equiv_pos` axiom
+        "connective_def" => connective::connective_def,
         "eq_reflexive" => equality::eq_reflexive,
+        "not_symm" => equality::not_symm,
         "eq_congruent_pred" => equality::eq_congruent_pred_to_eq_congruent,
 
         // Arithmetic

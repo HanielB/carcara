@@ -5,6 +5,31 @@ use super::{
 use crate::{ast::*, checker::error::QuantifierError, utils::DedupIterator};
 use indexmap::{IndexMap, IndexSet};
 
+/// The quantifier duality: `▷ (= (forall X φ) (not (exists X (not φ))))`, and the dual with the
+/// two binders exchanged.
+///
+/// This is the one instance of `connective_def` that no other core rule can reach: the propositional
+/// instances (`xor`, `=`, `ite`) are derivable from the CNF axioms, but nothing else in the core
+/// relates `∀` and `∃`, so the duality has to be primitive. Carving it out as its own rule is what
+/// makes `connective_def` reducible.
+pub fn qnt_duality(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (first, second) = match_term_err!((= f s) = &conclusion[0])?;
+
+    if let Some((bindings, inner)) = match_term!((forall ... f) = first) {
+        let (dual_bindings, dual_inner) = match_term_err!((not (exists ... (not s))) = second)?;
+        assert_eq(inner, dual_inner)?;
+        assert_eq(bindings, dual_bindings)
+    } else if let Some((bindings, inner)) = match_term!((exists ... f) = first) {
+        let (dual_bindings, dual_inner) = match_term_err!((not (forall ... (not s))) = second)?;
+        assert_eq(inner, dual_inner)?;
+        assert_eq(bindings, dual_bindings)
+    } else {
+        Err(CheckerError::TermIsNotConnective(first.clone()))
+    }
+}
+
+
 pub fn forall_inst(
     RuleArgs {
         conclusion, args, pool, polyeq_time, ..

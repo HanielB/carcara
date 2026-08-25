@@ -336,6 +336,18 @@ pub fn eq_symmetric(
 
 /// `not_symm` flips its negated premise: a `symm` step under a discharge subproof derives the
 /// implication, and a resolution with the premise concludes.
+/// `not_symm` — from `¬(= a b)` conclude `¬(= b a)` — without a subproof.
+///
+/// Contraposition needs the *equivalence* between the two equalities, `(= (= a b) (= b a))`, and
+/// `cong` proves that directly: its checker tries all four orientations of a two-argument equality
+/// pair (a concession to how veriT states equality congruences), so with the argument lists flipped
+/// every pair is already syntactically equal. The rule insists on at least one premise, and one
+/// `refl` supplies it. From the equivalence, `equiv_pos1` and two resolutions turn the premise's
+/// `¬(= a b)` into the conclusion. Four steps, no anchor.
+///
+/// The `cong` step is validated by its own checker before being emitted, so a shape the orientation
+/// search does not accept falls back to the discharge-subproof reduction rather than producing
+/// something that does not check.
 pub fn not_symm(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -343,16 +355,64 @@ pub fn not_symm(
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     let premise = step.premises[0].clone();
     let flipped = step.clause[0].remove_negation_err()?.clone();
+    let original = premise.clause()[0].remove_negation_err()?.clone();
+    let (a, _) = match_term_err!((= a b) = &original)?;
+    let a = a.clone();
 
+    // Both styles are built and the smaller kept, per the rule of thumb in `smaller_of`. For this
+    // rule the clausal route wins — four steps against a subproof, an anchor and two steps — but
+    // the comparison is made rather than assumed, since `cong`'s orientation search may not accept
+    // the equality, in which case only the subproof route exists
     let mut b = Builder::new(pool, step);
+    let clausal = contraposition(&mut b, &a, &original, &flipped, &premise)?;
+
     b.open();
-    let assumption = b.assume(flipped.clone());
+    let assumption = b.assume(flipped);
     let symm_step = b.symm(&assumption);
     let subproof = b.close_subproof(vec![assumption], symm_step);
+    let discharged = b.resolve(vec![subproof, premise], vec![(original, true)])?;
 
-    let original = premise.clause()[0].remove_negation_err()?.clone();
-    let node = b.resolve(vec![subproof, premise], vec![(original, true)])?;
+    let node = match clausal {
+        Some(clausal) => super::smaller_of(clausal, discharged),
+        None => discharged,
+    };
     Ok(b.relabel(step, node))
+}
+
+/// From a premise concluding `¬original`, derives `¬flipped`, given that `cong` proves the two
+/// equalities equivalent. `None` if it does not.
+fn contraposition(
+    b: &mut Builder,
+    a: &Rc<Term>,
+    original: &Rc<Term>,
+    flipped: &Rc<Term>,
+    premise: &Rc<ProofNode>,
+) -> Result<Option<Rc<ProofNode>>, ElaborationError> {
+    let refl_eq = build_term!(b.pool, (= {a.clone()} {a.clone()}));
+    let equivalence = build_term!(b.pool, (= {original.clone()} {flipped.clone()}));
+    if crate::checker::cong_equal(b.pool, &[refl_eq.clone()], &equivalence).is_err() {
+        return Ok(None);
+    }
+    let refl = b.step(vec![refl_eq], "refl", Vec::new(), Vec::new());
+    let cong = b.step(vec![equivalence.clone()], "cong", vec![refl], Vec::new());
+    let (not_equivalence, not_original, not_flipped) = (
+        b.not(&equivalence),
+        b.not(original),
+        b.not(flipped),
+    );
+    // `equiv_pos1`: `(cl ¬(= A B) A ¬B)` — with `A` discharged by the premise, `¬B` remains
+    let pos1 = b.step(
+        vec![not_equivalence, original.clone(), not_flipped],
+        "equiv_pos1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let node = b.resolve(vec![pos1, cong], vec![(equivalence, false)])?;
+    let _ = not_original;
+    Ok(Some(b.resolve(
+        vec![node, premise.clone()],
+        vec![(original.clone(), true)],
+    )?))
 }
 
 fn term_args(term: &Rc<Term>) -> Result<&[Rc<Term>], CheckerError> {

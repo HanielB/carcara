@@ -37,16 +37,19 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 8 | 7 | 4 | 6 | 0 |
+| equality & rewriting | 25 | 7 | 9 | 3 | 6 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **55** | **46** | **5** | **7** | **5** |
+| **total** | **120** | **54** | **48** | **4** | **7** | **5** |
 
-The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
-the core as the ring-normalization primitive; totals count specification rules only. The new
-axiom `mult_pos` (proposed as `la_mult_pos_pos`) is the adopted base of the nonlinear
-multiplication schemes.
+Totals count *specification* rules only. The core additionally contains seven rules beyond the
+specification, all of them listed in the category tables below rather than only in the extras
+table at the end: `poly_simp`, `mult_pos`, `to_int_lower` and `to_int_upper` (arithmetic),
+`ite_then_intro` and `ite_else_intro` (equality & rewriting), and `qnt_duality` (binder). Every one
+is implemented and checked; four of them — `mult_pos`, the `to_int` pair and `qnt_duality` — are
+what let `la_mult_pos`/`la_mult_neg`, the integer-rounding rewrites and `connective_def` leave the
+tiers they were in.
 
 ## The judgment forms
 
@@ -202,7 +205,7 @@ own variable and reintroduced by generalization.
 
 13 rules: 5 core, 8 reducible.
 
-### Core (5)
+### Core (5 + 1 extra)
 
 | rule | notes |
 |---|---|
@@ -211,6 +214,7 @@ own variable and reintroduced by generalization.
 | `bind_let` | emitted by the polyeq elaboration itself |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
 | `forall_inst` | polyeq elaboration already normalizes it; independent of Skolemization — some arbitrary-term principle must be primitive (see parent chapter) |
+| `qnt_duality` (extra) | **proposed core axiom, implemented** — `▷ (= (forall X φ) (not (exists X (not φ))))` and its dual. Carved out of `connective_def` (2026-08-25): the propositional instances of that rule derive from the CNF axioms, but nothing else in the core relates `∀` and `∃`, so *this* instance has to be primitive. Naming it separately is what lets `connective_def` become reducible |
 
 ### Reducible (11)
 
@@ -675,7 +679,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 25 rules: 7 core, 11 reducible, 0 expensive, 7 aggressive.
 
-### Core (8)
+### Core (7 + 2 extra)
 
 | rule | notes |
 |---|---|
@@ -683,15 +687,17 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `trans` | |
 | `cong` | |
 | `symm` | kept against the spec's "superfluous" note: explicit symmetry for elaborated output |
-| `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
+| `ite_then_intro`, `ite_else_intro` (extra) | **proposed core axioms, implemented** — the term-`ite` selection pair `▷ ¬c, (ite c t s) ≈ t` and `▷ c, (ite c t s) ≈ s`. Premise-free clauses in `la_disequality`'s style, the definitional characterization of `ite` at arbitrary sorts; no other core rule provides one, since `ite_pos`/`ite_neg` are formula-level. Required by the `core-taut` recipes for the term-`ite` RARE rules and by `evaluate`'s `ite` case |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition. It is the semilattice half of a single algebraic primitive whose ring half is `poly_simp`; the two are deliberately not merged, because embedding the semilattice level into the ring is exponential — see [the computational primitives, algebraically](../core.md#the-computational-primitives-algebraically) |
 | `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously *aggressive*): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
-### Reducible (7)
+### Reducible (9)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
+| `connective_def` | quantifier duality: rename to `qnt_duality`. The three propositional instances: pure resolution over the CNF axioms of the two sides, glued by the iff-introduction pattern — no anchor | 1 for the duality, ~32 for a propositional instance | syntactic | **done** (`core` pass, 2026-08-25). It was *core* because of the duality; splitting that off as its own axiom leaves the rest derivable, which is what the "agreement lemma" note always claimed. The three propositional templates are `(= (xor a b) …)`, `(= (= a b) …)` and `(= (ite c x y) …)`; each derives `(cl ¬lhs rhs)` and `(cl lhs ¬rhs)` from the `xor`/`equiv`/`ite` and `and`/`or`/`implies` axiom families, with `not_not` discharging the `¬¬` literals that `and_neg` on a negated conjunct produces |
+| `not_symm` | `refl` + `cong` + `equiv_pos1` + 2 resolutions — no anchor | 4 | syntactic | **done** (`core` pass, 2026-08-25). Contraposition needs the equivalence `(= (= a b) (= b a))`, and `cong` proves it directly: its checker tries all four orientations of a two-argument equality pair, so with the arguments flipped every pair is syntactically equal, and one `refl` satisfies its one-premise minimum. Both this and the discharge-subproof route are built and the smaller kept |
 | `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass); the rename is unconditional (guarded only against assigning anchors), so `eq_reflexive` never survives elaboration |
 | `eq_congruent_pred` | `eq_congruent` + one `equiv_pos` axiom + `resolution` | 3 | syntactic | **done** (`core` pass, 2026-08-25). The predicate rule is the function rule read through an equivalence: where `eq_congruent` concludes `(= p(t̄) p(ū))`, the predicate variant states that equality split into its two-literal tail. The older reduction (discharge subproof + `cong` + `eq_mp`) is superseded now that `eq_congruent` is core; see the spec-divergence note on its conclusion shape |
 | `shuffle` | `aci_simp` (rename) | 0 | ACI | **done** (`core` pass); the check coarsens from multiset comparison to full ACI normalization — sound, and `aci_simp` is the designated ACI primitive |
@@ -834,11 +840,11 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Expensive (4)
+### Expensive (3)
 
-The clausal equality rules: `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm`. They are
+The clausal equality rules: `eq_transitive`, `eq_congruent` and `eq_symmetric`. They are
 the clausal variants of `trans`, `cong` and `symm` — same reasoning, stated as a premise-free clause
-(or, for `not_symm`, over a negated premise) instead of consumed from premises. Their reductions are
+instead of consumed from premises. Their reductions are
 *complete and implemented* (`core/equality.rs`, every corpus instance reduces and re-checks) and
 every step they emit is a cheap core rule; they are expensive on **cost**, exactly as `sko_ex` is.
 
@@ -847,7 +853,6 @@ every step they emit is a cheap core rule; they are expensive on **cost**, exact
 | `eq_transitive` | discharge subproof assuming the negated equalities, closed by `trans` (+ `symm` per flipped link) | ≤ 2n steps + an anchor | one subproof per instance |
 | `eq_congruent` | ditto, closed by `cong` | ≤ 2n+2 + an anchor | ditto |
 | `eq_symmetric` | two `symm` subproofs, one per direction, glued by the iff-introduction pattern | ~9 steps + 2 anchors | ditto |
-| `not_symm` | one `symm` subproof over the negated premise | ~4 steps + an anchor | ditto |
 
 **Why the cost is worth naming.** These four reductions were, measured, roughly three quarters of
 the `core` pass's growth on veriT proofs — the per-pass table put the first `core` application at
@@ -893,13 +898,15 @@ equational cores.
 [arithmetic section](../core.md#arithmetic-la_generic-and-poly_simp-as-the-computational-core) of
 the parent chapter for the recipes.
 
-### Core (2 + 1 extra)
+### Core (2 + 4 extra)
 
 | rule | notes |
 |---|---|
 | `la_generic` | the linear computational primitive (Farkas certificates) |
 | `la_disequality` | the [antisym] axiom, `▷ (t1 ≈ t2), ¬(t1 ≤ t2), ¬(t2 ≤ t1)`: premise-free clause, O(1) syntactic check. Kept core because no combination of the other axes can introduce a positive arithmetic equality (see "Lemmas, not axioms" in the RARE chapter); the exact counterpart of cvc5's dedicated `ARITH_TRICHOTOMY` rule, and literally RESOLUTE's `trichotomy` axiom modulo the `¬≤`/`<` atom flip (see the parent chapter's RESOLUTE comparison). Would become reducible only under the two-coefficient-vector generalization of `la_generic` recorded there |
 | `poly_simp` (extra) | the nonlinear computational primitive: unit polynomial equality, checked by ring-normalizing both sides. Its own elaboration into `rare_rewrite` chains is the *aggressive* exemplar — see the parent chapter |
+| `mult_pos` (extra) | **proposed core axiom, implemented** (proposed as `la_mult_pos_pos`) — the [pos-cone] axiom `▷ ¬(> x 0), ¬(> y 0), (> (* x y) 0)`, the positive cone's closure under multiplication, stated as a premise-free clause in `la_disequality`'s style. Genuinely nonlinear, so no Farkas combination replaces it; base of the `la_mult_*` reductions |
+| `to_int_lower`, `to_int_upper` (extra) | **proposed core axioms, implemented** — the floor characterization of `to_int`, `▷ (to_real (to_int t)) ≤ t` and `▷ t < (to_real (to_int t)) + 1`. They pin `to_int t` to the unique integer in `(t − 1, t]`, which is what lets the core evaluate a ground `to_int` with no evaluator: `la_generic`'s integer strengthening turns each bound into a bound on the value and `la_disequality` closes the two into an equality. The `to_int` half of the definitional `*_intro` family; `div` and `mod` would need the same and do not have it |
 
 ### Reducible (9)
 

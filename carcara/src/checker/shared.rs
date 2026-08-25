@@ -244,6 +244,7 @@ pub fn get_rule(
         "poly_simp_rel" => polynomial::poly_simp_rel,
         "forall_inst" => quantifier::forall_inst,
         "qnt_join" => quantifier::qnt_join,
+        "qnt_duality" => quantifier::qnt_duality,
         "qnt_rm_unused" => quantifier::qnt_rm_unused,
         "resolution" | "th_resolution" if elaborated => resolution::resolution_with_args,
         "resolution" | "th_resolution" if prefer_rup => resolution::rup_resolution,

@@ -380,3 +380,29 @@ fn miniscope_ite() {
         }
     }
 }
+
+#[test]
+fn qnt_duality() {
+    test_cases! {
+        definitions = "
+            (declare-fun p (Int) Bool)
+            (declare-fun q (Int Int) Bool)
+        ",
+        "Both directions of the duality" {
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (not (exists ((x Int)) (not (p x)))))) :rule qnt_duality)": true,
+            "(step t1 (cl (= (exists ((x Int)) (p x)) (not (forall ((x Int)) (not (p x)))))) :rule qnt_duality)": true,
+            "(step t1 (cl (= (forall ((x Int) (y Int)) (q x y)) (not (exists ((x Int) (y Int)) (not (q x y)))))) :rule qnt_duality)": true,
+        }
+        "The binders must be exchanged" {
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (not (forall ((x Int)) (not (p x)))))) :rule qnt_duality)": false,
+            "(step t1 (cl (= (exists ((x Int)) (p x)) (not (exists ((x Int)) (not (p x)))))) :rule qnt_duality)": false,
+        }
+        "The body must be negated, and the bindings must match" {
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (not (exists ((x Int)) (p x))))) :rule qnt_duality)": false,
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (not (exists ((y Int)) (not (p y)))))) :rule qnt_duality)": false,
+        }
+        "Not a quantifier" {
+            "(step t1 (cl (= (and (p 1) (p 2)) (not (or (not (p 1)) (not (p 2)))))) :rule qnt_duality)": false,
+        }
+    }
+}

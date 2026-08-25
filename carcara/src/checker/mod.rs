@@ -32,6 +32,39 @@ pub(crate) use rules::simplification::{
     implies_simplify_step, ite_simplify_step, not_simplify_step, RewriteLabel, SimplifyStepFn,
 };
 
+/// Runs the `cong` check for a candidate step: the given premise equalities against the conclusion
+/// equality, so that an elaboration pass can find out whether the step it is about to emit would be
+/// accepted — `cong`'s orientation search over two-argument equalities in particular.
+pub(crate) fn cong_equal(
+    pool: &mut dyn TermPool,
+    premises: &[Rc<Term>],
+    conclusion: &Rc<Term>,
+) -> RuleResult {
+    let premises: Vec<_> = premises
+        .iter()
+        .enumerate()
+        .map(|(i, t)| Premise {
+            id: "",
+            clause: std::slice::from_ref(t),
+            index: (0, i),
+        })
+        .collect();
+    let mut context = ContextStack::new();
+    let mut polyeq_time = Duration::ZERO;
+    let rare_rules = Rules { rules: IndexMap::new() };
+    rules::congruence::cong(RuleArgs {
+        conclusion: std::slice::from_ref(conclusion),
+        premises: &premises,
+        args: &[],
+        pool,
+        context: &mut context,
+        rare_rules: &rare_rules,
+        previous_command: None,
+        discharge: &[],
+        polyeq_time: &mut polyeq_time,
+    })
+}
+
 /// Runs a premise-free, context-free rule against a candidate clause, so that an elaboration pass
 /// can find out whether a step it is about to emit would be accepted.
 ///
