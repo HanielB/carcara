@@ -106,3 +106,52 @@ which is the opposite of what this pass is for.
 
 The 9.6% is therefore not a coverage gap to close by adding rules; it is the fraction of cvc5's
 scopes that were never doing any work.
+
+## The clausal replay (v2, same day)
+
+The battery only sees scopes whose discharged clause one rule proves *outright*, which misses most
+congruence scopes: cvc5's `cong` skips identical argument pairs, so the discharged clause has fewer
+equality literals than a whole-clause `eq_congruent` demands. On Haniel's direction the pass now
+**replays the body clausally** when the battery fails:
+
+- the scope's assumptions become *hypothesis literals*, their negations threaded through every
+  translated step's clause — exactly where the discharge would have put them;
+- `cong` → `eq_congruent` over every argument pair, `refl` supplying the identical pairs;
+- `trans` → `eq_transitive`; `symm` → `eq_transitive` + `refl`;
+- premise-carrying clausification steps → their paired axioms (`equiv1`→`equiv_pos2`,
+  `and`→`and_pos`, `not_and`→`and_neg` with the connective term stripped, …);
+- `resolution` stays `resolution`, an `assume` premise turning into the literal its unit clause
+  would have resolved away; `contraction`/`reordering`/`weakening` recomputed from what the
+  translated premises actually carry;
+- closed body steps are rebuilt outside unchanged; a final `weakening`/`reordering` matches the
+  discharged clause exactly.
+
+Every instance is checker-validated before emission and an uncovered body rule bails the scope out.
+Five bugs surfaced on the way, all with the corpus as witness: a replayed node's conclusion is not
+its first literal; `weakening` is not a permutation; a *negated* hypothesis used as a resolution
+unit leaves the residual `φ`, not `¬h` (bridged to the `¬¬φ` the discharged clause states by
+excluded middle on the hypothesis); the body translation must be iterative (solver bodies run
+thousands of steps deep); and a repeated `cong` premise has nothing left to discharge the second
+time, resolution's set semantics having removed every copy at the first — the fifth member of the
+set-semantics bug family. Separately, the sweep exposed that the *parser* overflows the default
+8 MiB stack on 54 deeply nested corpus files (plain `check`, no elaboration involved); the CLI now
+runs on a spawned thread with a 512 MiB stack.
+
+**Standalone `deep-hoist` (cvc5, 494 proofs):** 19 045 scopes collapse to one step and **169 573
+replay** — **188 618 of 198 239 eliminated (95.1%)**, anchors 198 268 → **9 559** (the remainder:
+`bind`/`sko_*` anchors and uncovered bodies). Commands 8 639 158, +5.7% over the battery-only pass
+and still 18.5% below the original: the replay emits ~28 steps per scope, and its instances
+currently bypass the sharing memo, so identical `eq_congruent` instances and `refl` fills across
+scopes are not deduplicated — routing them through the memo is the obvious optimization.
+
+**In the full core pipeline the replay is counterproductive, by construction.** The `core` pass
+reduces the clausal `eq_*` rules *into* discharge subproofs, so replaying a scope into
+`eq_congruent`/`eq_transitive` steps just hands the core pass material to re-expand: the corpus
+run ends at 12.09 M commands and 567 k anchors — more scopes than the input had. Scope-freedom and
+the core vocabulary are in tension: the core has no premise-free clausal equality rules, so one
+can have clausal scopes-free proofs (the replay, with `eq_*` in the vocabulary — the `eq_cl`
+configuration) or core proofs (where the discharge subproof *is* the normal form), not both. The
+full-pipeline sweep still preserves every verdict (486/494, the 8 failures the known input
+artifacts; `prune` deletes 309 164 leftover commands corpus-wide), so the combination is *sound* —
+it is just not what either pass is for. The pairing that makes sense: `deep-hoist` with the
+`eq_cl` vocabulary or plain checking; plain `hoist` ahead of the full-core pipeline.
