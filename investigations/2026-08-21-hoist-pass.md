@@ -130,3 +130,38 @@ The pass deletes derivations, so if an input proof is invalid and a bogus step's
 proved correctly elsewhere, the output could check where the input did not. This is not reachable
 through the CLI — `check_and_elaborate` checks the input first — but it is the reason not to relax
 the guard to "replace any step whose clause is in the memo".
+
+## Making the pass cheaper (2026-08-24)
+
+Three rounds, each measured rather than guessed. The instrumentation was env-gated phase timers
+inside the pass (`perf` is unusable on this machine), run on the two largest cvc5 proofs.
+
+1. **Duplicate-conclusion pre-filter.** A conclusion no other step of the proof proves can never
+   be reused, so it skips the memo, the derivation walk and the context check; a proof with no
+   repeated conclusion at all skips the rebuild entirely. The digests come from the pre-scan the
+   pass already ran. veriT corpus 8.9 s → 7.5 s (−16%); cvc5 unchanged, as it should be, since
+   there nearly every candidate really is duplicated.
+2. **One pre-scan instead of two.** The profile said the pre-scan *was* the pass — 744 ms of the
+   ~900 ms accounted on the largest cvc5 proof. It walked the whole forest twice (once for the
+   pinned ids and the digests, once inside `fresh_prefix`) and collected a vector of every node
+   each time. Now: one callback traversal that collects nothing, an id scan that keeps only the
+   ids that could conflict with the pass's namespace, and a pointer hasher for the two
+   whole-forest maps. Pre-scan 744 ms → 192 ms and 819 ms → 267 ms; end to end on the seven
+   heaviest proofs 7 502 ms → 5 949 ms (−21%).
+3. **`mutate` stops rebuilding unchanged steps.** With hoist's own bookkeeping down to ~14% of
+   the pass, the rest was the shared traversal: it allocated a fresh node with a full `StepNode`
+   clone for *every* step, per pass, even when no premise had moved. Passing such a step through
+   unchanged took hoist 6 121 ms → 4 611 ms (−25%) and the whole core pipeline 38.1 s → 31.1 s
+   (−18.5%) on four heavy proofs — every pass pays this cost, so every pass gains.
+
+   The consequence worth knowing: `mutate`'s `changed` flag now means what it says. It used to
+   be true for essentially every step with step premises, because each premise had been
+   reallocated and the comparison is by pointer, so `reordering` — which recomputes an
+   order-sensitive conclusion "if any premise was modified" — recomputed nearly all of them.
+   That incidentally deduplicated conclusions like the `(cl e e)` that `equiv_intro` deliberately
+   emits before its `contraction`; those now keep the shape the recipe intended. Verdicts and
+   sizes are unchanged, byte-identity is not.
+
+What is left is inherent: the forest rebuild itself, now dominated by the nodes that genuinely
+change. Making *that* cheaper means in-place mutation or copy-on-write in `ProofNodeForest`,
+which is a change to every pass's contract rather than to this one.
