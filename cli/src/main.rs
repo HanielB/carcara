@@ -34,6 +34,7 @@ fn main() {
         Ok(()) => (),
         Err(payload) => std::panic::resume_unwind(payload),
     }
+    carcara::elaborator::report_recipe_costs();
 }
 
 fn run() {
