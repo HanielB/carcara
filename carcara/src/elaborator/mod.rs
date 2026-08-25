@@ -60,7 +60,6 @@ pub enum ElaborationPass {
     Polyeq,
     Hole,
     Core,
-    CoreKeepEqCl,
     /// The `core` pass, additionally replaying the `*_simplify` rules as chains of
     /// `rare_rewrite`/`evaluate` lemmas (the rewrite vocabulary itself is kept).
     CoreSimpRare,
@@ -121,16 +120,13 @@ impl<'e> Elaborator<'e> {
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
                 ElaborationPass::Core => {
-                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::Keep)?
-                }
-                ElaborationPass::CoreKeepEqCl => {
-                    self.elaborate_core(current, true, core::rewrites::RewriteReduction::Keep)?
+                    self.elaborate_core(current, core::rewrites::RewriteReduction::Keep)?
                 }
                 ElaborationPass::CoreSimpRare => {
-                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::ToRare)?
+                    self.elaborate_core(current, core::rewrites::RewriteReduction::ToRare)?
                 }
                 ElaborationPass::CoreTaut => {
-                    self.elaborate_core(current, false, core::rewrites::RewriteReduction::ToCore)?
+                    self.elaborate_core(current, core::rewrites::RewriteReduction::ToCore)?
                 }
                 ElaborationPass::Local => self.elaborate_local(current)?,
                 ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
@@ -219,8 +215,6 @@ impl<'e> Elaborator<'e> {
     /// a derivation over the core fragment. Reductions are best-effort: if a step has a shape a
     /// recipe does not cover (or a reduction fails), the step is kept unchanged and a warning is
     /// logged, so the pass never rejects a proof.
-    /// With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are left
-    /// unchanged — the vocabulary evaluated as the `eq_cl` configuration.
     ///
     /// Recipes are memoized by their conclusion: a derivation that is self-contained and mentions
     /// no anchor-bound variable is emitted once, at depth 0, and every later step with the same
@@ -228,7 +222,6 @@ impl<'e> Elaborator<'e> {
     fn elaborate_core(
         &mut self,
         proof: ProofNodeForest,
-        keep_equality: bool,
         rewrites: core::rewrites::RewriteReduction,
     ) -> Result<ProofNodeForest, Error> {
         use core::rewrites::RewriteReduction;
@@ -250,7 +243,8 @@ impl<'e> Elaborator<'e> {
                             | "prod_simplify"
                             | "sum_simplify"
                             | "minus_simplify"
-                            | "unary_minus_simplify" => Some(core::rewrites::elaborate_simplify(
+                            | "unary_minus_simplify"
+                            | "div_simplify" => Some(core::rewrites::elaborate_simplify(
                                 self.pool,
                                 context,
                                 s,
@@ -274,7 +268,7 @@ impl<'e> Elaborator<'e> {
                             )),
                         }
                     } else {
-                        core::get_elaboration_function(&s.rule, keep_equality)
+                        core::get_elaboration_function(&s.rule)
                             .map(|func| func(self.pool, context, s))
                     };
                     match attempt {

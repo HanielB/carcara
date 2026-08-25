@@ -35,10 +35,11 @@ input contained `ite_intro` steps, whose reduction emits `rare_rewrite` instance
 carcara check --check-granularity elaborated --rare-file rare-tests/rare/ite-intro.rare example.elab.alethe example.smt2
 ```
 
-A variant of the pass, `core-keep-eq-cl`, applies every reduction *except* those of the clausal
-equality rules (`eq_reflexive`, `eq_transitive`, `eq_congruent`, `eq_congruent_pred`,
-`eq_symmetric`, `not_symm`, `eq_mp`) — a vocabulary point between the original rule set and the
-full core that avoids the discharge-subproof blowup of the `eq_*` reductions.
+There used to be a variant, `core-keep-eq-cl`, that skipped the clausal equality reductions — a
+vocabulary point between the original rule set and the full core, motivated entirely by the
+discharge-subproof blowup those reductions caused. It is gone: `eq_transitive`, `eq_congruent`,
+`eq_symmetric` and `not_symm` are now **core** in their own right, as the clausal variants of
+`trans`, `cong` and `symm`, so the single pass produces what that variant produced.
 
 ## The rewrite-reduction regimes
 
@@ -101,11 +102,11 @@ each becomes its paired CNF axiom plus one resolution on the premise formula), a
 rules `and_intro` (→ `and_neg` + resolution) and `eq_mp` (→ `equiv_pos2` + resolution, shared
 with the `local` pass).
 
-**Equality.** `eq_reflexive` (→ `refl`), and the clausal repackagings `eq_transitive`,
-`eq_congruent`, `eq_congruent_pred`, `eq_symmetric`, `not_symm` — each derived under a discharge
-subproof that assumes the negated literals and closes with `trans`/`cong`/`symm` (and, for
-`eq_congruent_pred`, the `eq_mp` pattern; for `eq_symmetric`, both directions glued by the
-iff-introduction pattern).
+**Equality.** `eq_reflexive` (→ `refl`, a rename) and `eq_congruent_pred` (→ `eq_congruent` plus
+one `equiv_pos` axiom and a resolution: the predicate rule is the function rule read through an
+equivalence). The other clausal equality rules — `eq_transitive`, `eq_congruent`, `eq_symmetric`,
+`not_symm` — are core and left alone. The pass still *contains* their discharge-subproof
+reductions (`core/equality.rs`), unregistered, for the vocabulary point that wants them.
 
 **Arithmetic.** `la_totality` and the binary form of `la_tautology` (→ `la_generic` + the
 `or_intro` packing pattern; the unit form is a coefficient-`[1]` `la_generic` rename), and

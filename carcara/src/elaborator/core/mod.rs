@@ -443,8 +443,7 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Returns the elaboration function for the given rule, if the `core` pass knows how to reduce
-/// it. With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are kept.
+/// Returns the elaboration function for the given rule, if the `core` pass knows how to reduce it.
 /// The recipes ultimately emit `refl` steps over subterms of the conclusion — including inside the
 /// excluded-middle helper, which is `refl` plus `equiv_pos2` and one resolution, so `refl` is the
 /// only context-sensitive rule they use. At elaborated granularity `refl` is `strict_refl`, which
@@ -478,21 +477,7 @@ pub(super) fn context_is_safe(
     })
 }
 
-pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super::ElaborationFunc> {
-    if keep_equality {
-        // The predicate congruence rule is redundant even in this vocabulary: it is
-        // `eq_congruent` plus one `equiv_pos` axiom, so it reduces onto the kept rule — and
-        // `eq_reflexive` always reduces, since it is a plain rename to `refl`
-        if rule == "eq_congruent_pred" {
-            return Some(equality::eq_congruent_pred_to_eq_congruent);
-        }
-        if matches!(
-            rule,
-            "eq_transitive" | "eq_congruent" | "eq_symmetric" | "not_symm" | "eq_mp"
-        ) {
-            return None;
-        }
-    }
+pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
     Some(match rule {
         // Clausal
         "th_resolution" => clausification::th_resolution,
@@ -505,13 +490,12 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         "and_intro" => clausification::and_intro,
         "eq_mp" => super::local::eq_mp::eq_mp,
 
-        // Equality and rewriting
+        // Equality and rewriting. `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm`
+        // are *core* — the clausal variants of `trans`, `cong` and `symm` — so they are kept. The
+        // two that remain reducible are renames onto them: `eq_reflexive` onto `refl`, and
+        // `eq_congruent_pred` onto `eq_congruent` through one `equiv_pos` axiom
         "eq_reflexive" => equality::eq_reflexive,
-        "eq_transitive" => equality::eq_transitive,
-        "eq_congruent" => equality::eq_congruent,
-        "eq_congruent_pred" => equality::eq_congruent_pred,
-        "eq_symmetric" => equality::eq_symmetric,
-        "not_symm" => equality::not_symm,
+        "eq_congruent_pred" => equality::eq_congruent_pred_to_eq_congruent,
 
         // Arithmetic
         "la_totality" => arithmetic::la_totality,

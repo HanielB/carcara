@@ -37,11 +37,11 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 8 | 11 | 0 | 6 | 0 |
+| equality & rewriting | 25 | 12 | 7 | 0 | 6 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **55** | **51** | **2** | **7** | **5** |
+| **total** | **120** | **59** | **46** | **1** | **7** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -675,7 +675,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 25 rules: 7 core, 11 reducible, 0 expensive, 7 aggressive.
 
-### Core (8)
+### Core (12)
 
 | rule | notes |
 |---|---|
@@ -686,18 +686,18 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition. It is the semilattice half of a single algebraic primitive whose ring half is `poly_simp`; the two are deliberately not merged, because embedding the semilattice level into the ring is exponential — see [the computational primitives, algebraically](../core.md#the-computational-primitives-algebraically) |
+| `eq_transitive` | the clausal variant of `trans` (core since 2026-08-25): the same transitivity chain, stated as a premise-free clause rather than consumed from premises — its checker *is* `find_chain`, the very function `trans` uses. It was reducible, by a discharge subproof deriving the final literal from the assumed negations, and that reduction was where roughly three quarters of the `core` pass's growth on veriT proofs came from; keeping the clausal pair alongside the premise-carrying one is a vocabulary decision, and the cheaper one |
+| `eq_congruent` | the clausal variant of `cong`, on the same argument; its checker shares `generic_congruent_rule` with `eq_congruent_pred`, which reduces onto it |
+| `eq_symmetric` | the clausal variant of `symm`: premise-free `▷ (= (= t u) (= u t))`, the definitional statement of symmetry rather than an application of it |
+| `not_symm` | the negated counterpart of `symm`, premise-carrying exactly as `symm` is |
 | `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously *aggressive*): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
-### Reducible (11)
+### Reducible (7)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass) — and applied in *every* pipeline, including the equality-keeping `eq_cl` configuration: the rename is unconditional (guarded only against assigning anchors), so `eq_reflexive` never survives elaboration |
-| `eq_transitive` | subproof + `trans` (+ `symm`) | ≤ 2n | syntactic | **done** (`core` pass); the older local elaboration canonicalizes flips but keeps the rule |
-| `eq_congruent` | subproof + `cong` (+ `symm`) | ≤ 2n+2 | syntactic | **done** (`core` pass); ditto |
-| `eq_congruent_pred` | subproof + `cong` + `eq_mp` | ≤ 2n+3 | syntactic | **done** (`core` pass); see the spec-divergence note on its conclusion shape |
-| `eq_symmetric` | two `symm` subproofs (one per direction) + `equiv_intro` | ~9 | syntactic | **done** (`core` pass); the conclusion is an *equivalence*, so both directions are needed |
-| `not_symm` | subproof + `symm` + `resolution` | 4 | syntactic | **done** (`core` pass) |
+| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass); the rename is unconditional (guarded only against assigning anchors), so `eq_reflexive` never survives elaboration |
+| `eq_congruent_pred` | `eq_congruent` + one `equiv_pos` axiom + `resolution` | 3 | syntactic | **done** (`core` pass, 2026-08-25). The predicate rule is the function rule read through an equivalence: where `eq_congruent` concludes `(= p(t̄) p(ū))`, the predicate variant states that equality split into its two-literal tail. The older reduction (discharge subproof + `cong` + `eq_mp`) is superseded now that `eq_congruent` is core; see the spec-divergence note on its conclusion shape |
 | `shuffle` | `aci_simp` (rename) | 0 | ACI | **done** (`core` pass); the check coarsens from multiset comparison to full ACI normalization — sound, and `aci_simp` is the designated ACI primitive |
 | `nary_elim` | `aci_simp` (rename), for the assoc-comm operators | 0 | ACI | **done** (`core` pass); chainable (`=`) and non-commutative (`→`, `-`) cases keep the binary-associativity `rare_rewrite` chain (below) and are left unchanged |
 | `and_simplify` | `aci_simp` (rename) for the aci-compatible instances — flattening, `true`-removal, duplicate removal, i.e. everything the rule does short of short-circuiting; a constant-size chain over the CNF axioms for the short-circuit to `false` (absorbing element by `and_pos` + the `false` axiom, complementary pair by two `and_pos` + resolution, stacked-negation parity by the double-negation recipe under `cong`) | 0 / O(1) | ACI / syntactic | **done** (`core` pass). Same check coarsening as `shuffle`/`nary_elim`, accepted for the same reason; without the rename, the recipe route is linear in the arity per removed constant, which two Averest QF_LIA proofs (hundred-argument conjunctions, ~18 000 instances) turn into a 4× logic-wide blowup |
@@ -947,12 +947,8 @@ may carry a coefficient of either sign.)
 |---|---|---|---|---|
 | `la_mult_pos` | `mult_pos` + `poly_simp` + `la_generic` glue (`eq_congruent` for the `=` form, one `la_disequality` case split for `≤`/`≥`) | O(1) template (~15–25 steps) | pos-cone + ring + Farkas | **done** (`core` pass, 2026-08-25). Promoted from *expensive* when the proposed axiom was adopted as `mult_pos`: the recipe validates every `la_generic` certificate and the `poly_simp` ring identity before emission, so an unanticipated shape keeps the step |
 | `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
+| `div_simplify` | `poly_simp` (real division by a constant is a ring identity) or `evaluate` (the integer `div`/`mod` cases over constants) — a rename either way, chosen by trying the ring check first | 0 | ring / evaluation | **done** (`core` pass, 2026-08-25). Promoted from *expensive*: the objection was that its two cases take *different* primitives, which is a fact about the recipe, not a cost. All 94 corpus instances are already-folded rational constants, i.e. `poly_simp` renames |
 
-### Expensive (1)
-
-| rule | reduction scheme | cost | what makes it expensive |
-|---|---|---|---|
-| `div_simplify` | `poly_simp` for real division by constants; `evaluate` for the integer `div`/`mod` cases | O(1) | both renames are implemented, so this rule is the obvious next promotion; it is held back only because its two cases take *different* primitives, and the integer one rests on the evaluation function's division semantics rather than on the ring |
 
 <details id="ex-la-mult-pos">
 <summary>Example: <code>la_mult_pos</code>, strict form</summary>
