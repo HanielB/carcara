@@ -115,6 +115,9 @@ singleton *left*-hand side (`(and (and p q r))`). With it, **63 of the 71 check*
 not parse in Carcara either before or after the patch, for an unrelated Int/Real sort mismatch in
 veriT's QF_LRA output, and are not part of the evaluation set.
 
+The patch, with a submission-ready header, is saved as
+`investigations/patches/verit-2026.05-no-singleton-and-or.patch`.
+
 ## Recommendation
 
 1. **veriT**: apply the two-line patch above. It is contained, it makes the emitted proofs shorter

@@ -1,0 +1,60 @@
+From: Carcara core-Alethe evaluation
+Subject: [PATCH] do not build one-argument and/or applications
+
+`simplify_neutral_proof` and `simplify_ACidem_proof` build their result with
+`DAG_new_stack`/`DAG_new` with no case for a single surviving argument, so
+removing the last neutral element from `(or a false)` yields `(or a)`. The next
+stage, `simplify_or_proof`, has an arity-1 branch that collapses it back and
+emits an `or_simplify` step for it -- so the one-argument application, which is
+not well-formed Alethe, is written into the proof both as a `:named` term and as
+that step's left-hand side.
+
+Over the SMT-LIB corpus used for the core-Alethe evaluation this produces 1666
+singleton applications (1483 `or`, 183 `and`) across 71 of 489 proofs, and
+exactly 1666 `and`/`or_simplify` steps that collapse one -- a one-to-one
+correspondence, so none of them is ever used for anything else.
+
+When a single argument survives, it *is* the result. The guard idiom is already
+used elsewhere in the codebase, e.g. `instantiation/inst-pre.c:519`. The driver
+in `simplify.c` already copes with a collapsed result: after the neutral stage it
+does `if (DAG_symb(new_src) != CONNECTOR_OR) continue;`, which re-enters the loop
+on the new node. The arity-1 branches of `simplify_and_proof`/`simplify_or_proof`
+become dead code.
+
+Tested: rebuilt veriT 2026.05 and regenerated the 71 affected proofs with
+`--proof-with-sharing --proof-prune --proof-merge`. All 71 still solve, no
+singleton applications remain, and the proofs are 1666 steps shorter.
+
+Note for consumers: collapsing in the first stage turns two steps into one,
+`(= (or false B) B)`. When `B` is itself a disjunction, a checker that reads the
+right-hand side of `or_simplify` as the *list* of surviving arguments will see
+two survivors rather than one. Carcara needed a one-line relaxation to accept
+both readings; other consumers may too.
+---
+--- a/src/pre/simp-node-proof.c
++++ b/src/pre/simp-node-proof.c
+@@ -49,7 +49,12 @@
+     }
+   else if (stack_size(DAGs) != DAG_arity(src))
+     {
+-      dest.DAG = DAG_dup(DAG_new_stack(DAG_symb(src), DAGs));
++      /* A one-argument `and`/`or` application is not well-formed Alethe, and printing one into
++         the proof (as the LHS of the `and_simplify`/`or_simplify` step that removes it again)
++         puts an ill-formed term in the output. When a single argument survives, it *is* the
++         result. */
++      dest.DAG = stack_size(DAGs) == 1 ? DAG_dup(stack_get(DAGs, 0))
++                                       : DAG_dup(DAG_new_stack(DAG_symb(src), DAGs));
+       stack_INIT(dest.proof);
+       stack_push(dest.proof, proof_transformation(type, src, dest.DAG, NULL));
+       DAG_free(src);
+@@ -94,7 +99,9 @@
+         DAG_misc_set(PDAG[j], 0);
+         j++;
+       }
+-  dest.DAG = DAG_dup(DAG_new(DAG_symb(src), j, PDAG));
++  /* As in `simplify_neutral_proof`: a single surviving argument is the result, not a
++     one-argument application of the connective. */
++  dest.DAG = j == 1 ? DAG_dup(PDAG[0]) : DAG_dup(DAG_new(DAG_symb(src), j, PDAG));
+   stack_push(dest.proof, proof_transformation(type, src, dest.DAG, NULL));
+   DAG_free(src);
+   return dest;
