@@ -14,6 +14,7 @@
   - [Rule classification](./core/classification.md)
   - [Reduction graph](./core/reduction-graph.md)
   - [RARE rules for the rewrite routes](./core/rare-rules.md)
+  - [Recipes for eliminating the RARE rewrites](./core/rewrite-recipes.md)
 - [Other features](./etc.md)
   - [Proof parsing/printing](./etc/parse.md)
   - [Proof slicing](./etc/slice.md)

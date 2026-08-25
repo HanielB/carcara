@@ -432,7 +432,10 @@ partition only.
 | `la_rw_eq` (alternative route), `abs` | 2 | yes; `la_rw_eq`'s preferred reduction now goes through the core's `la_disequality` instead |
 | ACI / `nary_elim` | 5 per operator | yes; normalization order must be replayed, not searched |
 
-A complementary analysis lives in the parent chapter's ["The trusted computing base,
+The *other* regime — `rare_rewrite` out of the core entirely, every rewrite derived — is catalogued
+in [Recipes for eliminating the RARE rewrites](./rewrite-recipes.md), which gives the core
+derivation and its measured cost for each of the 53 rewrites the corpus exercises. A complementary
+analysis lives in the parent chapter's ["The trusted computing base,
 measured"](../core.md#the-trusted-computing-base-measured) section: if `rare_rewrite` itself is
 removed from the core over a *frozen* rule set, every rewrite above and every non-BV/array rule
 of cvc5's `rewrites.eo` needs a recipe in core terms instead of a RARE declaration. The
