@@ -626,6 +626,12 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
                 Replayed::Hyp(h) => merge_hyps(&mut hyps, std::slice::from_ref(&h)),
                 Replayed::Node { node: p, hyps: ph } => {
                     merge_hyps(&mut hyps, &ph);
+                    // A repeated premise (`cong` may cite the same equality for several argument
+                    // pairs) has nothing left to discharge: resolution's set semantics removed
+                    // every copy of the literal the first time around
+                    if !node.clause().contains(&instance_lit) {
+                        continue;
+                    }
                     let mut clause: Vec<Rc<Term>> = node
                         .clause()
                         .iter()
