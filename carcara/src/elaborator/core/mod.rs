@@ -491,9 +491,11 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "eq_mp" => super::local::eq_mp::eq_mp,
 
         // Equality and rewriting. `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm`
-        // are *core* — the clausal variants of `trans`, `cong` and `symm` — so they are kept. The
-        // two that remain reducible are renames onto them: `eq_reflexive` onto `refl`, and
-        // `eq_congruent_pred` onto `eq_congruent` through one `equiv_pos` axiom
+        // are *expensive* — like `sko_ex`, their reductions are complete (see `equality.rs`) but
+        // cost a discharge subproof per instance and buy no checking power, so the pass leaves the
+        // steps alone and the recipes stay unregistered. The two that remain reducible are renames
+        // onto them: `eq_reflexive` onto `refl`, and `eq_congruent_pred` onto `eq_congruent`
+        // through one `equiv_pos` axiom
         "eq_reflexive" => equality::eq_reflexive,
         "eq_congruent_pred" => equality::eq_congruent_pred_to_eq_congruent,
 

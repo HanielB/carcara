@@ -34,6 +34,7 @@ use crate::{
     elaborator::error::ElaborationError,
     rare::{get_rules, meta_shapes, rewrite_meta_terms},
 };
+use std::collections::{HashMap, HashSet};
 
 /// How the rewrite vocabulary is reduced by the `core` pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +83,74 @@ pub struct Link {
 
 fn explanation(msg: impl Into<String>) -> ElaborationError {
     CheckerError::Explanation(msg.into()).into()
+}
+
+/// Per-rewrite recipe cost, collected when `CARCARA_RECIPE_COST` is set: for each rewrite (a RARE
+/// rule name, or a `*_simplify` rewrite label) the number of instances reduced and the number of
+/// core steps their recipes emitted. Reported by [`report_recipe_costs`] at the end of a run.
+///
+/// This is what answers "which rewrites are too costly to expand": a rule whose recipe is a fixed
+/// handful of steps is a lemma of the core and needs no rule of its own, while one whose recipe is
+/// large, or grows with the instance, is paying for its derivation every time it is used.
+static RECIPE_COST: std::sync::Mutex<Option<HashMap<String, (usize, usize)>>> =
+    std::sync::Mutex::new(None);
+
+fn record_cost(label: &str, steps: usize) {
+    if std::env::var_os("CARCARA_RECIPE_COST").is_none() {
+        return;
+    }
+    let mut guard = RECIPE_COST.lock().unwrap();
+    let map = guard.get_or_insert_with(HashMap::new);
+    let entry = map.entry(label.to_owned()).or_default();
+    entry.0 += 1;
+    entry.1 += steps;
+}
+
+/// The number of steps a freshly built derivation contains, at its own depth.
+fn derivation_size(root: &Rc<ProofNode>) -> usize {
+    let depth = root.depth();
+    let mut seen: HashSet<Rc<ProofNode>> = HashSet::new();
+    let mut todo = vec![root.clone()];
+    let mut n = 0;
+    while let Some(node) = todo.pop() {
+        if node.depth() != depth || !seen.insert(node.clone()) {
+            continue;
+        }
+        n += 1;
+        match node.as_ref() {
+            ProofNode::Step(s) => todo.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(&s.previous_step)
+                    .cloned(),
+            ),
+            ProofNode::Subproof(s) => {
+                // A discharge subproof counts as its whole body
+                n += s.extra_steps.len();
+                todo.push(s.last_step.clone());
+                todo.extend(s.outbound_premises.iter().cloned());
+            }
+            ProofNode::Assume { .. } => (),
+        }
+    }
+    n
+}
+
+/// Prints the per-rewrite recipe costs collected during the run, if any.
+pub fn report_recipe_costs() {
+    let guard = RECIPE_COST.lock().unwrap();
+    let Some(map) = guard.as_ref() else {
+        return;
+    };
+    let mut rows: Vec<_> = map.iter().collect();
+    rows.sort_by_key(|(name, (n, steps))| (std::cmp::Reverse(steps / n.max(&1)), (*name).clone()));
+    for (name, (n, steps)) in rows {
+        println!(
+            "RECIPE_COST {name} instances={n} steps={steps} mean={:.1}",
+            *steps as f64 / *n as f64
+        );
+    }
 }
 
 
@@ -254,6 +323,7 @@ pub fn elaborate_rare_rewrite(
         Ok(node) => node,
         Err(e) => ground::ground_equal(&mut b, &lhs, &rhs).map_err(|_| e)?,
     };
+    record_cost(&name, derivation_size(&node));
     Ok(b.relabel(step, node))
 }
 
@@ -269,7 +339,11 @@ fn lemma(
             RewriteReduction::ToRare => {
                 rare_or_evaluate(b, link.label, &link.before, &link.after, rules)?
             }
-            RewriteReduction::ToCore => core_lemma(b, link.label, &link.before, &link.after)?,
+            RewriteReduction::ToCore => {
+                let node = core_lemma(b, link.label, &link.before, &link.after)?;
+                record_cost(link.label, derivation_size(&node));
+                node
+            }
             RewriteReduction::Keep => unreachable!(),
         },
         Some((inner_before, inner_after)) => {
@@ -277,7 +351,11 @@ fn lemma(
                 RewriteReduction::ToRare => {
                     rare_or_evaluate(b, link.label, inner_before, inner_after, rules)?
                 }
-                RewriteReduction::ToCore => core_lemma(b, link.label, inner_before, inner_after)?,
+                RewriteReduction::ToCore => {
+                    let node = core_lemma(b, link.label, inner_before, inner_after)?;
+                    record_cost(link.label, derivation_size(&node));
+                    node
+                }
                 RewriteReduction::Keep => unreachable!(),
             };
             // Lift the inner rewrite to the root by congruence. The `cong` checker skips

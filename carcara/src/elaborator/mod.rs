@@ -23,6 +23,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Prints the per-rewrite recipe costs collected when `CARCARA_RECIPE_COST` is set.
+pub fn report_recipe_costs() {
+    core::rewrites::report_recipe_costs();
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// If `Some`, enables the elaboration of `lia_generic` steps using an external solver. When

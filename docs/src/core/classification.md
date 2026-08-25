@@ -37,11 +37,11 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 12 | 7 | 0 | 6 | 0 |
+| equality & rewriting | 25 | 8 | 7 | 4 | 6 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **59** | **46** | **1** | **7** | **5** |
+| **total** | **120** | **55** | **46** | **5** | **7** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -675,7 +675,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 25 rules: 7 core, 11 reducible, 0 expensive, 7 aggressive.
 
-### Core (12)
+### Core (8)
 
 | rule | notes |
 |---|---|
@@ -686,10 +686,6 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition. It is the semilattice half of a single algebraic primitive whose ring half is `poly_simp`; the two are deliberately not merged, because embedding the semilattice level into the ring is exponential — see [the computational primitives, algebraically](../core.md#the-computational-primitives-algebraically) |
-| `eq_transitive` | the clausal variant of `trans` (core since 2026-08-25): the same transitivity chain, stated as a premise-free clause rather than consumed from premises — its checker *is* `find_chain`, the very function `trans` uses. It was reducible, by a discharge subproof deriving the final literal from the assumed negations, and that reduction was where roughly three quarters of the `core` pass's growth on veriT proofs came from; keeping the clausal pair alongside the premise-carrying one is a vocabulary decision, and the cheaper one |
-| `eq_congruent` | the clausal variant of `cong`, on the same argument; its checker shares `generic_congruent_rule` with `eq_congruent_pred`, which reduces onto it |
-| `eq_symmetric` | the clausal variant of `symm`: premise-free `▷ (= (= t u) (= u t))`, the definitional statement of symmetry rather than an application of it |
-| `not_symm` | the negated counterpart of `symm`, premise-carrying exactly as `symm` is |
 | `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously *aggressive*): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
 ### Reducible (7)
@@ -837,6 +833,36 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 ```
 
 </details>
+
+### Expensive (4)
+
+The clausal equality rules: `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm`. They are
+the clausal variants of `trans`, `cong` and `symm` — same reasoning, stated as a premise-free clause
+(or, for `not_symm`, over a negated premise) instead of consumed from premises. Their reductions are
+*complete and implemented* (`core/equality.rs`, every corpus instance reduces and re-checks) and
+every step they emit is a cheap core rule; they are expensive on **cost**, exactly as `sko_ex` is.
+
+| rule | reduction scheme | cost | what makes it expensive |
+|---|---|---|---|
+| `eq_transitive` | discharge subproof assuming the negated equalities, closed by `trans` (+ `symm` per flipped link) | ≤ 2n steps + an anchor | one subproof per instance |
+| `eq_congruent` | ditto, closed by `cong` | ≤ 2n+2 + an anchor | ditto |
+| `eq_symmetric` | two `symm` subproofs, one per direction, glued by the iff-introduction pattern | ~9 steps + 2 anchors | ditto |
+| `not_symm` | one `symm` subproof over the negated premise | ~4 steps + an anchor | ditto |
+
+**Why the cost is worth naming.** These four reductions were, measured, roughly three quarters of
+the `core` pass's growth on veriT proofs — the per-pass table put the first `core` application at
+1.15 → 2.43 with them and 1.15 → 1.39 without. The checking power gained is *nil*: `eq_transitive`'s
+checker is `find_chain`, the same function `trans` calls, and `eq_congruent` shares
+`generic_congruent_rule` with `eq_congruent_pred`. So the tier says what it should: the reduction is
+available, the vocabulary is one rule smaller with it, and the default is to keep the rules because
+the derivation costs an anchor per instance and buys nothing a checker would notice.
+
+**A second reason to keep them, discovered 2026-08-25.** They are the target vocabulary of the
+`deep-hoist` pass's clausal replay, which turns a lemma scope inside out: assumptions become
+hypothesis literals and the body's `cong`/`trans`/`symm` steps become `eq_congruent`/`eq_transitive`
+instances. Reducing those back into discharge subproofs undoes exactly what the replay achieved —
+with them reduced, `deep-hoist` + `core` produced *more* scopes than the input; with them kept, the
+same pipeline gives 21% fewer commands than the input and eliminates 95% of cvc5's anchors.
 
 ### Aggressive (6)
 

@@ -37,9 +37,11 @@ carcara check --check-granularity elaborated --rare-file rare-tests/rare/ite-int
 
 There used to be a variant, `core-keep-eq-cl`, that skipped the clausal equality reductions — a
 vocabulary point between the original rule set and the full core, motivated entirely by the
-discharge-subproof blowup those reductions caused. It is gone: `eq_transitive`, `eq_congruent`,
-`eq_symmetric` and `not_symm` are now **core** in their own right, as the clausal variants of
-`trans`, `cong` and `symm`, so the single pass produces what that variant produced.
+discharge-subproof blowup those reductions caused. It is gone, because that is now what the *single*
+pass does: `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm` are classified
+**expensive**, exactly as `sko_ex` is — the reduction is complete and implemented, but each instance
+costs a discharge subproof and buys no checking power, so the pass leaves the steps alone by
+default. Re-enabling any of them is one entry in `get_elaboration_function`.
 
 ## The rewrite-reduction regimes
 
@@ -105,8 +107,8 @@ with the `local` pass).
 **Equality.** `eq_reflexive` (→ `refl`, a rename) and `eq_congruent_pred` (→ `eq_congruent` plus
 one `equiv_pos` axiom and a resolution: the predicate rule is the function rule read through an
 equivalence). The other clausal equality rules — `eq_transitive`, `eq_congruent`, `eq_symmetric`,
-`not_symm` — are core and left alone. The pass still *contains* their discharge-subproof
-reductions (`core/equality.rs`), unregistered, for the vocabulary point that wants them.
+`not_symm` — are *expensive* and left alone: their discharge-subproof reductions live in
+`core/equality.rs`, complete and tested, but unregistered.
 
 **Arithmetic.** `la_totality` and the binary form of `la_tautology` (→ `la_generic` + the
 `or_intro` packing pattern; the unit form is a coefficient-`[1]` `la_generic` rename), and

@@ -152,10 +152,12 @@ diagnosis was that scope-freedom and the core vocabulary were in tension: the co
 premise-free clausal equality rules, so a proof could be scope-free (the replay, with `eq_*` kept)
 or core (where the discharge subproof *is* the normal form), not both.
 
-Haniel resolved it the other way, by **making the clausal rules core**: `eq_transitive`,
-`eq_congruent`, `eq_symmetric` and `not_symm` are the clausal variants of `trans`, `cong` and
-`symm`, their checkers are literally the same functions, and keeping the pair costs no checking
-power. With that, the replay's output *is* core, and the two passes compose as intended — on
+Haniel resolved it the other way, by **moving the clausal rules to the *expensive* tier**:
+`eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm` are the clausal variants of `trans`,
+`cong` and `symm`, their checkers are literally the same functions, and their reductions cost a
+discharge subproof each while buying no checking power — the `sko_ex` situation exactly. The
+reductions stay implemented and unregistered, so the pass leaves the steps alone. With that, the
+replay's output survives the core pass, and the two compose as intended — on
 `mathsat hard10`, `deep-hoist` + core gives 87 728 commands and 59 anchors against `hoist` + core's
 98 416 and 2 652, i.e. 11% smaller with the scopes gone, and 21% below the original.
 
