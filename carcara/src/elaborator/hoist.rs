@@ -299,17 +299,35 @@ impl<'a> Hoisting<'a> {
                     // The scope's id is pinned — a subproof refers to its last step by position —
                     // so the replacement takes a fresh one instead, which also lets it be shared
                     let id = self.next_id();
+                    let clause = found.weaken_from.unwrap_or_else(|| last.clause.clone());
+                    let weaken = clause != last.clause;
                     let replacement = Rc::new(ProofNode::Step(StepNode {
                         id,
                         depth: node.depth(),
-                        clause: last.clause.clone(),
+                        clause,
                         rule: found.rule,
                         premises: Vec::new(),
                         args: found.args,
                         discharge: Vec::new(),
                         previous_step: None,
                     }));
-                    return self.rewrite(pool, context, &replacement);
+                    let replacement = self.rewrite(pool, context, &replacement);
+                    if !weaken {
+                        return replacement;
+                    }
+                    let id = self.next_id();
+                    let weakened = Rc::new(ProofNode::Step(StepNode {
+                        id,
+                        depth: node.depth(),
+                        clause: last.clause.clone(),
+                        rule: "weakening".to_owned(),
+                        premises: vec![replacement],
+                        args: Vec::new(),
+                        discharge: Vec::new(),
+                        previous_step: None,
+                    }));
+                    self.record_closed(&weakened);
+                    return weakened;
                 }
             }
             return node.clone();

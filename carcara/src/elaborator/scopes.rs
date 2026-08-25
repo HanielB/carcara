@@ -87,6 +87,12 @@ const CLAUSAL_RULES: &[&str] = &[
 pub(super) struct Collapse {
     pub rule: String,
     pub args: Vec<Rc<Term>>,
+
+    /// The clause the rule concludes, when it is a strict prefix of what the scope discharges and a
+    /// `weakening` step has to add the rest. This is the `false`-tailed shape: a solver that proves
+    /// a lemma by deriving `false` under its hypotheses discharges `(cl ¬A … ¬Z false)`, and the
+    /// clause without that literal is the one a rule can prove.
+    pub weaken_from: Option<Vec<Rc<Term>>>,
 }
 
 /// Returns the single clausal step that proves what this subproof discharges, if there is one.
@@ -110,12 +116,41 @@ pub(super) fn collapse(
     }
     let clause = &last.clause;
 
+    if let Some(found) = try_clause(pool, clause, is_hole) {
+        return Some(found);
+    }
+    // A lemma proved by deriving `false` under its hypotheses discharges that `false` along with
+    // the negated hypotheses. The literal is redundant — the clause without it is stronger — and
+    // the rules below can prove that one, so the collapse becomes two steps instead of one: the
+    // rule, and a `weakening` that puts the literal back so the consumers are unaffected
+    let [head @ .., last] = clause.as_slice() else {
+        return None;
+    };
+    if !last.is_bool_false() || head.len() < 2 || is_hole("weakening") {
+        return None;
+    }
+    let head = head.to_vec();
+    let mut found = try_clause(pool, &head, is_hole)?;
+    found.weaken_from = Some(head);
+    Some(found)
+}
+
+/// Offers a clause to the battery, then to the two argument-synthesizing rules.
+fn try_clause(
+    pool: &mut PrimitivePool,
+    clause: &[Rc<Term>],
+    is_hole: &impl Fn(&str) -> bool,
+) -> Option<Collapse> {
     for rule in CLAUSAL_RULES {
         if is_hole(rule) {
             continue;
         }
         if check_premise_free_rule(pool, rule, clause, &[]).is_ok() {
-            return Some(Collapse { rule: (*rule).to_owned(), args: Vec::new() });
+            return Some(Collapse {
+                rule: (*rule).to_owned(),
+                args: Vec::new(),
+                weaken_from: None,
+            });
         }
     }
     index_rule(pool, clause, is_hole).or_else(|| farkas(pool, clause, is_hole))
@@ -154,7 +189,7 @@ fn index_rule(
     let args = vec![pool.add(Term::new_int(index))];
     check_premise_free_rule(pool, rule, clause, &args)
         .is_ok()
-        .then(|| Collapse { rule: rule.to_owned(), args })
+        .then(|| Collapse { rule: rule.to_owned(), args, weaken_from: None })
 }
 
 /// Tries `la_generic`, whose arguments are one Farkas coefficient per literal.
@@ -184,5 +219,9 @@ fn farkas(
         .collect();
     check_premise_free_rule(pool, "la_generic", clause, &args)
         .is_ok()
-        .then(|| Collapse { rule: "la_generic".to_owned(), args })
+        .then(|| Collapse {
+            rule: "la_generic".to_owned(),
+            args,
+            weaken_from: None,
+        })
 }
