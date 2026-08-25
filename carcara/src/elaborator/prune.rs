@@ -39,8 +39,41 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
     let before = count_commands(&proof);
 
     // Everything must be reachable from a goal — including the assumes: an `assume` is checked
-    // against the problem's premises individually, so the used subset stands on its own
-    let roots = goals;
+    // against the problem's premises individually, so the used subset stands on its own. The ones
+    // the goals reach are kept as *leading* roots all the same, because Alethe wants the `assume`
+    // commands before the steps and the printer emits roots in order
+    let reached = {
+        let mut reached: HashSet<Rc<ProofNode>> = HashSet::new();
+        let mut todo: Vec<Rc<ProofNode>> = goals.clone();
+        while let Some(node) = todo.pop() {
+            if !reached.insert(node.clone()) {
+                continue;
+            }
+            match node.as_ref() {
+                ProofNode::Assume { .. } => (),
+                ProofNode::Step(s) => todo.extend(
+                    s.premises
+                        .iter()
+                        .chain(&s.discharge)
+                        .chain(&s.previous_step)
+                        .cloned(),
+                ),
+                ProofNode::Subproof(s) => {
+                    todo.push(s.last_step.clone());
+                    todo.extend(s.outbound_premises.iter().cloned());
+                    todo.extend(live_extra_steps(s));
+                }
+            }
+        }
+        reached
+    };
+    let mut roots: Vec<Rc<ProofNode>> = proof
+        .0
+        .iter()
+        .filter(|n| matches!(n.as_ref(), ProofNode::Assume { .. }) && reached.contains(*n))
+        .cloned()
+        .collect();
+    roots.extend(goals);
 
     // Rebuild bottom-up, dropping each subproof's dead extra steps. Only subproofs (and the nodes
     // above one) change, so unaffected subgraphs are passed through as they are

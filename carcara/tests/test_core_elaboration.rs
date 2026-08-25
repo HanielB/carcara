@@ -3,7 +3,13 @@ use carcara::{ast, checker, elaborator, parser};
 /// Runs the `core` elaboration pass on a proof, checks the result in elaborated granularity, and
 /// returns the rules of the steps of the resulting proof.
 fn run_core_pass(problem: &str, proof: &str) -> Vec<String> {
-    let elaborated = elaborate_core_pass(problem, proof);
+    run_pass(problem, proof, elaborator::ElaborationPass::Core)
+}
+
+/// Runs one elaboration pass, checks the result in elaborated granularity, and returns the rules
+/// of the steps of the resulting proof.
+fn run_pass(problem: &str, proof: &str, pass: elaborator::ElaborationPass) -> Vec<String> {
+    let elaborated = elaborate_pass(problem, proof, pass);
 
     fn collect(commands: &[ast::ProofCommand], rules: &mut Vec<String>) {
         for c in commands {
@@ -22,6 +28,10 @@ fn run_core_pass(problem: &str, proof: &str) -> Vec<String> {
 /// Runs the `core` elaboration pass on a proof, checks the result in elaborated granularity, and
 /// returns it.
 fn elaborate_core_pass(problem: &str, proof: &str) -> ast::Proof {
+    elaborate_pass(problem, proof, elaborator::ElaborationPass::Core)
+}
+
+fn elaborate_pass(problem: &str, proof: &str, pass: elaborator::ElaborationPass) -> ast::Proof {
     let (mut problem, proof, rare_rules, mut pool) = parser::parse_instance(
         problem,
         proof,
@@ -57,7 +67,7 @@ fn elaborate_core_pass(problem: &str, proof: &str) -> ast::Proof {
     };
     let node = ast::ProofNodeForest::from_commands(proof.commands.clone());
     let elaborated_node = elaborator::Elaborator::new(&mut pool, &problem, elab_config)
-        .elaborate(node, vec![elaborator::ElaborationPass::Core])
+        .elaborate(node, vec![pass])
         .expect("elaboration failed");
     let elaborated = ast::Proof {
         constant_definitions: proof.constant_definitions.clone(),
@@ -225,4 +235,25 @@ fn degenerate_eq_transitive() {
     let rules = run_core_pass(definitions, proof);
     assert_eq!(rules.iter().filter(|r| *r == "eq_transitive").count(), 1);
     assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 0);
+}
+
+/// `local`'s `eq_transitive` canonicalization drops the hypotheses the chain does not need — but
+/// the rule requires at least three literals, so a chain needing only one premise must keep two.
+#[test]
+fn eq_transitive_canonicalization_keeps_two_hypotheses() {
+    let definitions = "
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+    ";
+    // The chain closes on the first hypothesis alone; the second is spare
+    let proof = "
+        (step t1 (cl (not (= a b)) (not (= b c)) (= a b)) :rule eq_transitive)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    // The pass itself rechecks the output in elaborated granularity, so reaching here is the
+    // assertion: before the clamp, the canonicalization emitted a two-literal `eq_transitive`,
+    // which its own checker rejects
+    let rules = run_pass(definitions, proof, elaborator::ElaborationPass::Local);
+    assert!(rules.iter().any(|r| r == "eq_transitive"));
 }

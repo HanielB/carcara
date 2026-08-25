@@ -706,6 +706,18 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
         for p in &s.premises {
             parts.push(self.premise_parts(p)?);
         }
+        // A single-premise `trans` is not a chain: `eq_transitive` needs at least two hypothesis
+        // literals. Either the premise already concludes the step's equality — in which case the
+        // step is the identity and the premise stands in for it — or it concludes the flipped one,
+        // which is the symmetry shape
+        if parts.len() == 1 {
+            let (term, r) = parts.pop().unwrap();
+            let goal = s.clause.first()?;
+            if term == *goal {
+                return Some(r);
+            }
+            return self.flip(&term, r, goal);
+        }
         let mut clause: Vec<Rc<Term>> = parts
             .iter()
             .map(|(t, _)| build_term!(self.pool, (not {t.clone()})))
@@ -721,13 +733,20 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
             return None;
         };
         let (term, r) = self.premise_parts(p)?;
+        self.flip(&term, r, s.clause.first()?)
+    }
+
+    /// Derives `goal` — the flipped form of the equality `term` — from a premise concluding
+    /// `term`, as an `eq_transitive` against a reflexivity step.
+    fn flip(&mut self, term: &Rc<Term>, r: Replayed, goal: &Rc<Term>) -> Option<Replayed> {
+        let term = term.clone();
         let (_, b) = match_term!((= a b) = &term)?;
         let refl_eq = build_term!(self.pool, (= {b.clone()} {b.clone()}));
         let (not_term, not_refl) = (
             build_term!(self.pool, (not {term.clone()})),
             build_term!(self.pool, (not {refl_eq.clone()})),
         );
-        let clause = vec![not_term, not_refl, s.clause.first()?.clone()];
+        let clause = vec![not_term, not_refl, goal.clone()];
         check_premise_free_rule(self.pool, "eq_transitive", &clause, &[]).ok()?;
         let instance = self.emit(clause, "eq_transitive", Vec::new(), Vec::new())?;
         let refl = self.emit(vec![refl_eq.clone()], "refl", Vec::new(), Vec::new())?;
