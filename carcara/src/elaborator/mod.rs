@@ -527,13 +527,21 @@ where
                     .chain(s.previous_step.iter())
                     .any(|p| *p != cache[p]);
 
-                let new_node = Rc::new(ProofNode::Step(StepNode {
-                    premises,
-                    discharge,
-                    previous_step,
-                    ..s.clone()
-                }));
-                mutate_func(&mut context, &new_node, changed)?
+                // A step none of whose premises moved is its own rebuild, so it is passed on as
+                // it is. Cloning it instead would copy its id, rule, clause and arguments —
+                // per step, on every pass — and hand the pass a node with a fresh identity,
+                // which is also worse for the memos that later passes key by node
+                if changed {
+                    let new_node = Rc::new(ProofNode::Step(StepNode {
+                        premises,
+                        discharge,
+                        previous_step,
+                        ..s.clone()
+                    }));
+                    mutate_func(&mut context, &new_node, true)?
+                } else {
+                    mutate_func(&mut context, node, false)?
+                }
             }
             ProofNode::Subproof(s) if !is_done => {
                 assert!(
