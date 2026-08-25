@@ -229,19 +229,23 @@ impl<'e> Elaborator<'e> {
                 ProofNode::Step(s) => {
                     let attempt = if core::rewrites::is_rewrite_rule(&s.rule) {
                         match s.rule.as_str() {
-                            // `and_simplify`/`or_simplify` are *reducible*: their
-                            // aci-compatible instances are `aci_simp` renames and the
-                            // short-circuiting ones constant-size chains, so the plain
-                            // `core` pass reduces them too
-                            "and_simplify" | "or_simplify" => {
-                                Some(core::rewrites::elaborate_simplify(
-                                    self.pool,
-                                    context,
-                                    s,
-                                    rewrites,
-                                    rare_rules.as_ref(),
-                                ))
-                            }
+                            // These are *reducible*, so the plain `core` pass reduces them
+                            // too: `and_simplify`/`or_simplify` because their aci-compatible
+                            // instances are `aci_simp` renames and the short-circuiting ones
+                            // constant-size chains, and the arithmetic bundle because it
+                            // renames onto `poly_simp` (or `evaluate`, for the integer cases)
+                            "and_simplify"
+                            | "or_simplify"
+                            | "prod_simplify"
+                            | "sum_simplify"
+                            | "minus_simplify"
+                            | "unary_minus_simplify" => Some(core::rewrites::elaborate_simplify(
+                                self.pool,
+                                context,
+                                s,
+                                rewrites,
+                                rare_rules.as_ref(),
+                            )),
                             _ if rewrites == RewriteReduction::Keep => None,
                             "evaluate" if rewrites == RewriteReduction::ToCore => {
                                 Some(core::rewrites::elaborate_evaluate(self.pool, context, s))

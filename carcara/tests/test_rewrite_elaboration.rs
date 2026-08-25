@@ -242,11 +242,16 @@ fn simplify_cases() -> Vec<&'static str> {
     ]
 }
 
-/// `and_simplify`/`or_simplify` are *reducible*: the plain `core` pass reduces them, mostly as
-/// `aci_simp` renames.
+/// The *reducible* rewrite rules: the plain `core` pass reduces them, as renames onto the
+/// `aci_simp`, `poly_simp` and `evaluate` computational primitives (plus constant-size chains
+/// for the `and`/`or` short-circuits).
 #[test]
 fn plain_core_reduces_and_or_simplify() {
     let cases = [
+        "(step t1 (cl (= (* 1 (* 2 x)) (* 2 x))) :rule prod_simplify)",
+        "(step t1 (cl (= (+ x 0 y) (+ x y))) :rule sum_simplify)",
+        "(step t1 (cl (= (- x x) 0)) :rule minus_simplify)",
+        "(step t1 (cl (= (- (- x)) x)) :rule unary_minus_simplify)",
         "(step t1 (cl (= (and p true q) (and p q))) :rule and_simplify)",
         "(step t1 (cl (= (and p (not p)) false)) :rule and_simplify)",
         "(step t1 (cl (= (and p p) p)) :rule and_simplify)",
@@ -259,7 +264,15 @@ fn plain_core_reduces_and_or_simplify() {
         let rules = run_pass(elaborator::ElaborationPass::Core, DEFINITIONS, case);
         for rule in &rules {
             assert!(
-                rule != "and_simplify" && rule != "or_simplify",
+                !matches!(
+                    rule.as_str(),
+                    "and_simplify"
+                        | "or_simplify"
+                        | "prod_simplify"
+                        | "sum_simplify"
+                        | "minus_simplify"
+                        | "unary_minus_simplify"
+                ),
                 "'{rule}' left in the output of: {case}"
             );
         }

@@ -37,6 +37,33 @@ use super::Mutate;
 use crate::ast::*;
 use std::collections::{HashMap, HashSet};
 
+/// A hasher for keys whose hash is already a well-spread pointer. `Rc<ProofNode>` hashes as the
+/// address of its allocation, which the default hasher then runs through `SipHash`; this pass keys
+/// two whole-forest maps by node, so that mixing is a measurable part of its cost.
+#[derive(Default)]
+struct PtrHasher(u64);
+
+impl std::hash::Hasher for PtrHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.write_usize(*b as usize);
+        }
+    }
+
+    fn write_usize(&mut self, i: usize) {
+        // Fibonacci hashing: multiplying by 2^64 / phi spreads an address over the whole word
+        self.0 ^= (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+type PtrBuildHasher = std::hash::BuildHasherDefault<PtrHasher>;
+type NodeMap<V> = HashMap<Rc<ProofNode>, V, PtrBuildHasher>;
+type NodeSet<'a> = HashSet<&'a Rc<ProofNode>, PtrBuildHasher>;
+
 /// What the memo holds for a clause that some closed derivation already proves.
 enum Entry {
     /// A derivation that is available for reuse, because it is at depth 0.
@@ -111,7 +138,7 @@ struct Hoisting<'a> {
     /// Whether a node's derivation is closed and hole-free, relative to that node's own depth. Every
     /// node the pass produces or is asked about is in here, which is what lets the answer for a step
     /// be read off the answers for its premises.
-    is_closed: HashMap<Rc<ProofNode>, bool>,
+    is_closed: NodeMap<bool>,
 
     /// The prefix of the ids given to lifted steps. It is chosen so that it is not a prefix of any
     /// id already in the proof, which makes the lifted ids unique, and also keeps the ids that later
@@ -148,7 +175,14 @@ impl<'a> Hoisting<'a> {
         let mut pinned = HashSet::new();
         let mut seen_digests = HashSet::new();
         let mut duplicated = HashSet::new();
-        for node in visit_all(proof) {
+        // Only an id that starts with the base can be a prefix conflict, so the id scan that
+        // picks the pass's namespace rides along with this walk instead of taking a second one
+        let base = "ho";
+        let mut conflicting = Vec::new();
+        visit_all_with(proof, |node| {
+            if node.id().starts_with(base) {
+                conflicting.push(node.id().to_owned());
+            }
             match node.as_ref() {
                 ProofNode::Step(s) => {
                     if let Some(previous) = &s.previous_step {
@@ -166,12 +200,16 @@ impl<'a> Hoisting<'a> {
                 }
                 ProofNode::Assume { .. } => (),
             }
+        });
+        let mut prefix = base.to_owned();
+        while conflicting.iter().any(|id| id.starts_with(&prefix)) {
+            prefix.push('_');
         }
 
         Self {
             cache: HashMap::new(),
-            is_closed: HashMap::new(),
-            prefix: fresh_prefix(proof, "ho"),
+            is_closed: NodeMap::default(),
+            prefix,
             emitted: 0,
             pinned,
             duplicated,
@@ -265,7 +303,6 @@ impl<'a> Hoisting<'a> {
                 .push(Entry::Shared(node.clone()));
             return node.clone();
         }
-
         let derivation = local_nodes(node);
         if !context_free(pool, context, &derivation) {
             return node.clone();
@@ -433,9 +470,16 @@ pub(super) fn context_free(
 /// Ids built by appending to it are then unique, and so are the ids that later passes derive from
 /// those by appending further.
 pub(super) fn fresh_prefix(proof: &ProofNodeForest, base: &str) -> String {
-    let ids: Vec<&str> = visit_all(proof).into_iter().map(|n| n.id()).collect();
+    // Only an id that starts with the base can conflict, and those are rare, so the walk keeps
+    // just those rather than every id in the proof
+    let mut conflicting = Vec::new();
+    visit_all_with(proof, |node| {
+        if node.id().starts_with(base) {
+            conflicting.push(node.id());
+        }
+    });
     let mut prefix = base.to_owned();
-    while ids.iter().any(|id| id.starts_with(&prefix)) {
+    while conflicting.iter().any(|id| id.starts_with(&prefix)) {
         prefix.push('_');
     }
     prefix
@@ -445,13 +489,19 @@ pub(super) fn fresh_prefix(proof: &ProofNodeForest, base: &str) -> String {
 /// because nothing depends on them.
 pub(super) fn visit_all(proof: &ProofNodeForest) -> Vec<&Rc<ProofNode>> {
     let mut result = Vec::new();
-    let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
+    visit_all_with(proof, |node| result.push(node));
+    result
+}
+
+/// Visits every node of a proof forest, without collecting them.
+pub(super) fn visit_all_with<'a>(proof: &'a ProofNodeForest, mut f: impl FnMut(&'a Rc<ProofNode>)) {
+    let mut seen: NodeSet = NodeSet::default();
     let mut todo: Vec<&Rc<ProofNode>> = proof.0.iter().collect();
     while let Some(node) = todo.pop() {
         if !seen.insert(node) {
             continue;
         }
-        result.push(node);
+        f(node);
         match node.as_ref() {
             ProofNode::Assume { .. } => (),
             ProofNode::Step(s) => {
@@ -468,5 +518,4 @@ pub(super) fn visit_all(proof: &ProofNodeForest) -> Vec<&Rc<ProofNode>> {
             }
         }
     }
-    result
 }
