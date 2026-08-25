@@ -364,3 +364,58 @@ fn term_args(term: &Rc<Term>) -> Result<&[Rc<Term>], CheckerError> {
         ))),
     }
 }
+
+/// The `eq_congruent_pred` reduction for the equality-*keeping* pipeline: onto `eq_congruent`.
+///
+/// The predicate rule is the function rule read through an equivalence: where `eq_congruent`
+/// concludes `(= p(t̄) p(ū))`, the predicate variant splits that equality into the two-literal
+/// tail `¬p(t̄), p(ū)` (or `p(t̄), ¬p(ū)`). The split is exactly one `equiv_pos2` (resp.
+/// `equiv_pos1`) axiom away, so even the vocabulary that keeps the clausal `eq_*` rules has no
+/// need for the predicate variant: three steps, and the argument-equality literals carry over
+/// verbatim, since both rules validate them with the same per-argument matching.
+pub fn eq_congruent_pred_to_eq_congruent(
+    pool: &mut PrimitivePool,
+    _: &mut ContextStack,
+    step: &StepNode,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    let n = step.clause.len();
+    if n < 3 {
+        return Err(CheckerError::WrongLengthOfClause((3..).into(), n).into());
+    }
+    let eqs = step.clause[..n - 2].to_vec();
+    let (p, q, first_negated) = match step.clause[n - 2].remove_negation() {
+        Some(inner) => (inner.clone(), step.clause[n - 1].clone(), true),
+        None => (
+            step.clause[n - 2].clone(),
+            step.clause[n - 1].remove_negation_err()?.clone(),
+            false,
+        ),
+    };
+
+    let mut b = Builder::new(pool, step);
+    let equality = build_term!(b.pool, (= {p.clone()} {q.clone()}));
+    let mut cong_clause = eqs;
+    cong_clause.push(equality.clone());
+    let cong = b.step(cong_clause, "eq_congruent", Vec::new(), Vec::new());
+
+    let not_equality = b.not(&equality);
+    let axiom = if first_negated {
+        let not_p = b.not(&p);
+        b.step(
+            vec![not_equality, not_p, q.clone()],
+            "equiv_pos2",
+            Vec::new(),
+            Vec::new(),
+        )
+    } else {
+        let not_q = b.not(&q);
+        b.step(
+            vec![not_equality, p.clone(), not_q],
+            "equiv_pos1",
+            Vec::new(),
+            Vec::new(),
+        )
+    };
+    let node = b.resolve(vec![cong, axiom], vec![(equality, true)])?;
+    Ok(b.relabel(step, node))
+}

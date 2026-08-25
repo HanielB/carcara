@@ -479,19 +479,23 @@ pub(super) fn context_is_safe(
 }
 
 pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super::ElaborationFunc> {
-    if keep_equality
-        && matches!(
+    if keep_equality {
+        // The predicate congruence rule is redundant even in this vocabulary: it is
+        // `eq_congruent` plus one `equiv_pos` axiom, so it reduces onto the kept rule
+        if rule == "eq_congruent_pred" {
+            return Some(equality::eq_congruent_pred_to_eq_congruent);
+        }
+        if matches!(
             rule,
             "eq_reflexive"
                 | "eq_transitive"
                 | "eq_congruent"
-                | "eq_congruent_pred"
                 | "eq_symmetric"
                 | "not_symm"
                 | "eq_mp"
-        )
-    {
-        return None;
+        ) {
+            return None;
+        }
     }
     Some(match rule {
         // Clausal
@@ -517,6 +521,7 @@ pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super
         "la_totality" => arithmetic::la_totality,
         "la_tautology" => arithmetic::la_tautology,
         "la_rw_eq" => arithmetic::la_rw_eq,
+        "la_mult_pos" | "la_mult_neg" => arithmetic::la_mult,
         "poly_simp_rel" => arithmetic::poly_simp_rel,
 
         // ACI reasoning (`ac_simp` is the one legacy rule with a working fallback: `lia_generic`

@@ -4,6 +4,7 @@ mod hoist;
 mod hole;
 mod local;
 mod polyeq;
+mod prune;
 mod reordering;
 mod sat_refutation;
 mod scopes;
@@ -50,6 +51,8 @@ pub struct Config {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ElaborationPass {
+    /// Removes every step that the derivation of the empty clause does not use.
+    Prune,
     Hoist,
     /// The `hoist` pass, additionally replacing every lemma scope whose discharged clause a
     /// premise-free rule proves outright by that single step.
@@ -108,6 +111,7 @@ impl<'e> Elaborator<'e> {
         for pass in pipeline {
             let time = Instant::now();
             current = match pass {
+                ElaborationPass::Prune => prune::prune(current),
                 ElaborationPass::Hoist => {
                     hoist::hoist(self.pool, current, &self.config.allowed_rules, false)
                 }

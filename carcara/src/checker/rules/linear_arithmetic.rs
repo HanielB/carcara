@@ -18,6 +18,31 @@ pub fn la_rw_eq(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_eq(u_2, u_3)
 }
 
+/// The positive-cone axiom: `(cl ¬(> x 0) ¬(> y 0) (> (* x y) 0))` — an ordered ring's positive
+/// cone is closed under multiplication.
+///
+/// This is the base the `la_mult_pos`/`la_mult_neg` reductions rest on (the classification's
+/// proposed `la_mult_pos_pos`, adopted under this name): scaling an inequality by a positive
+/// factor is one instance of it applied to the factor and the inequality's positive difference,
+/// with `poly_simp` distributing the product and `la_generic` bridging between the difference
+/// form and the comparison form. Like `la_disequality`, it is a premise-free clause; unlike it,
+/// it is genuinely nonlinear, which is why no Farkas combination can replace it.
+pub fn mult_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 3)?;
+    let (x1, z1) = match_term_err!((not (> x zero)) = &conclusion[0])?;
+    let (y1, z2) = match_term_err!((not (> y zero)) = &conclusion[1])?;
+    let (product, z3) = match_term_err!((> p zero) = &conclusion[2])?;
+    let (x2, y2) = match_term_err!((* x y) = product)?;
+    for zero in [z1, z2, z3] {
+        rassert!(
+            zero.as_fraction().is_some_and(|f| f == 0),
+            CheckerError::ExpectedNumber(Rational::new(), zero.clone()),
+        );
+    }
+    assert_eq(x1, x2)?;
+    assert_eq(y1, y2)
+}
+
 /// The lower half of the floor characterization of `to_int`: `(cl (<= (to_real (to_int t)) t))`.
 ///
 /// Together with [`to_int_upper`] this pins `to_int` down completely — `to_int t` is the unique

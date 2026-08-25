@@ -143,7 +143,7 @@ pub fn hoist(
         let mut by_rule: Vec<_> = hoisting.collapsed.iter().collect();
         by_rule.sort_by_key(|(rule, count)| (std::cmp::Reverse(**count), (*rule).clone()));
         log::info!(
-            "scope collapse: {} of {} scopes replaced by one step ({})",
+            "scope collapse: {} of {} scopes replaced by one step ({}); {} replayed clausally ({} steps)",
             hoisting.collapsed.values().sum::<usize>(),
             hoisting.scopes_seen,
             by_rule
@@ -151,6 +151,8 @@ pub fn hoist(
                 .map(|(rule, count)| format!("{rule} {count}"))
                 .collect::<Vec<_>>()
                 .join(", "),
+            hoisting.replayed.values().sum::<usize>(),
+            hoisting.scopes_replayed_steps,
         );
     }
     result
@@ -192,6 +194,10 @@ struct Hoisting<'a> {
 
     /// How many scopes were collapsed, by the rule that replaced them, for logging.
     collapsed: HashMap<String, usize>,
+
+    /// How many scopes were replayed clausally, and how many steps that emitted.
+    replayed: HashMap<String, usize>,
+    scopes_replayed_steps: usize,
 
     /// How many scopes the pass was offered, for logging.
     scopes_seen: usize,
@@ -264,6 +270,8 @@ impl<'a> Hoisting<'a> {
             allowed_rules,
             collapse_scopes,
             collapsed: HashMap::new(),
+            replayed: HashMap::new(),
+            scopes_replayed_steps: 0,
             scopes_seen: 0,
             lifted: 0,
             reused: 0,
@@ -293,7 +301,12 @@ impl<'a> Hoisting<'a> {
                         || allowed.contains(rule)
                         || crate::checker::shared::get_rule(rule, false, false).is_none()
                 };
-                if let Some(found) = super::scopes::collapse(pool, subproof, &is_hole) {
+                // First the one-step battery, then the full clausal replay of the body. The
+                // replay's premise-free steps only mean what they say when the context does not
+                // substitute, and its `eq_reflexive`/axiom instances read their terms literally,
+                // so it runs only where no anchor in scope binds anything
+                if context.binds_nothing() {
+                    if let Some(found) = super::scopes::collapse(pool, subproof, &is_hole) {
                     *self.collapsed.entry(found.rule.clone()).or_default() += 1;
                     let last = subproof.last_step.as_step().unwrap();
                     // The scope's id is pinned — a subproof refers to its last step by position —
@@ -328,6 +341,32 @@ impl<'a> Hoisting<'a> {
                     }));
                     self.record_closed(&weakened);
                     return weakened;
+                    }
+                    // The clausal replay: translate the body into the premise-free vocabulary,
+                    // with the scope's assumptions as hypothesis literals
+                    let target_depth = node.depth();
+                    let counter = std::cell::Cell::new(0usize);
+                    let prefix = self.prefix.clone();
+                    let base = self.emitted;
+                    let mut next_id = || {
+                        counter.set(counter.get() + 1);
+                        format!("{}{}", prefix, base + counter.get())
+                    };
+                    let mut emitter = super::scopes::Emitter {
+                        next_id: &mut next_id,
+                        depth: target_depth,
+                        emitted: 0,
+                    };
+                    let replaced = super::scopes::replay(pool, subproof, &mut emitter, &is_hole);
+                    let steps = emitter.emitted;
+                    drop(emitter);
+                    drop(next_id);
+                    if let Some(replacement) = replaced {
+                        self.emitted += counter.get();
+                        *self.replayed.entry("replayed".to_owned()).or_default() += 1;
+                        self.scopes_replayed_steps += steps;
+                        return self.rewrite(pool, context, &replacement);
+                    }
                 }
             }
             return node.clone();

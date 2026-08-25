@@ -37,15 +37,16 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 7 | 3 | 1 | 0 |
+| equality & rewriting | 25 | 8 | 11 | 0 | 6 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **54** | **49** | **4** | **8** | **5** |
+| **total** | **120** | **55** | **51** | **2** | **7** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
-axiom `la_mult_pos_pos` is proposed as the base of the nonlinear multiplication schemes.
+axiom `mult_pos` (proposed as `la_mult_pos_pos`) is the adopted base of the nonlinear
+multiplication schemes.
 
 ## The judgment forms
 
@@ -640,6 +641,13 @@ corresponding quantifier with `ite2`/`ite1`, instantiate at the anchor variable,
 
 </details>
 
+#### The nonlinear multiplication pair
+
+| rule | reduces to | growth | check power | status |
+|---|---|---|---|---|
+| `la_mult_pos` | `mult_pos` + `poly_simp` + `la_generic` glue (`eq_congruent` for the `=` form, one `la_disequality` case split for `≤`/`≥`) | O(1) template (~15–25 steps) | pos-cone + ring + Farkas | **done** (`core` pass, 2026-08-25). Promoted from *expensive* when the proposed axiom was adopted as `mult_pos`: the recipe validates every `la_generic` certificate and the `poly_simp` ring identity before emission, so an unanticipated shape keeps the step |
+| `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
+
 ### Expensive (1)
 
 | rule | reduction scheme | cost | what makes it expensive |
@@ -667,7 +675,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 25 rules: 7 core, 11 reducible, 0 expensive, 7 aggressive.
 
-### Core (7)
+### Core (8)
 
 | rule | notes |
 |---|---|
@@ -678,6 +686,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `connective_def` | kept whole: propositional instances are O(1)-derivable, but the quantifier-duality instance is the R4-chosen axiom that bootstraps all ∃-reasoning, and the definition list hosts the `xor`/`ite`/`implies` axiom reductions (incl. the proposed `→` extension, divergence 6) |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `aci_simp` | the designated ACI-normalization primitive, a computational check like `poly_simp` and `evaluate`: the spec itself remarks there is no canonical ACI normal form, so the check *is* the normalization — target of the `shuffle`/`nary_elim` renames and the `ac_simp` decomposition. It is the semilattice half of a single algebraic primitive whose ring half is `poly_simp`; the two are deliberately not merged, because embedding the semilattice level into the ring is exponential — see [the computational primitives, algebraically](../core.md#the-computational-primitives-algebraically) |
+| `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously *aggressive*): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
 ### Reducible (11)
 
@@ -829,12 +838,11 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Aggressive (7)
+### Aggressive (6)
 
 | rule | reduction scheme | cost | missing prerequisite / blocker |
 |---|---|---|---|
 | `not_simplify`, `implies_simplify`, `equiv_simplify`, `bool_simplify`, `ite_simplify`, `eq_simplify` | `rare_rewrite` chain glued by `trans`/`cong`, replaying the rewrite trace of the fixpoint (**done** — the `core-simp-rare`/`core-taut` regimes, whose traces come from the checkers' own labeled step functions rather than from instrumentation). Their constant-folding instances are `evaluate` instances outright and rename to it (`core-taut` applies the evaluation recipe instead). `and_simplify`/`or_simplify` used to head this row; the `aci_simp` rename moved them to the *reducible* tier above | O(trace); 1 for the constant folds | none remaining for the trace route |
-| `distinct_elim` | single `rare_rewrite` instance | 1 | an n-ary RARE rule for `distinct` needs a recursive Eunoia *program* (arity-dependent output), including the Bool special case (> 2 Bool arguments → ⊥) |
 
 ## Arithmetic
 
@@ -850,7 +858,7 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
   back to an equality.
 
 Concretely: `la_generic` is [farkas], `poly_simp` (the extra rule promoted into the core) is
-[ring], the proposed axiom `la_mult_pos_pos` is [pos-cone], and `la_disequality` is [antisym].
+[ring], the adopted axiom `mult_pos` is [pos-cone], and `la_disequality` is [antisym].
 Everything else in the category reduces to combinations of these four plus the clausal and
 equational cores.
 
@@ -867,7 +875,7 @@ the parent chapter for the recipes.
 | `la_disequality` | the [antisym] axiom, `▷ (t1 ≈ t2), ¬(t1 ≤ t2), ¬(t2 ≤ t1)`: premise-free clause, O(1) syntactic check. Kept core because no combination of the other axes can introduce a positive arithmetic equality (see "Lemmas, not axioms" in the RARE chapter); the exact counterpart of cvc5's dedicated `ARITH_TRICHOTOMY` rule, and literally RESOLUTE's `trichotomy` axiom modulo the `¬≤`/`<` atom flip (see the parent chapter's RESOLUTE comparison). Would become reducible only under the two-coefficient-vector generalization of `la_generic` recorded there |
 | `poly_simp` (extra) | the nonlinear computational primitive: unit polynomial equality, checked by ring-normalizing both sides. Its own elaboration into `rare_rewrite` chains is the *aggressive* exemplar — see the parent chapter |
 
-### Reducible (7)
+### Reducible (9)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
@@ -933,12 +941,17 @@ may carry a coefficient of either sign.)
 
 </details>
 
-### Expensive (3)
+#### The nonlinear multiplication pair
+
+| rule | reduces to | growth | check power | status |
+|---|---|---|---|---|
+| `la_mult_pos` | `mult_pos` + `poly_simp` + `la_generic` glue (`eq_congruent` for the `=` form, one `la_disequality` case split for `≤`/`≥`) | O(1) template (~15–25 steps) | pos-cone + ring + Farkas | **done** (`core` pass, 2026-08-25). Promoted from *expensive* when the proposed axiom was adopted as `mult_pos`: the recipe validates every `la_generic` certificate and the `poly_simp` ring identity before emission, so an unanticipated shape keeps the step |
+| `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
+
+### Expensive (1)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
-| `la_mult_pos` | `la_mult_pos_pos` + `poly_simp` + `la_generic` (+ `cong`, case splits for non-strict forms) | O(1) template | a syntactic schema becomes ring + Farkas checking; needs the proposed `la_mult_pos_pos` axiom |
-| `la_mult_neg` | same, with `la_generic` sign-flip preprocessing | O(1) template | ditto |
 | `div_simplify` | `poly_simp` for real division by constants; `evaluate` for the integer `div`/`mod` cases | O(1) | both renames are implemented, so this rule is the obvious next promotion; it is held back only because its two cases take *different* primitives, and the integer one rests on the evaluation function's division semantics rather than on the ring |
 
 <details id="ex-la-mult-pos">
@@ -958,7 +971,7 @@ becomes
 (step t.p.t3 (cl (not (< t2 t3)) (> (- t3 t2) 0)) :rule la_generic :args (1 1))
 (step t.p.t4 (cl (> (- t3 t2) 0)) :rule resolution :premises (t.p.t3 t.p.t2))
 (step t.p.t5 (cl (=> (and (> t1 0) (> (- t3 t2) 0)) (> (* t1 (- t3 t2)) 0)))
-    :rule la_mult_pos_pos)
+    :rule mult_pos)
 (step t.p.t6 (cl (not (and (> t1 0) (> (- t3 t2) 0))) (> (* t1 (- t3 t2)) 0))
     :rule implies :premises (t.p.t5))
 (step t.p.t7 (cl (and (> t1 0) (> (- t3 t2) 0))) :rule and_intro :premises (t.p.t1 t.p.t4))
@@ -1046,9 +1059,9 @@ way, with their concern category noted:
 | `poly_simp` | arithmetic | **core** (computational) | ring-normalization primitive; listed in the arithmetic core table above |
 | `poly_simp_rel` (arithmetic case) | arithmetic | reducible (**done**, `core` pass) | the conclusion equates two linear relations over proportional differences, so each direction is a single `la_generic` step: weight the left relation's literal by \|c₁\| and the right's by \|c₂\|, which cancels the two linear combinations, and the strict one of the two supplies the strengthening that closes the contradiction — the absolute values are exactly why the rule requires `c₁` and `c₂` to share a sign unless the relation is `=`. For `=` a positive equality is not an `la_generic` literal, so each direction goes through `la_disequality` (the `la_rw_eq` template); `equiv_intro` glues them. **8 steps for an inequality, 20 for an equality** (10/24 when the premise is not a polynomial identity and must be carried in the certificate). All 114 015 corpus instances reduce. Needs `la_generic`'s normalization to see through `to_real`, as `poly_simp`'s already does — without that, two thirds of the QF_LIA instances are out of reach.<br><br>**On the aggregate cost.** Reducing it grows cvc5's arithmetic proofs by about a quarter (QF_LIA +22.6%, QF_LRA +22.1%, QF_UFLIA +27.5%), far more than any other single recipe, simply because cvc5 emits the rule 114 015 times. It stays *reducible* anyway, deliberately: the expensive tier means "this rule stays in the checking vocabulary", and this rule does not deserve that — it is an ad-hoc packaging of a Farkas step, carrying a premise the checker does not even validate as an identity, with a same-sign side condition that exists only because the certificate's weights are absolute values. Keeping the vocabulary small is the point of the classification; paying O(1) steps per instance to be rid of such a rule is the trade the reducible tier exists to make. Contrast `sko_ex`, which is a principled binder rule worth keeping in the vocabulary, and whose reduction costs O(bindings) steps per instance rather than a fixed 8 or 20 |
 | `poly_simp_rel` (bitvector case) | arithmetic | removal | justified by odd coefficients being units modulo 2ⁿ, i.e. modular arithmetic: Farkas certificates over an ordered field and `la_disequality`'s antisymmetry cannot express it, and no bitvector core rule states that an odd constant is invertible. Awaits solver-side removal or a dedicated bitvector rule |
-| `la_mult_pos_pos` | arithmetic | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` schemes |
+| `mult_pos` | arithmetic | core axiom (**implemented**, 2026-08-25; proposed as `la_mult_pos_pos`) | the positive cone's closure under multiplication, as the premise-free clause `▷ ¬(> x 0), ¬(> y 0), (> (* x y) 0)` — `la_disequality`'s style rather than an implication term, so it resolves directly against the recipes' bridges. Base of the `la_mult_*` reductions; genuinely nonlinear, hence underivable from `la_generic` |
 | `ite_then_intro`, `ite_else_intro` | equality & rewriting | proposed core axioms (**implemented**) | the term-`ite` selection pair, `▷ ¬c, (ite c t s) ≈ t` and `▷ c, (ite c t s) ≈ s`: premise-free clauses in `la_disequality`'s style, the definitional characterization of `ite` at arbitrary sorts (no other core rule provides one — `ite_pos/neg` are formula-level). Required by the `core-taut` regime's recipes for the term-`ite` RARE rules and by `evaluate`'s `ite` case; see "The trusted computing base, measured" in the parent chapter |
-| `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
+| `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `mult_pos` + `poly_simp` + `la_generic` |
 | `to_int_lower`, `to_int_upper` | arithmetic | proposed core axioms (**implemented**) | the floor characterization of `to_int`, as the pair `▷ (to_real (to_int t)) ≤ t` and `▷ t < (to_real (to_int t)) + 1`. They pin `to_int t` to the unique integer in `(t − 1, t]`, which is what lets the core evaluate a ground `to_int` without an evaluator: `la_generic`'s (correctly gated) integer strengthening turns each bound into the corresponding bound on the value, and `la_disequality` closes the two into an equality. Required to bring the `core-taut` regime's `evaluate` residue to zero; see the parent chapter |
 | `div_intro`, `log2_intro`, `to_int_intro` (`alethe-toolkit` branch) | arithmetic | core (definitional) | characterization axioms of interpreted operators (division bound pair, `pow2` bounds, floor bounds) — the natural home for an `abs_intro`, which would make the `abs` RARE rule a lemma. The `to_int` half is the `to_int_lower`/`to_int_upper` pair above |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |

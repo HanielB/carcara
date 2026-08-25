@@ -388,3 +388,296 @@ pub fn poly_simp_rel(
     let node = b.equiv_intro(left, right, forward, backward)?;
     Ok(b.relabel(step, node))
 }
+
+/// The zero constant of the given term's sort.
+fn zero_like(pool: &mut PrimitivePool, term: &Rc<Term>) -> Result<Rc<Term>, ElaborationError> {
+    match pool.sort(term).as_sort() {
+        Some(Sort::Int) => Ok(pool.add(Term::new_int(0))),
+        Some(Sort::Real) => Ok(pool.add(Term::new_real(0))),
+        _ => Err(CheckerError::Explanation("expected an arithmetic sort".to_owned()).into()),
+    }
+}
+
+/// Adds an `la_generic` step for the given literals, searching the sign patterns of the
+/// coefficient vector (all magnitudes `1`) and validating each candidate certificate.
+///
+/// The search is what covers equality rows: their coefficients are used *signed* (`la_generic`
+/// takes the absolute value only for inequality rows), so a bridge from an equality literal to a
+/// comparison needs `-1` on one side, and which side depends on the orientation of the equality.
+fn unit_farkas(b: &mut Builder, literals: Vec<Rc<Term>>) -> Result<Rc<ProofNode>, ElaborationError> {
+    let n = literals.len();
+    let mut last_err = None;
+    for pattern in 0u32..(1 << n) {
+        let coefficients: Vec<Rational> = (0..n)
+            .map(|i| {
+                if pattern & (1 << i) == 0 {
+                    Rational::from(1)
+                } else {
+                    Rational::from(-1)
+                }
+            })
+            .collect();
+        match farkas(b, literals.clone(), coefficients) {
+            Ok(node) => return Ok(node),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+/// Reduces `la_mult_pos` and `la_mult_neg` to the `mult_pos` axiom.
+///
+/// The step concludes `(=> (and M (op l r)) (op' (* m l) (* m r)))`, where `M` is `(> m 0)`
+/// (`la_mult_pos`, `op' = op`) or `(< m 0)` (`la_mult_neg`, `op'` the flipped comparison). The
+/// scaling fact underneath is the positive cone's closure under multiplication, which is exactly
+/// one `mult_pos` instance over the positive factor `m'` (`m` itself, or `(- m)` bridged from `M`
+/// by `la_generic`) and the comparison's positive difference `d`:
+///
+/// - strict comparisons: `¬(op l r) ∨ (> d 0)` and `¬(> E 0) ∨ (op' ml mr)` are Farkas clauses
+///   (`E` the difference of the scaled sides), and `(* m' d) = E` is a ring identity that
+///   `poly_simp` states and `cong`/`equiv1` transport into the comparison;
+/// - non-strict comparisons additionally case-split on `la_disequality`: the strict branch is the
+///   above (weakened at the final bridge), and the equality branch is `eq_congruent` — scaling an
+///   equality needs no sign reasoning at all;
+/// - equalities: just the `eq_congruent` branch.
+///
+/// Every `la_generic` certificate is validated before emission and the ring identity is checked by
+/// `poly_simp_equal`, so an unanticipated shape fails the reduction (keeping the step) rather than
+/// emitting a bad derivation.
+pub fn la_mult(
+    pool: &mut PrimitivePool,
+    _: &mut ContextStack,
+    step: &StepNode,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    let is_pos = step.rule == "la_mult_pos";
+    let [conclusion] = step.clause.as_slice() else {
+        return Err(CheckerError::WrongLengthOfClause(1.into(), step.clause.len()).into());
+    };
+    let (antecedent, scaled) = match_term_err!((=> a s) = conclusion)?;
+    let (m_comparison, original) = match_term_err!((and m o) = antecedent)?;
+    let (antecedent, scaled) = (antecedent.clone(), scaled.clone());
+    let (m_comparison, original) = (m_comparison.clone(), original.clone());
+    let m = if is_pos {
+        match_term_err!((> m zero) = &m_comparison)?.0
+    } else {
+        match_term_err!((< m zero) = &m_comparison)?.0
+    }
+    .clone();
+
+    let (op, args) = original.as_op_err()?;
+    let [l, r] = args else {
+        return Err(CheckerError::Explanation("expected a binary comparison".to_owned()).into());
+    };
+    let (l, r) = (l.clone(), r.clone());
+    let (sl, sr) = {
+        let (_, sargs) = scaled.as_op_err()?;
+        (sargs[0].clone(), sargs[1].clone())
+    };
+
+    let mut b = Builder::new(pool, step);
+
+    // The positive factor: `m` itself, or `(- m)` bridged from `(< m 0)`
+    let (m_pos, m_bridge) = if is_pos {
+        (m.clone(), None)
+    } else {
+        let neg_m = build_term!(b.pool, (- {m.clone()}));
+        let zero = zero_like(b.pool, &m)?;
+        let pos_lit = build_term!(b.pool, (> {neg_m.clone()} {zero}));
+        let not_m = b.not(&m_comparison);
+        let bridge = unit_farkas(&mut b, vec![not_m, pos_lit.clone()])?;
+        (neg_m, Some((bridge, pos_lit)))
+    };
+
+    // The equality branch: scaling an equality is congruence. Used alone for `=`, and as the
+    // second branch of the non-strict case split
+    let eq_branch = |b: &mut Builder| -> Result<(Rc<ProofNode>, Rc<Term>), ElaborationError> {
+        let eq_lr = build_term!(b.pool, (= {l.clone()} {r.clone()}));
+        let eq_mm = build_term!(b.pool, (= {m.clone()} {m.clone()}));
+        let eq_scaled = build_term!(b.pool, (= {sl.clone()} {sr.clone()}));
+        let (not_mm, not_lr) = (b.not(&eq_mm), b.not(&eq_lr));
+        let refl = b.step(vec![eq_mm.clone()], "eq_reflexive", Vec::new(), Vec::new());
+        let cong = b.step(
+            vec![not_mm, not_lr, eq_scaled.clone()],
+            "eq_congruent",
+            Vec::new(),
+            Vec::new(),
+        );
+        let node = b.resolve(vec![cong, refl], vec![(eq_mm, false)])?;
+        Ok((node, eq_lr))
+    };
+
+    // The strict branch: `mult_pos` over the comparison's positive difference. Returns a node
+    // concluding `(cl ¬(> d 0) [¬M] target)`
+    let strict_branch = |b: &mut Builder,
+                         target: Rc<Term>|
+     -> Result<(Rc<ProofNode>, Rc<Term>), ElaborationError> {
+        // The positive differences of the original and scaled comparisons: "big side first"
+        let flipped = matches!(op, Operator::LessThan | Operator::LessEq);
+        let d = if flipped {
+            build_term!(b.pool, (- {r.clone()} {l.clone()}))
+        } else {
+            build_term!(b.pool, (- {l.clone()} {r.clone()}))
+        };
+        // `op'` flips for `la_mult_neg`, so the scaled difference flips with it
+        let scaled_flipped = flipped != !is_pos;
+        let e = if scaled_flipped {
+            build_term!(b.pool, (- {sr.clone()} {sl.clone()}))
+        } else {
+            build_term!(b.pool, (- {sl.clone()} {sr.clone()}))
+        };
+        let product = build_term!(b.pool, (* {m_pos.clone()} {d.clone()}));
+        crate::checker::poly_simp_equal(b.pool, &product, &e)?;
+
+        let zero_d = zero_like(b.pool, &d)?;
+        let zero_p = zero_like(b.pool, &product)?;
+        let d_pos = build_term!(b.pool, (> {d.clone()} {zero_d.clone()}));
+        let p_pos = build_term!(b.pool, (> {product.clone()} {zero_p.clone()}));
+        let e_pos = build_term!(b.pool, (> {e.clone()} {zero_p.clone()}));
+        let m_lit = build_term!(b.pool, (> {m_pos.clone()} {zero_d.clone()}));
+
+        let (not_m_lit, not_d_pos, not_p_pos) = (
+            b.not(&m_lit),
+            b.not(&d_pos),
+            b.not(&p_pos),
+        );
+        let axiom = b.step(
+            vec![not_m_lit, not_d_pos, p_pos.clone()],
+            "mult_pos",
+            Vec::new(),
+            Vec::new(),
+        );
+        // `(* m' d) = E`, transported into the comparison
+        let poly = {
+            let clause = vec![build_term!(b.pool, (= {product.clone()} {e.clone()}))];
+            b.step(clause, "poly_simp", Vec::new(), Vec::new())
+        };
+        let cong = {
+            let clause = vec![build_term!(b.pool, (= {p_pos.clone()} {e_pos.clone()}))];
+            b.step(clause, "cong", vec![poly], Vec::new())
+        };
+        let equiv1 = b.step(
+            vec![not_p_pos, e_pos.clone()],
+            "equiv1",
+            vec![cong],
+            Vec::new(),
+        );
+        let final_bridge = {
+            let ne = b.not(&e_pos);
+            unit_farkas(b, vec![ne, target])?
+        };
+        let mut node = axiom;
+        if let Some((bridge, pos_lit)) = &m_bridge {
+            node = b.resolve(vec![node, bridge.clone()], vec![(pos_lit.clone(), false)])?;
+        }
+        node = b.resolve(vec![node, equiv1], vec![(p_pos, true)])?;
+        node = b.resolve(vec![node, final_bridge], vec![(e_pos, true)])?;
+        Ok((node, d_pos))
+    };
+
+    // D: `(cl … ¬(op l r) scaled)`, with `¬M` present except in the pure-equality case
+    let d_node = match op {
+        Operator::Equals => {
+            let (eq_node, eq_lr) = eq_branch(&mut b)?;
+            // `scaled` is `(= sl sr)` itself, so the branch node is D without `¬M`
+            let _ = eq_lr;
+            eq_node
+        }
+        Operator::GreaterThan | Operator::LessThan => {
+            let (node, d_pos) = strict_branch(&mut b, scaled.clone())?;
+            // Bridge the original comparison to its positive difference
+            let not_original = b.not(&original);
+            let o_bridge = unit_farkas(&mut b, vec![not_original, d_pos.clone()])?;
+            b.resolve(vec![node, o_bridge], vec![(d_pos, false)])?
+        }
+        Operator::GreaterEq | Operator::LessEq => {
+            // Case split on `la_disequality`: strictly ordered, or equal
+            let (strict_node, d_pos) = strict_branch(&mut b, scaled.clone())?;
+            let (eq_node, eq_lr) = eq_branch(&mut b)?;
+            let eq_scaled = build_term!(b.pool, (= {sl.clone()} {sr.clone()}));
+            let eq_to_s = {
+                let ne = b.not(&eq_scaled);
+                unit_farkas(&mut b, vec![ne, scaled.clone()])?
+            };
+            let eq_side = b.resolve(vec![eq_node, eq_to_s], vec![(eq_scaled, true)])?;
+
+            let (le_lr, le_rl) = (
+                build_term!(b.pool, (<= {l.clone()} {r.clone()})),
+                build_term!(b.pool, (<= {r.clone()} {l.clone()})),
+            );
+            let disj =
+                build_term!(b.pool, (or {eq_lr.clone()} (not {le_lr.clone()}) (not {le_rl.clone()})));
+            let anti = b.step(vec![disj.clone()], "la_disequality", Vec::new(), Vec::new());
+            let (not_le_lr, not_le_rl) = (b.not(&le_lr), b.not(&le_rl));
+            let split = b.step(
+                vec![eq_lr.clone(), not_le_lr, not_le_rl],
+                "or",
+                vec![anti],
+                Vec::new(),
+            );
+            // The non-strict comparison supplies one of the two `<=` bounds; the other's negation
+            // is the strict ordering the strict branch consumes
+            let flipped = op == Operator::LessEq;
+            let (supplied, strict_neg) = if flipped {
+                (le_lr.clone(), le_rl.clone())
+            } else {
+                (le_rl.clone(), le_lr.clone())
+            };
+            let not_original = b.not(&original);
+            let o_bridge = unit_farkas(&mut b, vec![not_original, supplied.clone()])?;
+            let d_bridge = {
+                let d_pos_lit = d_pos.clone();
+                unit_farkas(&mut b, vec![strict_neg.clone(), d_pos_lit])?
+            };
+            let mut node = b.resolve(vec![split, o_bridge], vec![(supplied, false)])?;
+            node = b.resolve(vec![node, d_bridge], vec![(strict_neg, false)])?;
+            node = b.resolve(vec![node, strict_node], vec![(d_pos, true)])?;
+            b.resolve(vec![node, eq_side], vec![(eq_lr, true)])?
+        }
+        _ => {
+            return Err(CheckerError::Explanation(format!(
+                "unsupported comparison operator '{op}'"
+            ))
+            .into())
+        }
+    };
+
+    // Package `(cl … ¬(and M O) … scaled)` into the implication
+    let not_antecedent = b.not(&antecedent);
+    let one = b.pool.add(Term::new_int(1));
+    let zero = b.pool.add(Term::new_int(0));
+    let ap_m = b.step(
+        vec![not_antecedent.clone(), m_comparison.clone()],
+        "and_pos",
+        Vec::new(),
+        vec![zero],
+    );
+    let ap_o = b.step(
+        vec![not_antecedent, original.clone()],
+        "and_pos",
+        Vec::new(),
+        vec![one],
+    );
+    let mut node = d_node;
+    // The equality case's D carries no `¬M` literal
+    if node.clause().contains(&b.not(&m_comparison)) {
+        node = b.resolve(vec![node, ap_m], vec![(m_comparison.clone(), false)])?;
+    }
+    node = b.resolve(vec![node, ap_o], vec![(original, false)])?;
+
+    let neg1 = b.step(
+        vec![conclusion.clone(), antecedent.clone()],
+        "implies_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let not_scaled = b.not(&scaled);
+    let neg2 = b.step(
+        vec![conclusion.clone(), not_scaled],
+        "implies_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
+    let mut node = b.resolve(vec![node, neg1], vec![(antecedent, false)])?;
+    node = b.resolve(vec![node, neg2], vec![(scaled, true)])?;
+    Ok(b.relabel(step, node))
+}

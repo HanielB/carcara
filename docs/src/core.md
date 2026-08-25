@@ -42,8 +42,8 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **54 core**, **49 reducible**,
-**4 expensive**, **8 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **55 core**, **51 reducible**,
+**2 expensive**, **7 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
@@ -56,7 +56,7 @@ Of the 120 specification rules, this classification yields **54 core**, **49 red
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
 
 The "+1" is the extra rule `poly_simp`, promoted into the core as a computational primitive; one
-new axiom (`la_mult_pos_pos`) is also proposed — see the arithmetic section below. The extra
+new axiom (`mult_pos`) is also proposed — see the arithmetic section below. The extra
 rule `evaluate` (constant evaluation of interpreted operators) is likewise part of the core as
 a computational primitive, on the same footing as `aci_simp` and `poly_simp` (extras are not
 counted in the spec-rule tally above). For every
@@ -330,12 +330,14 @@ by an external solver.
 
 ### Nonlinear multiplication: reducing the `la_mult_*` family
 
-With `poly_simp` in the core, the nonlinear multiplication rules leave the aggressive tier. The proposed
-common base is a single new axiom — the ordered-ring fact that the positive cone is closed under
-multiplication:
+With `poly_simp` in the core, the nonlinear multiplication rules leave the aggressive tier — and
+with the base axiom now adopted (as **`mult_pos`**, implemented 2026-08-25, stated as the
+premise-free clause `▷ ¬(> x 0), ¬(> y 0), (> (* x y) 0)` in `la_disequality`'s style), they are
+*reducible* and reduced by the `core` pass. The common base is the ordered-ring fact that the
+positive cone is closed under multiplication:
 
 ```
-(cl (=> (and (> x 0) (> y 0)) (> (* x y) 0)))     ; la_mult_pos_pos
+(cl (=> (and (> x 0) (> y 0)) (> (* x y) 0)))     ; mult_pos
 ```
 
 Its check is O(1) syntactic matching. It is exactly the overlap of the existing schemas: the binary
@@ -1108,7 +1110,7 @@ route (the derived ∀-ε-clause template; see "Deriving the quantifier rewrites
 Skolemization"), so no binder-aware RARE extension is a prerequisite for any rule.
 
 The expensive level has thinned to three rules: the `la_mult_*` family, which needs the proposed
-`la_mult_pos_pos` axiom, and `div_simplify`, whose two cases take different primitives. The
+`mult_pos` axiom, and `div_simplify`, whose two cases take different primitives. The
 purely arithmetic simplifications — `prod_simplify`, `sum_simplify`, `minus_simplify`,
 `unary_minus_simplify` — moved to *reducible* as `poly_simp` renames: the check does coarsen
 from per-schema folding to ring normalization (12× per step, measured), but that is the same
@@ -1225,7 +1227,7 @@ is one `poly_simp` step, a constant fold is the `evaluate` recipe above, an ACI 
 | `abs` (`abs-elim-*`, `arith-abs-eq`, `arith-abs-*-gt`) | 5 | `abs_intro` definitional axiom + the term-`ite` machinery + a 4-way sign case split in `la_generic` | constant (~40 steps) |
 | `div`/`mod`/coercions (`arith-*-total*`, `arith-mod-over-mod*`, `mod-elim`, `arith-to-int-elim-to-real`, `arith-div-elim-to-real*`, `is_int-elim`) | 17 | the `*_intro` characterization axioms + `la_generic`/`poly_simp`; the division-by-zero rules are **axioms outright** — see below | constant *at literal divisors* (how cvc5 instantiates them); symbolic divisors would need nonlinear uniqueness arguments |
 | `distinct` (`distinct-binary-elim`, `distinct-false`) | 2 | `distinct_elim` as definitional + `refl` + CNF axioms — see below | linear in arity |
-| nonlinear tangent planes (`mult-tangent-lower/upper`) | 2 | the proposed `la_mult_pos_pos` [pos-cone] axiom + `poly_simp` + a 4-quadrant `la_generic` case split | constant (~40 steps) |
+| nonlinear tangent planes (`mult-tangent-lower/upper`) | 2 | the proposed `mult_pos` [pos-cone] axiom + `poly_simp` + a 4-quadrant `la_generic` case split | constant (~40 steps) |
 
 Four families reduce today with no additions. The remaining four converge on a short list of
 **genuinely new axioms** — the honest price of the whole program, and the answer to "which
@@ -1241,14 +1243,15 @@ rewrites deserve a rule instead of a recipe":
    axioms), the other fourteen term-`ite` rules derive by case split, and the `ite_intro`
    recipe sheds its RARE dependency. This pair is to `ite` what the `bitblast_*` schemas are to
    the bitvector operations.
-2. **`distinct_elim` promoted to a definitional computational schema.** Its aggressive-tier
-   blocker — an n-ary RARE rule needs an arity-dependent Eunoia program — is a
-   RARE-*expressiveness* blocker and dissolves under recipes, which can emit arity-dependent
-   derivations freely. But something must still *define* `distinct`, since no core rule mentions
-   it: the natural move is `distinct_elim` itself as the definitional primitive (checked by
-   recomputing the pairwise expansion, exactly like `bitblast_*`). The two RARE `distinct` rules
-   then reduce: `distinct-binary-elim` is one `distinct_elim` step plus Boolean glue, and
-   `distinct-false` is `distinct_elim` + `refl` on the repeated element + CNF axioms.
+2. **`distinct_elim` promoted to a definitional computational schema** (*adopted* 2026-08-25:
+   the rule is now **core**). Its aggressive-tier blocker — an n-ary RARE rule needs an
+   arity-dependent Eunoia program — was a RARE-*expressiveness* blocker, never a problem with
+   the rule itself, and it dissolves under recipes, which can emit arity-dependent derivations
+   freely. Something must still *define* `distinct`, since no core rule mentions it:
+   `distinct_elim` itself is that definitional primitive (checked by recomputing the pairwise
+   expansion, exactly like `bitblast_*`). The two RARE `distinct` rules reduce to it:
+   `distinct-binary-elim` is one `distinct_elim` step plus Boolean glue, and `distinct-false` is
+   `distinct_elim` + `refl` on the repeated element + CNF axioms.
 3. **The `*_intro` definitional family**, most of it already proposed on the alethe-toolkit
    branch: `div_intro` (the Euclidean characterization `s ≠ 0 → t = s·(div t s) + (mod t s) ∧
    0 ≤ mod t s < |s|`), `to_int_intro` (floor bounds), an `abs_intro`, an `is_int` definition,
@@ -1264,7 +1267,7 @@ rewrites deserve a rule instead of a recipe":
    `arith-int-div-total-neg` and `arith-mod-over-mod` need the uniqueness of Euclidean division,
    a nonlinear argument; the frozen fragment should restrict those rules to literal divisors
    rather than buy the nonlinear machinery.
-4. **`la_mult_pos_pos`** — already the classification's proposed [pos-cone] axiom for the
+4. **`mult_pos`** — already the classification's proposed [pos-cone] axiom for the
    `la_mult_*` schemes; the two tangent-plane rules are its only other clients here, with
    constant-size recipes once it exists.
 
@@ -1317,8 +1320,8 @@ way:
 | `and_intro` | reducible | `and_neg` + one `resolution` with explicit pivots |
 | `strict_resolution` | core variant | strict form of `resolution` used after elaboration |
 | `poly_simp` | **core** (computational) | ring-normalization primitive; see the arithmetic section |
-| `la_mult_pos_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
-| `la_mult_sign` (`alethe-toolkit` branch) | expensive | O(n) fold of `la_mult_pos_pos` + `poly_simp` + `la_generic` |
+| `mult_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
+| `la_mult_sign` (`alethe-toolkit` branch) | expensive | O(n) fold of `mult_pos` + `poly_simp` + `la_generic` |
 | `la_mult_abs_comparison` (`alethe-toolkit` branch) | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
 | `evaluate` | **core** (computational) | constant evaluation of interpreted operators, on the same footing as `aci_simp` and `poly_simp`: the check *is* the evaluation function |
 | `mod_simplify`, `all_simplify` | aggressive (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |

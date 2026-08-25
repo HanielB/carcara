@@ -245,3 +245,32 @@ fn to_int_axioms_determine_the_value() {
         }
     }
 }
+
+#[test]
+fn mult_pos() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Real)
+            (declare-fun y () Real)
+            (declare-fun n () Int)
+            (declare-fun m () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": true,
+            "(step t1 (cl (not (> n 0)) (not (> m 0)) (> (* n m) 0)) :rule mult_pos)": true,
+        }
+        "The product must be of the two positive factors, in order" {
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (> (* y x) 0.0)) :rule mult_pos)": false,
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (> (* x x) 0.0)) :rule mult_pos)": false,
+        }
+        "The bounds must be against zero" {
+            "(step t1 (cl (not (> x 1.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": false,
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (> (* x y) 1.0)) :rule mult_pos)": false,
+        }
+        "The comparisons must be strict and positive" {
+            "(step t1 (cl (not (>= x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": false,
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (>= (* x y) 0.0)) :rule mult_pos)": false,
+            "(step t1 (cl (not (< x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": false,
+        }
+    }
+}

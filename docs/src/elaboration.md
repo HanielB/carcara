@@ -16,6 +16,7 @@ Many of the same options used in the `check` command also apply to the `elaborat
 The specific way in which Carcara elaborates the proof is controlled via a `--pipeline` option.
 This takes a series of _elaboration passes_, and will apply them in the given order. The possible
 elaboration passes are:
+- `prune`
 - `hoist`
 - `deep-hoist`
 - [`polyeq`](./elaboration/polyeq.md)

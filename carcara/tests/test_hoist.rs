@@ -455,3 +455,63 @@ fn an_allowed_rule_is_not_used_to_collapse_a_scope() {
     assert_eq!(count_rule(&collapsed.commands, "eq_transitive"), 0);
     assert_eq!(count_rule(&collapsed.commands, "subproof"), 1);
 }
+
+/// A scope whose body uses `cong` with the implicit-premise convention — identical argument pairs
+/// skipped — has fewer equality literals than a whole-clause `eq_congruent` demands, so the
+/// battery cannot touch it. The clausal replay translates the body instead: `eq_congruent` over
+/// every argument pair, with `eq_reflexive` supplying the identical ones.
+#[test]
+fn implicit_premise_congruence_scope_is_replayed()  {
+    let definitions = "
+        (declare-fun f (Int Int Int Int) Int)
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+        (declare-const d Int)
+    ";
+    let proof = "
+        (anchor :step t2)
+        (assume t2.a0 (= a b))
+        (assume t2.a1 (= c d))
+        (step t2.t0 (cl (= (f a a c b) (f b a d b))) :rule cong :premises (t2.a0 t2.a1))
+        (step t2 (cl (not (= a b)) (not (= c d)) (= (f a a c b) (f b a d b))) :rule subproof
+            :discharge (t2.a0 t2.a1))
+        (step t3 (cl) :rule hole :premises (t2))
+    ";
+    let collapsed = run_deep_hoist_pass(
+        definitions,
+        proof,
+        checker::Config::new().ignore_unknown_rules(true),
+    );
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "cong"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "eq_congruent"), 1);
+    assert_eq!(count_rule(&collapsed.commands, "eq_reflexive"), 2);
+}
+
+/// A body mixing `trans` and `symm` from the assumptions replays through `eq_transitive`.
+#[test]
+fn transitivity_and_symmetry_scope_is_replayed() {
+    let definitions = "
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+    ";
+    let proof = "
+        (anchor :step t1)
+        (assume t1.a0 (= b a))
+        (assume t1.a1 (= b c))
+        (step t1.t0 (cl (= a b)) :rule symm :premises (t1.a0))
+        (step t1.t1 (cl (= a c)) :rule trans :premises (t1.t0 t1.a1))
+        (step t1 (cl (not (= b a)) (not (= b c)) (= a c)) :rule subproof
+            :discharge (t1.a0 t1.a1))
+        (step t2 (cl) :rule hole :premises (t1))
+    ";
+    let collapsed = run_deep_hoist_pass(
+        definitions,
+        proof,
+        checker::Config::new().ignore_unknown_rules(true),
+    );
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 0);
+    assert!(count_rule(&collapsed.commands, "eq_transitive") >= 1);
+}
