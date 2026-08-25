@@ -456,6 +456,72 @@ What is genuinely missing:
    characterizations to reduce to pure inequalities — the toolkit's `*_intro` family, mirrored
    by RESOLUTE's `div`/`mod`/`to_int` axioms.
 
+## The computational primitives, algebraically
+
+The core's non-arithmetic computational primitive is `aci_simp`, and it is natural to ask whether it
+and `poly_simp` are two faces of one rule — normalize in whatever algebraic structure the operator
+generates — and could be presented, or implemented, hierarchically. They can be *organized* that
+way, and the classification below does so. They should not be *merged*.
+
+`aci_simp` picks the top-level operator of each side, flattens nested applications of that same
+operator, drops duplicates and the operator's unit, and compares the argument lists as multisets;
+anything that is not an application of the top operator is an opaque atom. That is normalization in
+a single-operator structure. `poly_simp` builds a linear combination of monomials — a pointer-sorted
+multiset of atoms per monomial, a rational coefficient each, reduced mod 2^w for bitvector sorts —
+recursing through `+`, `-`, `*`, `to_real` and constant division, and distributing. That is
+normalization in a commutative ring. Arranged by the laws each operator obeys:
+
+| level | laws | operators | primitive |
+| --- | --- | --- | --- |
+| semigroup | A | `concat` | `aci_simp` (compared by equality, not as a multiset) |
+| commutative monoid | A, C, unit | — | the shared floor of both primitives |
+| bounded semilattice | + idempotence | `and`, `or`, `bvand`, `bvor` | `aci_simp` |
+| abelian group of exponent 2 | + self-inverse | `bvxor` | `aci_simp` (A, C, unit only) |
+| commutative ring | + distributivity, inverses | `+`, `*`, `bvadd`, `bvmul` | `poly_simp` |
+| ℤ/2^w | + quotient by 2^w | the bitvector ring operators | `poly_simp` |
+
+The two meet at the commutative-monoid line and diverge above it in different directions, so neither
+subsumes the other. On the ring operators the containment is strict and in `poly_simp`'s favour:
+every associativity, commutativity and unit-removal case `aci_simp` accepts for `+`, `*`, `bvadd`
+and `bvmul` is a polynomial identity, and `poly_simp` additionally sees through `-`, `to_real` and
+constant division, recurses through *mixed* operators where `aci_simp` halts at the first change of
+operator, and distributes. Those four operators could therefore be dropped from `aci_simp` with no
+loss of proving power. Conversely `poly_simp` rejects every `bvand`/`bvor`/`bvxor` case, which are
+atoms to it.
+
+**Why one rule would be the wrong unification.** A merged `alg_simp` would still have to recover the
+law set from the operator before normalizing — the operator match the two rules already are — so it
+moves a dispatch entry without removing code, and the [TCB measurement](#the-trusted-computing-base-measured)
+is unchanged. It would also be expensive: `aci_simp` is the target of the `shuffle`, `nary_elim` and
+`and_simplify`/`or_simplify` renames and accounts for 1.35M steps of the elaborated corpus, whose
+Boolean path is a flatten, a set dedup and a multiset compare, against a polynomial path that
+allocates a monomial per term and does rational arithmetic.
+
+The decisive reason is that the embedding is exponential. Putting `and`/`or` into the ring engine
+means the Boolean-ring (algebraic normal form) encoding over 𝔽₂, where `x ∧ y = xy`, `x ⊕ y = x + y`
+and `¬x = 1 + x`, so that
+
+```
+x₁ ∨ … ∨ xₙ  =  1 + (1 + x₁)(1 + x₂) ⋯ (1 + xₙ)
+```
+
+expands to 2ⁿ monomials, which the polynomial normalizer would genuinely build. A check that is
+linear in the term size today would become exponential in the arity of a disjunction — on a corpus
+where wide disjunctions are precisely what `aci_simp` is used for. What one would buy is a *complete*
+decision procedure for the propositional fragment, far more than the coarse ACI check the core
+wants, at a price the core should not pay. The semilattice level is not a degenerate case of the
+ring level; it is a quotient the ring cannot represent compactly, and that is the substantive content
+of the hierarchy.
+
+The hierarchy earns its keep in the checker rather than in the rule set. Idempotence is a semilattice
+law and not a monoid law, and applying it uniformly across the associative operators lets `aci_simp`
+prove `(= (+ x x) x)` and `(= (bvxor a a) a)` — a soundness bug that was present until the split was
+written down explicitly as `is_idempotent` in `carcara/src/checker/rules/simplification.rs`. The
+same reading suggests one cheap extension, not adopted here: `bvxor`'s law is self-inversion,
+`x ⊕ x = 0`, so keeping occurrence counts mod 2 instead of deduplicating would let `aci_simp` prove
+`(= (bvxor a b a) b)`. The full analysis is recorded in
+`investigations/2026-08-25-aci-poly-algebraic-hierarchy.md`.
+
 ## Other reductions
 
 - `eq_reflexive` is `refl` with an empty context: a rename, one step.

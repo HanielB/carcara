@@ -775,7 +775,12 @@ pub fn ac_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     )
 }
 
-// Operators considered in aci_simp
+// Operators considered in aci_simp.
+//
+// The operators `aci_simp` normalizes form a small algebraic hierarchy. All of them are
+// associative; all but `concat` are also commutative with a unit, i.e. commutative monoids. Above
+// that level the hierarchy splits, and `is_idempotent` records where: the *bounded semilattices*
+// admit `x ∘ x = x`, the ring and group operators do not. See `is_idempotent`.
 fn is_assoc(op: Operator) -> bool {
     matches!(
         op,
@@ -789,6 +794,30 @@ fn is_assoc(op: Operator) -> bool {
             | Operator::BvAnd
             | Operator::BvXor
             | Operator::BvConcat
+    )
+}
+
+/// Whether an operator handled by `aci_simp` is idempotent, i.e. whether repeated arguments may be
+/// collapsed.
+///
+/// Idempotence is *not* a commutative-monoid law, and this is the one place where the operators
+/// `is_assoc` lumps together must be told apart. The bounded semilattices `and`, `or`, `bvand` and
+/// `bvor` satisfy `x ∘ x = x`. The remaining operators live in richer structures where it fails:
+///
+///   * `+`, `*`, `bvadd` and `bvmul` are the operations of a commutative ring, where `(+ x x)` is
+///     `2x` and `(* x x)` is `x²`;
+///   * `bvxor` is the operation of an abelian group of exponent two, where `(bvxor x x)` is zero,
+///     not `x`;
+///   * `concat` is not even commutative, so it never reaches the multiset comparison.
+///
+/// Applying idempotence uniformly across `is_assoc` would let `aci_simp` prove `(= (+ x x) x)`.
+/// The extra laws those operators do satisfy — inverses, distributivity, and the quotient by 2^w
+/// for the bitvector sorts — belong to `poly_simp`, whose normal form subsumes this one on
+/// `{+, *, bvadd, bvmul}` outright.
+fn is_idempotent(op: Operator) -> bool {
+    matches!(
+        op,
+        Operator::And | Operator::Or | Operator::BvAnd | Operator::BvOr
     )
 }
 
@@ -900,20 +929,22 @@ fn apply_aci_simp(
         return t.clone();
     }
     let result = match term.as_ref() {
-        // flatten and remove duplicate on the result
+        // flatten, then remove duplicates (only if the operator is idempotent) and units
         Term::Op(opp, args) if *opp == op => {
-            let args: Vec<_> = args
-                .iter()
-                .flat_map(|term| {
-                    let term = apply_aci_simp(pool, cache, term, op, identity);
-                    match term.as_ref() {
-                        Term::Op(inner_op, inner_args) if *inner_op == op => inner_args.clone(),
-                        _ => vec![term.clone()],
-                    }
-                })
-                .dedup()
-                .filter(|t| identity.is_none() || *t.as_ref() != identity.clone().unwrap())
-                .collect();
+            let flattened = args.iter().flat_map(|term| {
+                let term = apply_aci_simp(pool, cache, term, op, identity);
+                match term.as_ref() {
+                    Term::Op(inner_op, inner_args) if *inner_op == op => inner_args.clone(),
+                    _ => vec![term.clone()],
+                }
+            });
+            let is_not_identity =
+                |t: &Rc<Term>| identity.is_none() || *t.as_ref() != identity.clone().unwrap();
+            let args: Vec<_> = if is_idempotent(op) {
+                flattened.dedup().filter(is_not_identity).collect()
+            } else {
+                flattened.filter(is_not_identity).collect()
+            };
             if args.is_empty() {
                 // An identity-only operation (e.g. `(and true true)`) normalizes to the identity
                 // element itself, rather than to an ill-formed zero-argument operation

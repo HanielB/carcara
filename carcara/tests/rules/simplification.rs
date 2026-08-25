@@ -806,3 +806,86 @@ fn aci_simp() {
         }
     }
 }
+#[test]
+fn aci_simp_idempotence_is_only_for_semilattices() {
+    test_cases! {
+        definitions = "
+            (declare-fun i () Int)
+            (declare-fun j () Int)
+            (declare-fun x () Real)
+            (declare-fun a () (_ BitVec 4))
+        ",
+        "Idempotence does not hold in a ring" {
+            "(step t1 (cl (= (+ i i) i)) :rule aci_simp)": false,
+            "(step t1 (cl (= (* x x) x)) :rule aci_simp)": false,
+            "(step t1 (cl (= (* x x x) x)) :rule aci_simp)": false,
+            "(step t1 (cl (= (+ i i j) (+ i j))) :rule aci_simp)": false,
+            "(step t1 (cl (= (bvadd a a) a)) :rule aci_simp)": false,
+            "(step t1 (cl (= (bvmul a a) a)) :rule aci_simp)": false,
+        }
+        "Nor in an abelian group of exponent two" {
+            // `(bvxor a a)` is zero, not `a`.
+            "(step t1 (cl (= (bvxor a a) a)) :rule aci_simp)": false,
+        }
+        "But it does hold in a bounded semilattice" {
+            "(step t1 (cl (= (bvand a a) a)) :rule aci_simp)": true,
+            "(step t1 (cl (= (bvor a a) a)) :rule aci_simp)": true,
+        }
+        "The other monoid laws are unaffected" {
+            "(step t1 (cl (= (+ i (+ i j)) (+ i i j))) :rule aci_simp)": true,
+            "(step t1 (cl (= (+ i i j) (+ j i i))) :rule aci_simp)": true,
+            "(step t1 (cl (= (+ i i 0) (+ i i))) :rule aci_simp)": true,
+            "(step t1 (cl (= (* x x 1.0) (* x x))) :rule aci_simp)": true,
+            "(step t1 (cl (= (bvxor a a #b0000) (bvxor a a))) :rule aci_simp)": true,
+        }
+    }
+}
+
+/// `poly_simp` subsumes `aci_simp` on the ring operators: every arithmetic case the latter accepts
+/// is a polynomial identity, and the polynomial normal form additionally rejects the idempotence
+/// that does not hold there. The two rules meet at the commutative-monoid level and diverge above
+/// it, so neither subsumes the other outright.
+#[test]
+fn poly_simp_subsumes_aci_simp_on_ring_operators() {
+
+    test_cases! {
+        definitions = "
+            (declare-fun i () Int)
+            (declare-fun j () Int)
+            (declare-fun k () Int)
+            (declare-fun x () Real)
+            (declare-fun y () Real)
+            (declare-fun z () Real)
+            (declare-fun a () (_ BitVec 4))
+            (declare-fun b () (_ BitVec 4))
+            (declare-fun c () (_ BitVec 4))
+            (declare-fun p () Bool)
+        ",
+        "every arithmetic aci_simp case, under poly_simp" {
+            "(step t1 (cl (= (+ i (+ j k)) (+ i j k))) :rule poly_simp)": true,
+            "(step t1 (cl (= (* x (* y z)) (* x y z))) :rule poly_simp)": true,
+            "(step t1 (cl (= (+ i j k) (+ k j i))) :rule poly_simp)": true,
+            "(step t1 (cl (= (* x y z) (* z y x))) :rule poly_simp)": true,
+            "(step t1 (cl (= (+ i j 0) (+ i j))) :rule poly_simp)": true,
+            "(step t1 (cl (= (+ x 0.0) x)) :rule poly_simp)": true,
+            "(step t1 (cl (= (* i j 1) (* i j))) :rule poly_simp)": true,
+            "(step t1 (cl (= (* x y 1.0) (* y x))) :rule poly_simp)": true,
+            "(step t1 (cl (= (bvadd a b) (bvadd b a))) :rule poly_simp)": true,
+            "(step t1 (cl (= (bvadd a (bvadd b c)) (bvadd c b a))) :rule poly_simp)": true,
+            "(step t1 (cl (= (bvadd a #b0000) a)) :rule poly_simp)": true,
+            "(step t1 (cl (= (bvmul a #b0001) a)) :rule poly_simp)": true,
+        }
+        "and the unsound ones are correctly rejected" {
+            "(step t1 (cl (= (+ i i) i)) :rule poly_simp)": false,
+            "(step t1 (cl (= (* x x) x)) :rule poly_simp)": false,
+            "(step t1 (cl (= (+ i i j) (+ i j))) :rule poly_simp)": false,
+            "(step t1 (cl (= (bvadd a a) a)) :rule poly_simp)": false,
+        }
+        "but poly_simp does not reach the semilattice operators" {
+            "(step t1 (cl (= (bvor a #b0000) a)) :rule poly_simp)": false,
+            "(step t1 (cl (= (bvand a #b1111) a)) :rule poly_simp)": false,
+            "(step t1 (cl (= (bvxor a b c) (bvxor c b a))) :rule poly_simp)": false,
+        }
+    }
+}
+
