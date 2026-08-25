@@ -318,6 +318,10 @@ fn taut_only_cases() -> Vec<&'static str> {
         "(step t1 (cl (= (not (not p)) p)) :rule rare_rewrite :args (\"bool-double-not-elim\" p))",
         "(step t1 (cl (= (= p true) p)) :rule rare_rewrite :args (\"bool-eq-true\" p))",
         "(step t1 (cl (= (= p false) (not p))) :rule rare_rewrite :args (\"bool-eq-false\" p))",
+        // A degenerate instance: `phi` coincides with the `false` it is paired with, so the recipe
+        // does not apply and the ground-evaluation fallback settles it
+        "(step t1 (cl (= (= false false) (not false))) :rule rare_rewrite
+            :args (\"bool-eq-false\" false))",
         "(step t1 (cl (= (=> p q) (or (not p) q))) :rule rare_rewrite :args (\"bool-impl-elim\" p q))",
         "(step t1 (cl (= (not (=> p q)) (and p (not q)))) :rule rare_rewrite
             :args (\"bool-implies-de-morgan\" p q))",

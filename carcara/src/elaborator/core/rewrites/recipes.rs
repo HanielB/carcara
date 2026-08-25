@@ -1677,8 +1677,10 @@ fn and_de_morgan(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
         let rn = and_neg_step(b, &rest_term)?;
         let mut r_node = rn;
         for (i, t) in tail.iter().enumerate() {
+            // `r_node` carries `¬t` (from `and_neg` on the tail) and `and_pos` supplies `t`, so the
+            // pivot is negative on the accumulated side
             let ap = and_pos_step(b, &and_term, i + 1)?;
-            r_node = b.resolve(vec![r_node, ap], vec![(t.clone(), true)])?;
+            r_node = b.resolve(vec![r_node, ap], vec![(t.clone(), false)])?;
         }
         // r_node = (cl R ¬A)
         node = b.resolve(vec![node, r_node], vec![(rest_term.clone(), false)])?;
@@ -1877,8 +1879,9 @@ fn or_and_distrib(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
         let rn = and_neg_step(b, &rest_term)?;
         let mut node = rn;
         for (i, t) in tail.iter().enumerate() {
+            // As in `and_de_morgan`: `and_neg` on the tail carries `¬t`, `and_pos` supplies `t`
             let ap = and_pos_step(b, &and_term, i + 1)?;
-            node = b.resolve(vec![node, ap], vec![(t.clone(), true)])?;
+            node = b.resolve(vec![node, ap], vec![(t.clone(), false)])?;
         }
         node
     } else {

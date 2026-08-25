@@ -248,7 +248,12 @@ pub fn elaborate_rare_rewrite(
     let (lhs, rhs) = match_term_err!((= l r) = conclusion)?;
     let (lhs, rhs) = (lhs.clone(), rhs.clone());
     let mut b = Builder::new(pool, step);
-    let node = recipes::rewrite_lemma(&mut b, &name, &lhs, &rhs)?;
+    // A degenerate instance can fall outside its recipe's shape while still being a ground
+    // equality, which the evaluation route settles directly
+    let node = match recipes::rewrite_lemma(&mut b, &name, &lhs, &rhs) {
+        Ok(node) => node,
+        Err(e) => ground::ground_equal(&mut b, &lhs, &rhs).map_err(|_| e)?,
+    };
     Ok(b.relabel(step, node))
 }
 

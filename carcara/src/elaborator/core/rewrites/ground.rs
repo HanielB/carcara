@@ -26,6 +26,31 @@ fn eq(pool: &mut PrimitivePool, a: &Rc<Term>, b: &Rc<Term>) -> Rc<Term> {
 }
 
 /// Derives `(cl (= term value))` for an `evaluate` instance.
+/// Derives `(cl (= lhs rhs))` for two *ground* terms that evaluate to the same value, by evaluating
+/// each side and joining them.
+///
+/// This is the fallback for a rewrite instance whose recipe does not apply because the instance is
+/// degenerate. cvc5 emits `(= (= false false) (not false))` as a `bool-eq-false` instance, for
+/// example: the recipe expects a `phi` distinct from the `false` it is paired with, and the two
+/// coinciding makes its `equiv_neg2` clause carry a duplicate literal that resolution's set
+/// semantics then removes twice over. A ground instance needs none of that reasoning — both sides
+/// have a value, and it is the same one.
+pub fn ground_equal(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
+    let value = lhs.evaluate(b.pool);
+    if value != rhs.evaluate(b.pool) || (!value.is_bool_constant(true) && !value.is_bool_constant(false) && value.as_fraction().is_none()) {
+        return Err(explanation("the two sides are not ground with a common value"));
+    }
+    let left = evaluation(b, lhs, &value)?;
+    if *rhs == value {
+        return Ok(left);
+    }
+    let right = evaluation(b, rhs, &value)?;
+    let flipped = vec![eq(b.pool, &value, rhs)];
+    let flipped = b.step(flipped, "symm", vec![right], Vec::new());
+    let clause = vec![eq(b.pool, lhs, rhs)];
+    Ok(b.step(clause, "trans", vec![left, flipped], Vec::new()))
+}
+
 /// Derives `(cl (= (to_int c) k))` for a rational constant `c`, where `k` is its floor.
 ///
 /// This is the one place the core needs to know what `to_int` *is*, and it gets it from the two
@@ -417,7 +442,12 @@ fn literal(b: &mut Builder, t: &Rc<Term>, want: bool) -> Res {
                             Vec::new(),
                             Vec::new(),
                         );
-                        let r = b.resolve(vec![ax, ux], vec![(x, false)])?;
+                        let r = b.resolve(vec![ax, ux], vec![(x.clone(), false)])?;
+                        // With `x` and `y` the same term the axiom's two literals are one, and
+                        // resolution's set semantics has already removed both
+                        if x == y {
+                            return Ok(r);
+                        }
                         b.resolve(vec![r, uy], vec![(y, false)])
                     }
                     (true, false, false) => {
@@ -428,7 +458,10 @@ fn literal(b: &mut Builder, t: &Rc<Term>, want: bool) -> Res {
                             Vec::new(),
                             Vec::new(),
                         );
-                        let r = b.resolve(vec![ax, ux], vec![(x, true)])?;
+                        let r = b.resolve(vec![ax, ux], vec![(x.clone(), true)])?;
+                        if x == y {
+                            return Ok(r);
+                        }
                         b.resolve(vec![r, uy], vec![(y, true)])
                     }
                     (false, true, false) => {
