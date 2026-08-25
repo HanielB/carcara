@@ -144,14 +144,24 @@ and still 18.5% below the original: the replay emits ~28 steps per scope, and it
 currently bypass the sharing memo, so identical `eq_congruent` instances and `refl` fills across
 scopes are not deduplicated — routing them through the memo is the obvious optimization.
 
-**In the full core pipeline the replay is counterproductive, by construction.** The `core` pass
-reduces the clausal `eq_*` rules *into* discharge subproofs, so replaying a scope into
-`eq_congruent`/`eq_transitive` steps just hands the core pass material to re-expand: the corpus
-run ends at 12.09 M commands and 567 k anchors — more scopes than the input had. Scope-freedom and
-the core vocabulary are in tension: the core has no premise-free clausal equality rules, so one
-can have clausal scopes-free proofs (the replay, with `eq_*` in the vocabulary — the `eq_cl`
-configuration) or core proofs (where the discharge subproof *is* the normal form), not both. The
-full-pipeline sweep still preserves every verdict (486/494, the 8 failures the known input
-artifacts; `prune` deletes 309 164 leftover commands corpus-wide), so the combination is *sound* —
-it is just not what either pass is for. The pairing that makes sense: `deep-hoist` with the
-`eq_cl` vocabulary or plain checking; plain `hoist` ahead of the full-core pipeline.
+**The core-pipeline tension, and how it was resolved.** At first the replay was counterproductive
+in the full core pipeline: that pass reduced the clausal `eq_*` rules *into* discharge subproofs,
+so replaying a scope into `eq_congruent`/`eq_transitive` steps handed it material to re-expand, and
+the corpus run ended at 12.09 M commands and 567 k anchors — more scopes than the input had. The
+diagnosis was that scope-freedom and the core vocabulary were in tension: the core had no
+premise-free clausal equality rules, so a proof could be scope-free (the replay, with `eq_*` kept)
+or core (where the discharge subproof *is* the normal form), not both.
+
+Haniel resolved it the other way, by **making the clausal rules core**: `eq_transitive`,
+`eq_congruent`, `eq_symmetric` and `not_symm` are the clausal variants of `trans`, `cong` and
+`symm`, their checkers are literally the same functions, and keeping the pair costs no checking
+power. With that, the replay's output *is* core, and the two passes compose as intended — on
+`mathsat hard10`, `deep-hoist` + core gives 87 728 commands and 59 anchors against `hoist` + core's
+98 416 and 2 652, i.e. 11% smaller with the scopes gone, and 21% below the original.
+
+Two bugs surfaced in that composition, both fixed: `prune` had dropped the assumes from the root
+list, so the printer emitted them after the steps (Alethe wants them first); and `local`'s
+`eq_transitive` canonicalization, which drops the hypotheses the chain does not need, could emit a
+*two*-literal `eq_transitive` — which the rule's own checker rejects, since it requires at least
+three. That one is pre-existing and was simply never reachable before: the replay emits chains with
+a reflexivity link, where a single premise closes the chain.
