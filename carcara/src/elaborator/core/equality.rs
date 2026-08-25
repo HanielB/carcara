@@ -6,11 +6,25 @@ use super::Builder;
 use crate::{ast::*, checker::error::CheckerError, elaborator::error::ElaborationError};
 
 /// `eq_reflexive` is `refl` with an empty context.
+///
+/// The rename is only available where the context substitution does not move the conclusion.
+/// `eq_reflexive` reads no context and states plain reflexivity, but `refl` — `strict_refl` at
+/// elaborated granularity — checks `context.apply(left) == right`, so inside an anchor that assigns
+/// a free variable of the term the renamed step would state something else and be rejected. Where
+/// that happens the step is kept as it is, like every other reduction the pass cannot make.
 pub fn eq_reflexive(
-    _: &mut PrimitivePool,
-    _: &mut ContextStack,
+    pool: &mut PrimitivePool,
+    context: &mut ContextStack,
     step: &StepNode,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
+    if !super::context_is_safe(pool, context, &step.clause) {
+        return Err(CheckerError::Explanation(
+            "an anchor in scope substitutes into the conclusion, so `refl` would not mean \
+             reflexivity here"
+                .to_owned(),
+        )
+        .into());
+    }
     Ok(Rc::new(ProofNode::Step(StepNode {
         rule: "refl".to_owned(),
         ..step.clone()

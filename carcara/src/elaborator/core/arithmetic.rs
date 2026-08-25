@@ -145,7 +145,7 @@ pub(super) fn farkas(
         .into_iter()
         .map(|c| b.pool.add(Term::new_real(c)))
         .collect();
-    la_generic_partial(&literals, &args, &mut None)?;
+    la_generic_partial(b.pool, &literals, &args, &mut None)?;
     Ok(b.step(literals, "la_generic", Vec::new(), args))
 }
 

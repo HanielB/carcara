@@ -107,14 +107,26 @@ fn digest(clause: &[Rc<Term>]) -> u64 {
 }
 
 /// Lifts every repeated closed derivation of `proof` to depth 0, and returns the resulting proof.
+///
+/// With `collapse_scopes`, the pass additionally replaces every lemma scope whose discharged clause
+/// a premise-free rule proves outright by that single step — see [`super::scopes`]. The two
+/// transformations are run together because they feed each other: a collapsed scope leaves a
+/// premise-free step at the enclosing depth, which is then a hoisting candidate like any other, and
+/// hoisting the contents of a scope first is what leaves some scopes with nothing but the step that
+/// the collapse recognizes.
 pub fn hoist(
     pool: &mut PrimitivePool,
     proof: ProofNodeForest,
     allowed_rules: &HashSet<String>,
+    collapse_scopes: bool,
 ) -> ProofNodeForest {
-    let mut hoisting = Hoisting::new(&proof, allowed_rules);
-    // With no conclusion proved twice there is nothing to share: skip the whole rebuild
-    if hoisting.duplicated.is_empty() && std::env::var_os("CARCARA_HOIST_NO_PREFILTER").is_none() {
+    let mut hoisting = Hoisting::new(&proof, allowed_rules, collapse_scopes);
+    // With no conclusion proved twice there is nothing to share: skip the whole rebuild. Collapsing
+    // scopes does not go through the memo, so it has to run even then
+    if !collapse_scopes
+        && hoisting.duplicated.is_empty()
+        && std::env::var_os("CARCARA_HOIST_NO_PREFILTER").is_none()
+    {
         return proof;
     }
     let result = proof
@@ -127,6 +139,20 @@ pub fn hoist(
         hoisting.lifted,
         hoisting.reused,
     );
+    if collapse_scopes {
+        let mut by_rule: Vec<_> = hoisting.collapsed.iter().collect();
+        by_rule.sort_by_key(|(rule, count)| (std::cmp::Reverse(**count), (*rule).clone()));
+        log::info!(
+            "scope collapse: {} of {} scopes replaced by one step ({})",
+            hoisting.collapsed.values().sum::<usize>(),
+            hoisting.scopes_seen,
+            by_rule
+                .iter()
+                .map(|(rule, count)| format!("{rule} {count}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
     result
 }
 
@@ -161,6 +187,15 @@ struct Hoisting<'a> {
     /// The rules that the checker was told to accept as holes.
     allowed_rules: &'a HashSet<String>,
 
+    /// Whether to also replace lemma scopes by the clausal step that proves what they discharge.
+    collapse_scopes: bool,
+
+    /// How many scopes were collapsed, by the rule that replaced them, for logging.
+    collapsed: HashMap<String, usize>,
+
+    /// How many scopes the pass was offered, for logging.
+    scopes_seen: usize,
+
     /// The number of steps copied to depth 0, for logging.
     lifted: usize,
 
@@ -171,7 +206,11 @@ struct Hoisting<'a> {
 impl<'a> Hoisting<'a> {
     /// Prepares to hoist derivations in the given proof: picks an id namespace that is free in it,
     /// and collects the steps that cannot be moved out of their subproof.
-    fn new(proof: &ProofNodeForest, allowed_rules: &'a HashSet<String>) -> Self {
+    fn new(
+        proof: &ProofNodeForest,
+        allowed_rules: &'a HashSet<String>,
+        collapse_scopes: bool,
+    ) -> Self {
         let mut pinned = HashSet::new();
         let mut seen_digests = HashSet::new();
         let mut duplicated = HashSet::new();
@@ -197,6 +236,15 @@ impl<'a> Hoisting<'a> {
                 }
                 ProofNode::Subproof(s) => {
                     pinned.insert(s.last_step.id().to_owned());
+                    // A collapsed scope becomes a premise-free step proving what the scope
+                    // discharged, so two scopes with the same conclusion are shareable and their
+                    // digests belong in the prefilter alongside the steps'
+                    if collapse_scopes {
+                        let d = digest(s.last_step.clause());
+                        if !seen_digests.insert(d) {
+                            duplicated.insert(d);
+                        }
+                    }
                 }
                 ProofNode::Assume { .. } => (),
             }
@@ -214,6 +262,9 @@ impl<'a> Hoisting<'a> {
             pinned,
             duplicated,
             allowed_rules,
+            collapse_scopes,
+            collapsed: HashMap::new(),
+            scopes_seen: 0,
             lifted: 0,
             reused: 0,
         }
@@ -229,6 +280,41 @@ impl<'a> Hoisting<'a> {
         context: &ContextStack,
         node: &Rc<ProofNode>,
     ) -> Rc<ProofNode> {
+        // A scope whose discharged clause a premise-free rule proves outright is replaced by that
+        // one step. The replacement is a premise-free step at the scope's own depth, so it goes
+        // straight back through this function and takes part in the sharing like any other
+        if let ProofNode::Subproof(subproof) = node.as_ref() {
+            if self.collapse_scopes {
+                self.scopes_seen += 1;
+                let allowed = self.allowed_rules;
+                let is_hole = |rule: &str| {
+                    rule == "hole"
+                        || rule == "lia_generic"
+                        || allowed.contains(rule)
+                        || crate::checker::shared::get_rule(rule, false, false).is_none()
+                };
+                if let Some(found) = super::scopes::collapse(pool, subproof, &is_hole) {
+                    *self.collapsed.entry(found.rule.clone()).or_default() += 1;
+                    let last = subproof.last_step.as_step().unwrap();
+                    // The scope's id is pinned — a subproof refers to its last step by position —
+                    // so the replacement takes a fresh one instead, which also lets it be shared
+                    let id = self.next_id();
+                    let replacement = Rc::new(ProofNode::Step(StepNode {
+                        id,
+                        depth: node.depth(),
+                        clause: last.clause.clone(),
+                        rule: found.rule,
+                        premises: Vec::new(),
+                        args: found.args,
+                        discharge: Vec::new(),
+                        previous_step: None,
+                    }));
+                    return self.rewrite(pool, context, &replacement);
+                }
+            }
+            return node.clone();
+        }
+
         // Every node the pass visits is recorded, candidate or not, so that the steps that use it
         // as a premise can decide whether they are closed by looking it up
         let closed = self.record_closed(node);

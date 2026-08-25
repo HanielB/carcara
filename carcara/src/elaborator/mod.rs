@@ -6,6 +6,7 @@ mod local;
 mod polyeq;
 mod reordering;
 mod sat_refutation;
+mod scopes;
 mod uncrowding;
 
 use crate::{
@@ -50,6 +51,9 @@ pub struct Config {
 #[derive(Debug, Clone, Copy)]
 pub enum ElaborationPass {
     Hoist,
+    /// The `hoist` pass, additionally replacing every lemma scope whose discharged clause a
+    /// premise-free rule proves outright by that single step.
+    DeepHoist,
     Polyeq,
     Hole,
     Core,
@@ -105,7 +109,10 @@ impl<'e> Elaborator<'e> {
             let time = Instant::now();
             current = match pass {
                 ElaborationPass::Hoist => {
-                    hoist::hoist(self.pool, current, &self.config.allowed_rules)
+                    hoist::hoist(self.pool, current, &self.config.allowed_rules, false)
+                }
+                ElaborationPass::DeepHoist => {
+                    hoist::hoist(self.pool, current, &self.config.allowed_rules, true)
                 }
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current)?,
                 ElaborationPass::Hole => self.elaborate_hole(current)?,
@@ -281,7 +288,8 @@ impl<'e> Elaborator<'e> {
                         None => (),
                     }
                 }
-                ProofNode::Subproof(_) => unreachable!(),
+                // A pass may be handed a whole subproof; this one has nothing to do with one
+                ProofNode::Subproof(_) => (),
                 ProofNode::Assume { .. } => (),
             }
             Ok(node.clone())
@@ -312,7 +320,7 @@ impl<'e> Elaborator<'e> {
                         return func(self.pool, context, s).map_err(|e| e.at(s));
                     }
                 }
-                ProofNode::Subproof(_) => unreachable!(),
+                ProofNode::Subproof(_) => (),
                 ProofNode::Assume { .. } => (),
             }
             Ok(node.clone())
@@ -584,12 +592,17 @@ where
                         .cloned(),
                 );
 
-                Rc::new(ProofNode::Subproof(SubproofNode {
+                let new_node = Rc::new(ProofNode::Subproof(SubproofNode {
                     last_step: cache[&s.last_step].clone(),
                     args: s.args.clone(),
                     outbound_premises: outbound_premises.into_iter().collect(),
                     extra_steps,
-                }))
+                }));
+                // Subproof nodes are offered to the pass like steps are, so that a pass can replace
+                // a whole scope — as `hoist` does when a premise-free rule proves what the scope
+                // discharges. The context has already been popped, so the node is seen at the depth
+                // it lives at, which is also the depth any replacement has to be built for
+                mutate_func(&mut context, &new_node, true)?
             }
         };
         outbound_premises_stack

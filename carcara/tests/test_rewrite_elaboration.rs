@@ -29,6 +29,16 @@ fn rare_rules_text() -> String {
   :args (t1)
   :conclusion (= (= t1 false) (not t1))
 )
+(declare-rare-rule arith-int-eq-conflict ((t1 Int) (c1 Real))
+  :premises ((= (= (to_real (to_int c1)) c1) false))
+  :args (t1 c1)
+  :conclusion (= (= (to_real t1) c1) false)
+)
+(declare-rare-rule arith-int-geq-tighten ((t1 Int) (c1 Real) (cc1 Int))
+  :premises ((= (= (to_real (to_int c1)) c1) false) (= cc1 (+ (to_int c1) 1)))
+  :args (t1 c1 cc1)
+  :conclusion (= (>= (to_real t1) c1) (>= t1 cc1))
+)
 (declare-rare-rule bool-eq-nrefl ((x1 Bool))
   :args (x1)
   :conclusion (= (= x1 (not x1)) false)
@@ -293,6 +303,11 @@ fn taut_only_cases() -> Vec<&'static str> {
         "(step t1 (cl (= (=> true (< 1 0)) false)) :rule evaluate)",
         "(step t1 (cl (= (ite (< 0 1) 5 7) 5)) :rule evaluate)",
         "(step t1 (cl (= (* 3 (- 2 5)) -9)) :rule evaluate)",
+        // `to_int` of a constant: the ring normalization treats it as an atom, so the recipe folds
+        // it away first, using the two floor axioms
+        "(step t1 (cl (= (+ (to_int (/ (- 3.0) 2.0)) 1) -1)) :rule evaluate)",
+        "(step t1 (cl (= (= (to_real (to_int (/ (- 3.0) 2.0))) (/ (- 3.0) 2.0)) false))
+            :rule evaluate)",
         // rare_rewrite over the corpus rules
         "(step t1 (cl (= (< x y) (not (>= x y)))) :rule rare_rewrite :args (\"arith-elim-lt\" x y))",
         "(step t1 (cl (= (<= x y) (not (>= x (+ y 1))))) :rule rare_rewrite :args (\"arith-leq-norm\" x y))",
@@ -322,6 +337,19 @@ fn taut_only_cases() -> Vec<&'static str> {
             :rule rare_rewrite :args (\"or-not-refl\" x (rare-list (not (= x x)) p)))",
         "(step t1 (cl (= (distinct x y x) false)) :rule rare_rewrite
             :args (\"distinct-false\" x rare-list (rare-list y) rare-list))",
+        // The integer-rounding rewrites. They carry premises discharging their side conditions,
+        // which the recipes ignore: the equivalence they license is unconditional, and each
+        // direction is a single `la_generic` step once the strengthening is correctly gated
+        "(step evi1 (cl (= (= (to_real (to_int (/ (- 3.0) 2.0))) (/ (- 3.0) 2.0)) false))
+            :rule evaluate)
+         (step evi2a (cl (= (+ (to_int (/ (- 3.0) 2.0)) 1) -1)) :rule evaluate)
+         (step evi2 (cl (= -1 (+ (to_int (/ (- 3.0) 2.0)) 1))) :rule symm :premises (evi2a))
+         (step t1 (cl (= (>= (to_real x) (/ (- 3.0) 2.0)) (>= x -1))) :rule rare_rewrite
+            :premises (evi1 evi2) :args (\"arith-int-geq-tighten\" x (/ (- 3.0) 2.0) -1))",
+        "(step evi1 (cl (= (= (to_real (to_int (/ (- 3.0) 2.0))) (/ (- 3.0) 2.0)) false))
+            :rule evaluate)
+         (step t1 (cl (= (= (to_real x) (/ (- 3.0) 2.0)) false)) :rule rare_rewrite
+            :premises (evi1) :args (\"arith-int-eq-conflict\" x (/ (- 3.0) 2.0)))",
     ]
 }
 

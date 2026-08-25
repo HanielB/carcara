@@ -18,6 +18,34 @@ pub fn la_rw_eq(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_eq(u_2, u_3)
 }
 
+/// The lower half of the floor characterization of `to_int`: `(cl (<= (to_real (to_int t)) t))`.
+///
+/// Together with [`to_int_upper`] this pins `to_int` down completely — `to_int t` is the unique
+/// integer in `(t - 1, t]` — which is what lets the core evaluate a ground `to_int` without an
+/// evaluator: the two bounds plus `la_generic`'s integer strengthening give the value, and
+/// `la_disequality` turns the two resulting bounds into the equality. The rules are the `to_int`
+/// half of the definitional `*_intro` family the classification calls for; `div` and `mod` need the
+/// same treatment and do not yet have it.
+pub fn to_int_lower(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (floor, t) = match_term_err!((<= f t) = &conclusion[0])?;
+    let inner = match_term_err!((to_real (to_int i)) = floor)?;
+    assert_eq(inner, t)
+}
+
+/// The upper half: `(cl (< t (+ (to_real (to_int t)) 1)))`.
+pub fn to_int_upper(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t, bound) = match_term_err!((< t b) = &conclusion[0])?;
+    let (floor, one) = match_term_err!((+ f o) = bound)?;
+    let inner = match_term_err!((to_real (to_int i)) = floor)?;
+    rassert!(
+        one.as_fraction().is_some_and(|f| f == 1),
+        CheckerError::Explanation("the offset is not 1".to_owned()),
+    );
+    assert_eq(inner, t)
+}
+
 /// Takes a disequality term and returns its negation, represented by an operator and two linear
 /// combinations.
 /// The disequality can be:
@@ -186,6 +214,20 @@ impl LinearComb {
         self.add(other)
     }
 
+    /// Returns `true` if the value of this linear combination is an integer under every valuation,
+    /// which is what makes the strengthening rules available for it.
+    ///
+    /// That needs *both* halves: every atom has to be integer-sorted, and every coefficient has to
+    /// be an integer, since a rational coefficient on an integer atom does not give an integer.
+    /// `to_real` is transparent to [`LinearComb::add_term`], so the real embedding of an integer
+    /// term is recognized here as the integer term it is.
+    fn is_integer_valued(&self, pool: &mut dyn TermPool) -> bool {
+        self.0.iter().all(|(atom, coeff)| {
+            coeff.is_integer()
+                && matches!(pool.sort(atom).as_sort(), Some(Sort::Int))
+        })
+    }
+
     /// Finds the greatest common divisor of the coefficients in the linear combination. Returns
     /// 1 if the linear combination is empty, or if any of the coefficients is not an integer.
     fn coefficients_gcd(&self) -> Integer {
@@ -211,7 +253,22 @@ impl LinearComb {
     }
 }
 
-fn strengthen(op: Operator, disequality: &mut LinearComb, a: &Rational) -> Operator {
+/// Applies the strengthening rules to a negated disequality.
+///
+/// `int_row` says whether the linear combination is integer-valued under every valuation. All of
+/// the strengthening below is *integer* reasoning — rounding a bound to the next integer — and none
+/// of it is available over the reals: `x > 1` does not give `x >= 2`. Deciding that from the
+/// constant alone, as this used to, lets `la_generic` accept
+/// `(cl (not (>= x 0.5)) (>= x 1.0))` for a real `x`, which is false at `x = 0.7`.
+fn strengthen(
+    op: Operator,
+    disequality: &mut LinearComb,
+    a: &Rational,
+    int_row: bool,
+) -> Operator {
+    if !int_row {
+        return op;
+    }
     // Multiplications are expensive, so we avoid them if we can
     let is_integer = if *a == 0 {
         true
@@ -269,6 +326,7 @@ fn strengthen(op: Operator, disequality: &mut LinearComb, a: &Rational) -> Opera
 }
 
 fn process_disequality(
+    pool: &mut dyn TermPool,
     (acc_op, acc): (Operator, LinearComb),
     (phi, arg): (&Rc<Term>, Option<Rational>),
     coeff_trace: &mut Option<Vec<Rational>>,
@@ -313,7 +371,8 @@ fn process_disequality(
     };
 
     // Step 4: Apply strengthening rules
-    let op = strengthen(op, &mut disequality, &arg);
+    let int_row = disequality.is_integer_valued(pool);
+    let op = strengthen(op, &mut disequality, &arg, int_row);
 
     // Step 5: Multiply disequality by a
     let arg = match op {
@@ -324,9 +383,13 @@ fn process_disequality(
 
     // let (op, diseq) = item?;
     let new_acc = acc.add(disequality);
+    // Adding two relations gives the weaker of the two, and a strict row makes the sum strict:
+    // `a >= p` with `b > q` gives `a + b > p + q`. The strictness has to be propagated explicitly
+    // now that the strengthening rules no longer turn every `>` into a `>=` — they only do so for
+    // integer-valued rows, and over the reals a strict bound stays strict
     let new_op = match (acc_op, op) {
-        (_, Operator::GreaterEq) => Operator::GreaterEq,
-        (Operator::Equals, Operator::GreaterThan) => Operator::GreaterThan,
+        (Operator::GreaterThan, _) | (_, Operator::GreaterThan) => Operator::GreaterThan,
+        (Operator::GreaterEq, _) | (_, Operator::GreaterEq) => Operator::GreaterEq,
         _ => acc_op,
     };
     Ok((new_op, new_acc))
@@ -334,14 +397,25 @@ fn process_disequality(
 
 pub fn la_generic(rule_args: RuleArgs) -> RuleResult {
     assert_num_args(rule_args.args, rule_args.conclusion.len())?;
-    la_generic_partial(rule_args.conclusion, rule_args.args, &mut None)
+    la_generic_partial(
+        rule_args.pool,
+        rule_args.conclusion,
+        rule_args.args,
+        &mut None,
+    )
 }
 
 pub fn bounded_farkas(rule_args: RuleArgs) -> RuleResult {
-    la_generic_partial(rule_args.conclusion, rule_args.args, &mut None)
+    la_generic_partial(
+        rule_args.pool,
+        rule_args.conclusion,
+        rule_args.args,
+        &mut None,
+    )
 }
 
 pub fn la_generic_partial(
+    pool: &mut dyn TermPool,
     conclusion: &[Rc<Term>],
     args: &[Rc<Term>],
     coeff_trace: &mut Option<Vec<Rational>>,
@@ -355,12 +429,11 @@ pub fn la_generic_partial(
         .collect::<Result<_, _>>()?;
     let args = args.into_iter().map(Some).chain(std::iter::repeat(None));
 
-    let (op, final_disequality) = conclusion
-        .iter()
-        .zip(args)
-        .try_fold((Operator::Equals, LinearComb::new()), |acc, diseq| {
-            process_disequality(acc, diseq, coeff_trace)
-        })?;
+    let mut acc = (Operator::Equals, LinearComb::new());
+    for diseq in conclusion.iter().zip(args) {
+        acc = process_disequality(pool, acc, diseq, coeff_trace)?;
+    }
+    let (op, final_disequality) = acc;
 
     let LinearComb(left_side, right_side): &LinearComb = &final_disequality;
     let is_disequality_true = {

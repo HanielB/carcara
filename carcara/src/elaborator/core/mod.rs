@@ -445,6 +445,39 @@ impl<'a> Builder<'a> {
 
 /// Returns the elaboration function for the given rule, if the `core` pass knows how to reduce
 /// it. With `keep_equality`, the clausal equality rules (`eq_*`, `not_symm`) are kept.
+/// The recipes ultimately emit `refl` steps over subterms of the conclusion — including inside the
+/// excluded-middle helper, which is `refl` plus `equiv_pos2` and one resolution, so `refl` is the
+/// only context-sensitive rule they use. At elaborated granularity `refl` is `strict_refl`, which
+/// does not check `left == right` but `context.apply(left) == right`. Outside any anchor the two
+/// coincide; under an anchor that carries a substitution they come apart, and a step the recipe
+/// means as reflexivity would be read as "the right-hand side is the left after substituting".
+///
+/// The question is therefore whether the cumulative substitution *moves* the conclusion, not
+/// whether some anchor happens to bind one of its names. The distinction is not academic: solvers
+/// emit identity assignments constantly — veriT's `bind` anchors are of the form
+/// `(:= (veriT_vr582 Int) veriT_vr582)` — and asking the coarser question skipped 8 983 steps of
+/// the evaluation corpus whose substitution is the identity, against 30 where it is not.
+pub(super) fn context_is_safe(
+    pool: &mut PrimitivePool,
+    context: &mut ContextStack,
+    conclusion: &[Rc<Term>],
+) -> bool {
+    if context.assigns_nothing() {
+        return true;
+    }
+    conclusion.iter().all(|term| {
+        // The cheap name test first: a conclusion none of whose free variables any anchor assigns
+        // cannot be moved, and answering that way avoids building the cumulative substitution
+        let untouched = pool.free_vars_ref(term).iter().all(|var| {
+            let Some(name) = var.as_var() else {
+                return true;
+            };
+            !context.assigns(name)
+        });
+        untouched || context.apply(pool, term) == *term
+    })
+}
+
 pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super::ElaborationFunc> {
     if keep_equality
         && matches!(

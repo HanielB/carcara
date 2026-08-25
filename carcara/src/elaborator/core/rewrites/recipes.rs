@@ -174,6 +174,56 @@ fn collapse_not(b: &mut Builder, x: &Rc<Term>) -> Rc<Term> {
     }
 }
 
+/// `(= (= t c) false)`, where `t` is integer-valued and `c` is a constant that is not an integer.
+///
+/// No axiom about rounding is needed: `la_generic`'s strengthening already knows that an integer
+/// cannot sit strictly between two consecutive integers, so `(cl ¬(t <= c) ¬(c <= t))` is a Farkas
+/// clause. What the recipe has to supply is the step from the equality to the two bounds, which is
+/// `la_rw_eq` — the core's definitional rule for an arithmetic equality — split with `and_pos`.
+fn int_eq_conflict(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
+    if !rhs.is_bool_false() {
+        return Err(explanation("`arith-int-eq-conflict` does not conclude `false`"));
+    }
+    let (t, c) = match_term_err!((= t c) = lhs)?;
+    let (t, c) = (t.clone(), c.clone());
+    let le_tc = build_term!(b.pool, (<= {t.clone()} {c.clone()}));
+    let le_ct = build_term!(b.pool, (<= {c.clone()} {t.clone()}));
+    let conj = build_term!(b.pool, (and {le_tc.clone()} {le_ct.clone()}));
+
+    // The two bounds cannot both hold: that is the whole content of the rewrite
+    let (n_tc, n_ct) = (b.not(&le_tc), b.not(&le_ct));
+    let conflict = la_clause(b, vec![n_tc, n_ct])?;
+
+    // `(= t c)` gives the conjunction of the two bounds, and `and_pos` gives each conjunct
+    let rw = eq(b.pool, lhs, &conj);
+    let rw = b.step(vec![rw], "la_rw_eq", Vec::new(), Vec::new());
+    let not_lhs = b.not(lhs);
+    let split = b.step(
+        vec![not_lhs, conj.clone()],
+        "equiv1",
+        vec![rw],
+        Vec::new(),
+    );
+    let not_conj = b.not(&conj);
+    let mut bounds = Vec::new();
+    for (i, bound) in [le_tc.clone(), le_ct.clone()].into_iter().enumerate() {
+        let index = b.pool.add(Term::new_int(i));
+        let pos = b.step(
+            vec![not_conj.clone(), bound],
+            "and_pos",
+            Vec::new(),
+            vec![index],
+        );
+        bounds.push(b.resolve(vec![split.clone(), pos], vec![(conj.clone(), true)])?);
+    }
+    let [lower, upper]: [Rc<ProofNode>; 2] = bounds.try_into().unwrap();
+    let unit = b.resolve(
+        vec![conflict, lower, upper],
+        vec![(le_tc, false), (le_ct, false)],
+    )?;
+    bridge_false(b, unit, lhs)
+}
+
 /// An equivalence `(= A B)` between two (possibly negated) linear-arithmetic atoms, by one
 /// Farkas certificate per direction.
 fn atom_equiv(b: &mut Builder, a: &Rc<Term>, bt: &Rc<Term>) -> Res {
@@ -336,6 +386,7 @@ pub fn rewrite_lemma(b: &mut Builder, name: &str, lhs: &Rc<Term>, rhs: &Rc<Term>
         | "arith-elim-int-lt"
         | "arith-leq-norm"
         | "arith-geq-tighten"
+        | "arith-int-geq-tighten"
         | "arith-geq-norm1-int"
         | "arith-geq-norm1-real"
         | "comp-lt-elim"
@@ -353,6 +404,7 @@ pub fn rewrite_lemma(b: &mut Builder, name: &str, lhs: &Rc<Term>, rhs: &Rc<Term>
             bridge_true(b, unit, lhs)
         }
         "arith-eq-elim-int" | "arith-eq-elim-real" => arith_eq_elim(b, lhs, rhs),
+        "arith-int-eq-conflict" => int_eq_conflict(b, lhs, rhs),
 
         // ------------------------------------------------------------------ equality logic
         "eq-refl" => {

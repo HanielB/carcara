@@ -201,10 +201,16 @@ fn generic_and_or_simplify(
         _ => unreachable!(),
     }?
     .to_vec();
+    // The right-hand side is normally the list of surviving arguments, spelled as an application
+    // of the same connective. When exactly one argument survives it is the result *itself*, and if
+    // that argument happens to be another application of the connective, splitting it here would
+    // read `(or a b)` as two survivors rather than one. Both readings are therefore kept, and the
+    // comparisons below accept either.
     let result_args = match result_term.as_ref() {
         Term::Op(op, args) if *op == rule_kind => args,
         _ => std::slice::from_ref(result_term),
     };
+    let result_as_single = std::slice::from_ref(result_term);
 
     // Sometimes, the `and_simplify` and `or_simplify` rules are used on a nested application of
     // the rule operator, where the outer operation only has one argument, e.g. `(and (and p q r))`.
@@ -222,7 +228,7 @@ fn generic_and_or_simplify(
     // improves performance significantly. More importantly, it is necessary in some examples,
     // where not all steps of the simplification are applied
     phis.retain(|t| !t.is_bool_constant(skip_term));
-    if result_args.iter().eq(&phis) {
+    if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         return Ok(());
     }
 
@@ -231,7 +237,7 @@ fn generic_and_or_simplify(
     // after this step. This is also necessary in some examples
     let mut seen = IndexSet::with_capacity(phis.len());
     phis.retain(|t| seen.insert(t.clone()));
-    if result_args.iter().eq(&phis) {
+    if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         return Ok(());
     }
 
@@ -267,7 +273,7 @@ fn generic_and_or_simplify(
                 result_term.clone(),
             ))
         }
-    } else if result_args.iter().eq(&phis) {
+    } else if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         Ok(())
     } else {
         let expected = pool.add(Term::Op(rule_kind, phis));

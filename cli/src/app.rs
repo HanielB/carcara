@@ -208,6 +208,7 @@ pub struct CheckingOptions {
 #[derive(ArgEnum, Clone)]
 pub enum ElaborationPass {
     Hoist,
+    DeepHoist,
     Polyeq,
     Hole,
     Core,
@@ -481,6 +482,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
             .into_iter()
             .map(|p| match p {
                 ElaborationPass::Hoist => elaborator::ElaborationPass::Hoist,
+                ElaborationPass::DeepHoist => elaborator::ElaborationPass::DeepHoist,
                 ElaborationPass::Polyeq => elaborator::ElaborationPass::Polyeq,
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
                 ElaborationPass::Core => elaborator::ElaborationPass::Core,

@@ -236,6 +236,8 @@ pub fn get_rule(
         "bounded_farkas" => linear_arithmetic::bounded_farkas,
         "la_disequality" => linear_arithmetic::la_disequality,
         "la_totality" => linear_arithmetic::la_totality,
+        "to_int_lower" => linear_arithmetic::to_int_lower,
+        "to_int_upper" => linear_arithmetic::to_int_upper,
         "la_tautology" => linear_arithmetic::la_tautology,
         "poly_simp" => polynomial::poly_simp,
         "poly_simp_rel" => polynomial::poly_simp_rel,

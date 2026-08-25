@@ -253,6 +253,7 @@ fn op_to_variant(op: &str) -> TokenStream2 {
         "<=" => quote! { crate::ast::Operator::LessEq },
         ">=" => quote! { crate::ast::Operator::GreaterEq },
         "to_real" => quote! { crate::ast::Operator::ToReal },
+        "to_int" => quote! { crate::ast::Operator::ToInt },
 
         // Clause / delete
         "cl" => quote! { crate::ast::Operator::Cl },

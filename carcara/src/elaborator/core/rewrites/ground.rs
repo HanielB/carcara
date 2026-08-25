@@ -26,6 +26,91 @@ fn eq(pool: &mut PrimitivePool, a: &Rc<Term>, b: &Rc<Term>) -> Rc<Term> {
 }
 
 /// Derives `(cl (= term value))` for an `evaluate` instance.
+/// Derives `(cl (= (to_int c) k))` for a rational constant `c`, where `k` is its floor.
+///
+/// This is the one place the core needs to know what `to_int` *is*, and it gets it from the two
+/// floor axioms rather than from an evaluator: `to_int c <= c` and `c < to_int c + 1` bound the
+/// value to a half-open unit interval, `la_generic`'s integer strengthening turns each bound into
+/// the corresponding bound on `k`, and `la_disequality` closes the two into the equality.
+fn to_int_value(b: &mut Builder, arg: &Rc<Term>) -> Res {
+    let floor_term = build_term!(b.pool, (to_int {arg.clone()}));
+    let k = floor_term.evaluate(b.pool);
+    if k.as_fraction().is_none() {
+        return Err(explanation("`to_int` of a non-constant argument"));
+    }
+    let real_floor = build_term!(b.pool, (to_real {floor_term.clone()}));
+    let one = b.pool.add(Term::new_int(1));
+
+    // The two axioms
+    let lower_lit = build_term!(b.pool, (<= {real_floor.clone()} {arg.clone()}));
+    let lower = b.step(vec![lower_lit.clone()], "to_int_lower", Vec::new(), Vec::new());
+    let bound = build_term!(b.pool, (+ {real_floor.clone()} {one}));
+    let upper_lit = build_term!(b.pool, (< {arg.clone()} {bound}));
+    let upper = b.step(vec![upper_lit.clone()], "to_int_upper", Vec::new(), Vec::new());
+
+    // Each axiom tightens to the corresponding bound on `k`
+    let le = build_term!(b.pool, (<= {floor_term.clone()} {k.clone()}));
+    let ge = build_term!(b.pool, (<= {k.clone()} {floor_term.clone()}));
+    let (n_lower, n_upper) = (b.not(&lower_lit), b.not(&upper_lit));
+    let le_cl = super::recipes::la_clause(b, vec![n_lower, le.clone()])?;
+    let ge_cl = super::recipes::la_clause(b, vec![n_upper, ge.clone()])?;
+    let le_unit = b.resolve(vec![le_cl, lower], vec![(lower_lit, false)])?;
+    let ge_unit = b.resolve(vec![ge_cl, upper], vec![(upper_lit, false)])?;
+
+    // Antisymmetry, which `la_disequality` states as a unit clause holding a disjunction
+    let goal = eq(b.pool, &floor_term, &k);
+    let (n_le, n_ge) = (b.not(&le), b.not(&ge));
+    let disj = build_term!(b.pool, (or {goal.clone()} {n_le.clone()} {n_ge.clone()}));
+    let anti = b.step(vec![disj], "la_disequality", Vec::new(), Vec::new());
+    let split = b.step(
+        vec![goal, n_le, n_ge],
+        "or",
+        vec![anti],
+        Vec::new(),
+    );
+    b.resolve(vec![split, le_unit, ge_unit], vec![(le, false), (ge, false)])
+}
+
+/// Replaces every `(to_int c)` subterm of a ground term by its value, returning a derivation of
+/// `(cl (= term folded))` together with the folded term, or `None` when there is nothing to fold.
+///
+/// The ring normalization behind `poly_simp` treats `(to_int c)` as an atom, so a term that mixes
+/// it with arithmetic — cvc5 emits `(= (+ (to_int -3/2) 1) -1)` — is not a ring identity until the
+/// application is folded away. Congruence carries the folding through the surrounding term.
+fn fold_to_int(b: &mut Builder, term: &Rc<Term>) -> Result<Option<(Rc<ProofNode>, Rc<Term>)>, ElaborationError> {
+    if let Some(arg) = match_term!((to_int a) = term) {
+        if arg.as_fraction().is_none() {
+            return Ok(None);
+        }
+        let arg = arg.clone();
+        let node = to_int_value(b, &arg)?;
+        let value = build_term!(b.pool, (to_int {arg})).evaluate(b.pool);
+        return Ok(Some((node, value)));
+    }
+    let Term::Op(op, args) = term.as_ref() else {
+        return Ok(None);
+    };
+    let (op, args) = (*op, args.clone());
+    let mut premises = Vec::new();
+    let mut new_args = Vec::new();
+    for arg in &args {
+        match fold_to_int(b, arg)? {
+            Some((node, folded)) => {
+                premises.push(node);
+                new_args.push(folded);
+            }
+            None => new_args.push(arg.clone()),
+        }
+    }
+    if premises.is_empty() {
+        return Ok(None);
+    }
+    let folded = b.pool.add(Term::Op(op, new_args));
+    let clause = vec![eq(b.pool, term, &folded)];
+    let node = b.step(clause, "cong", premises, Vec::new());
+    Ok(Some((node, folded)))
+}
+
 pub fn evaluation(b: &mut Builder, term: &Rc<Term>, value: &Rc<Term>) -> Res {
     // Validate against the checker's own semantics first
     if term.evaluate(b.pool) != *value {
@@ -66,6 +151,12 @@ pub fn evaluation(b: &mut Builder, term: &Rc<Term>, value: &Rc<Term>) -> Res {
         let rest = evaluation(b, &branch, value)?;
         let clause = vec![eq(b.pool, term, value)];
         Ok(b.step(clause, "trans", vec![selected, rest], Vec::new()))
+    } else if let Some((folded, rest_term)) = fold_to_int(b, term)? {
+        // A ground `to_int` application, which the ring normalization treats as an atom: fold it to
+        // its value first, and the remainder is an ordinary numeric evaluation
+        let rest = evaluation(b, &rest_term, value)?;
+        let clause = vec![eq(b.pool, term, value)];
+        Ok(b.step(clause, "trans", vec![folded, rest], Vec::new()))
     } else {
         crate::checker::poly_simp_equal(b.pool, term, value)?;
         unreachable!()
@@ -75,6 +166,21 @@ pub fn evaluation(b: &mut Builder, term: &Rc<Term>, value: &Rc<Term>) -> Res {
 /// Derives the literal `(cl t)` (for `want = true`) or `(cl ¬t)` (for `want = false`) for a
 /// ground Boolean term, by structural recursion.
 fn literal(b: &mut Builder, t: &Rc<Term>, want: bool) -> Res {
+    // A ground `to_int` application anywhere inside is folded away first: the arithmetic recipes
+    // below all go through `la_generic` or `poly_simp`, and both treat it as an opaque atom
+    if let Some((folded, rest_term)) = fold_to_int(b, t)? {
+        let inner = literal(b, &rest_term, want)?;
+        let equiv = eq(b.pool, t, &rest_term);
+        let (nt, n_rest) = (b.not(t), b.not(&rest_term));
+        return if want {
+            let e2 = b.step(vec![t.clone(), n_rest], "equiv2", vec![folded], Vec::new());
+            b.resolve(vec![e2, inner], vec![(rest_term, false)])
+        } else {
+            let _ = equiv;
+            let e1 = b.step(vec![nt, rest_term.clone()], "equiv1", vec![folded], Vec::new());
+            b.resolve(vec![e1, inner], vec![(rest_term, true)])
+        };
+    }
     // Guard against the recursion disagreeing with the evaluator
     let val = t.evaluate(b.pool);
     if val.is_bool_true() != want || !(val.is_bool_true() || val.is_bool_false()) {

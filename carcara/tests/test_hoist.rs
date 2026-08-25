@@ -34,9 +34,23 @@ fn parse(
     (problem, proof, rare_rules, pool)
 }
 
+/// Runs the `deep-hoist` pass, which additionally collapses lemma scopes.
+fn run_deep_hoist_pass(problem: &str, proof: &str, config: checker::Config) -> ast::Proof {
+    run_pass(problem, proof, config, elaborator::ElaborationPass::DeepHoist)
+}
+
 /// Runs the `hoist` pass on a proof and returns the result. The input is checked before the pass and
 /// the output after it, both with the given configuration.
 fn run_hoist_pass(problem: &str, proof: &str, config: checker::Config) -> ast::Proof {
+    run_pass(problem, proof, config, elaborator::ElaborationPass::Hoist)
+}
+
+fn run_pass(
+    problem: &str,
+    proof: &str,
+    config: checker::Config,
+    pass: elaborator::ElaborationPass,
+) -> ast::Proof {
     let (problem, proof, rare_rules, mut pool) = parse(problem, proof);
 
     let holey = checker::ProofChecker::new(&mut pool, &rare_rules, config.clone())
@@ -49,7 +63,7 @@ fn run_hoist_pass(problem: &str, proof: &str, config: checker::Config) -> ast::P
     };
     let node = ast::ProofNodeForest::from_commands(proof.commands.clone());
     let hoisted_node = elaborator::Elaborator::new(&mut pool, &problem, elab_config)
-        .elaborate(node, vec![elaborator::ElaborationPass::Hoist])
+        .elaborate(node, vec![pass])
         .expect("hoisting failed");
     let hoisted = ast::Proof {
         constant_definitions: proof.constant_definitions.clone(),
@@ -329,4 +343,115 @@ fn positional_steps_are_never_lifted() {
         step_ids(&hoisted.commands),
         step_ids(&parse(DEFS, proof).1.commands)
     );
+}
+
+/// A lemma scope whose discharged clause a premise-free rule proves outright is replaced by that
+/// one step. This is the shape cvc5 emits for every congruence-closure lemma.
+#[test]
+fn transitivity_scope_collapses_to_eq_transitive() {
+    let definitions = "
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+    ";
+    let proof = "
+        (anchor :step t1)
+        (assume t1.a0 (= a b))
+        (assume t1.a1 (= b c))
+        (step t1.t0 (cl (= a c)) :rule trans :premises (t1.a0 t1.a1))
+        (step t1 (cl (not (= a b)) (not (= b c)) (= a c)) :rule subproof
+            :discharge (t1.a0 t1.a1))
+        (step t2 (cl) :rule hole :premises (t1))
+    ";
+    let config = checker::Config::new().ignore_unknown_rules(true);
+
+    // `hoist` leaves the scope alone
+    let hoisted = run_hoist_pass(definitions, proof, config.clone());
+    assert_eq!(count_rule(&hoisted.commands, "subproof"), 1);
+    assert_eq!(count_rule(&hoisted.commands, "eq_transitive"), 0);
+
+    // `deep-hoist` replaces the whole four-command scope with one clausal step
+    let collapsed = run_deep_hoist_pass(definitions, proof, config);
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "trans"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "eq_transitive"), 1);
+    assert!(
+        !collapsed
+            .commands
+            .iter()
+            .any(|c| matches!(c, ast::ProofCommand::Subproof(_))),
+        "a subproof survived the collapse"
+    );
+}
+
+/// A congruence lemma collapses the same way, onto `eq_congruent`.
+#[test]
+fn congruence_scope_collapses_to_eq_congruent() {
+    let definitions = "
+        (declare-fun f (Int) Int)
+        (declare-const a Int)
+        (declare-const b Int)
+    ";
+    let proof = "
+        (anchor :step t1)
+        (assume t1.a0 (= a b))
+        (step t1.t0 (cl (= (f a) (f b))) :rule cong :premises (t1.a0))
+        (step t1 (cl (not (= a b)) (= (f a) (f b))) :rule subproof :discharge (t1.a0))
+        (step t2 (cl) :rule hole :premises (t1))
+    ";
+    let collapsed = run_deep_hoist_pass(
+        definitions,
+        proof,
+        checker::Config::new().ignore_unknown_rules(true),
+    );
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "eq_congruent"), 1);
+}
+
+/// A scope whose conclusion no premise-free rule proves is left exactly as it was.
+#[test]
+fn a_scope_with_no_clausal_counterpart_is_kept() {
+    let definitions = "
+        (declare-const p Bool)
+        (declare-const q Bool)
+    ";
+    let proof = "
+        (anchor :step t1)
+        (assume t1.a0 p)
+        (step t1.t0 (cl q) :rule hole :premises (t1.a0))
+        (step t1 (cl (not p) q) :rule subproof :discharge (t1.a0))
+        (step t2 (cl) :rule hole :premises (t1))
+    ";
+    let collapsed = run_deep_hoist_pass(
+        definitions,
+        proof,
+        checker::Config::new().ignore_unknown_rules(true),
+    );
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 1);
+}
+
+/// A rule the checker was told to treat as a hole must never become the justification of a scope
+/// that had a real derivation, for the same reason `hoist` will not share a holey derivation.
+#[test]
+fn an_allowed_rule_is_not_used_to_collapse_a_scope() {
+    let definitions = "
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+    ";
+    let proof = "
+        (anchor :step t1)
+        (assume t1.a0 (= a b))
+        (assume t1.a1 (= b c))
+        (step t1.t0 (cl (= a c)) :rule trans :premises (t1.a0 t1.a1))
+        (step t1 (cl (not (= a b)) (not (= b c)) (= a c)) :rule subproof
+            :discharge (t1.a0 t1.a1))
+        (step t2 (cl) :rule hole :premises (t1))
+    ";
+    let config = checker::Config::new()
+        .ignore_unknown_rules(true)
+        .allowed_rules(["eq_transitive"]);
+    let collapsed = run_deep_hoist_pass(definitions, proof, config);
+    assert_eq!(count_rule(&collapsed.commands, "eq_transitive"), 0);
+    assert_eq!(count_rule(&collapsed.commands, "subproof"), 1);
 }

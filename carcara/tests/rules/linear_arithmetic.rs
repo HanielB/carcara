@@ -146,3 +146,102 @@ fn la_tautology() {
         }
     }
 }
+
+/// The strengthening rules of `la_generic` are integer reasoning, and are available only for rows
+/// whose value is an integer under every valuation: every atom integer-sorted, every coefficient an
+/// integer. Deciding it from the constant alone accepts `(cl (not (>= x 0.5)) (>= x 1.0))` for a
+/// real `x`, which is false at `x = 0.7`.
+#[test]
+fn la_generic_strengthening_is_integer_only() {
+    test_cases! {
+        definitions = "
+            (declare-fun n () Int)
+            (declare-fun m () Int)
+            (declare-fun x () Real)
+            (declare-fun y () Real)
+        ",
+        "Rounding a bound is valid over the integers" {
+            "(step t1 (cl (not (>= (to_real n) (/ (- 3.0) 2.0))) (>= n (- 1))) :rule la_generic :args (1 1))": true,
+            "(step t1 (cl (not (>= n (- 1))) (>= (to_real n) (/ (- 3.0) 2.0))) :rule la_generic :args (1 1))": true,
+            "(step t1 (cl (not (>= (to_real (+ n m)) (/ (- 19.0) 4.0))) (>= (+ n m) (- 4))) :rule la_generic :args (1 1))": true,
+            // An integer cannot sit strictly between two consecutive integers
+            "(step t1 (cl (not (<= (to_real n) (/ (- 3.0) 2.0))) (not (<= (/ (- 3.0) 2.0) (to_real n)))) :rule la_generic :args (1 1))": true,
+        }
+        "and is not valid over the reals" {
+            "(step t1 (cl (not (>= x 0.5)) (>= x 1.0)) :rule la_generic :args (1 1))": false,
+            "(step t1 (cl (not (>= x 0.0)) (>= x 1.0)) :rule la_generic :args (1 1))": false,
+            "(step t1 (cl (not (<= x 0.5)) (<= x 0.0)) :rule la_generic :args (1 1))": false,
+            "(step t1 (cl (not (<= x 0.5)) (not (<= 0.5 x))) :rule la_generic :args (1 1))": false,
+        }
+        "nor for an integer atom with a rational coefficient" {
+            // `n/2 > 1` gives `n >= 3`, i.e. `n/2 >= 3/2`, not `n/2 >= 2`
+            "(step t1 (cl (not (> (* 0.5 (to_real n)) 1.0)) (>= (* 0.5 (to_real n)) 2.0)) :rule la_generic :args (1 1))": false,
+        }
+        "A strict bound stays strict when rows are added" {
+            "(step t1 (cl (> x 0.0) (<= x 0.0)) :rule la_generic :args (1.0 1.0))": true,
+            "(step t1 (cl (> (+ x y) 0.0) (<= x 0.0) (<= y 0.0)) :rule la_generic :args (1.0 1.0 1.0))": true,
+            "(step t1 (cl (>= x 0.0) (<= x 0.0)) :rule la_generic :args (1.0 1.0))": true,
+            // Not a tautology over the reals: both disjuncts fail at `x = 0`
+            "(step t1 (cl (> x 0.0) (< x 0.0)) :rule la_generic :args (1.0 1.0))": false,
+        }
+    }
+}
+
+
+#[test]
+fn to_int_lower() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Real)
+            (declare-fun n () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (<= (to_real (to_int x)) x)) :rule to_int_lower)": true,
+            "(step t1 (cl (<= (to_real (to_int (/ (- 3.0) 2.0))) (/ (- 3.0) 2.0))) :rule to_int_lower)": true,
+            "(step t1 (cl (<= (to_real (to_int (+ x 1.0))) (+ x 1.0))) :rule to_int_lower)": true,
+        }
+        "The two sides must be the same term" {
+            "(step t1 (cl (<= (to_real (to_int x)) (to_real n))) :rule to_int_lower)": false,
+            "(step t1 (cl (<= x (to_real (to_int x)))) :rule to_int_lower)": false,
+        }
+        "Wrong shape" {
+            "(step t1 (cl (< (to_real (to_int x)) x)) :rule to_int_lower)": false,
+            "(step t1 (cl (<= (to_int x) x)) :rule to_int_lower)": false,
+            "(step t1 (cl (<= (to_real (to_int x)) x) (<= (to_real (to_int x)) x)) :rule to_int_lower)": false,
+        }
+    }
+}
+
+#[test]
+fn to_int_upper() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Real)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (< x (+ (to_real (to_int x)) 1.0))) :rule to_int_upper)": true,
+            "(step t1 (cl (< (/ (- 3.0) 2.0) (+ (to_real (to_int (/ (- 3.0) 2.0))) 1.0))) :rule to_int_upper)": true,
+        }
+        "The offset must be 1" {
+            "(step t1 (cl (< x (+ (to_real (to_int x)) 2.0))) :rule to_int_upper)": false,
+            "(step t1 (cl (< x (+ (to_real (to_int x)) 0.0))) :rule to_int_upper)": false,
+        }
+        "Wrong shape" {
+            "(step t1 (cl (<= x (+ (to_real (to_int x)) 1.0))) :rule to_int_upper)": false,
+            "(step t1 (cl (< (to_real (to_int x)) (+ (to_real (to_int x)) 1.0))) :rule to_int_upper)": false,
+        }
+    }
+}
+
+/// The two floor axioms determine `to_int` on a constant: they bound it to a half-open unit
+/// interval, and `la_generic`'s integer strengthening turns each bound into a bound on the value.
+#[test]
+fn to_int_axioms_determine_the_value() {
+    test_cases! {
+        definitions = "(declare-fun z () Int)",
+        "Tightening each bound to the floor" {
+            "(step t1 (cl (not (<= (to_real (to_int (/ (- 3.0) 2.0))) (/ (- 3.0) 2.0))) (<= (to_int (/ (- 3.0) 2.0)) (- 2))) :rule la_generic :args (1 1))": true,
+            "(step t1 (cl (not (< (/ (- 3.0) 2.0) (+ (to_real (to_int (/ (- 3.0) 2.0))) 1.0))) (<= (- 2) (to_int (/ (- 3.0) 2.0)))) :rule la_generic :args (1 1))": true,
+        }
+    }
+}

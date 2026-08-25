@@ -84,28 +84,6 @@ fn explanation(msg: impl Into<String>) -> ElaborationError {
     CheckerError::Explanation(msg.into()).into()
 }
 
-/// The recipes ultimately emit `refl` steps and excluded-middle instances over subterms of the
-/// conclusion, which are checked (at elaborated granularity) by applying the context substitution
-/// to their left-hand side. That is only the identity if no anchor in scope *assigns* a free
-/// variable of the conclusion (anchors that merely declare a variable leave the substitution
-/// alone), so a step that does not satisfy this is skipped (kept unreduced).
-fn context_is_safe(
-    pool: &mut PrimitivePool,
-    context: &ContextStack,
-    conclusion: &[Rc<Term>],
-) -> bool {
-    if context.assigns_nothing() {
-        return true;
-    }
-    conclusion.iter().all(|term| {
-        pool.free_vars(term).iter().all(|var| {
-            let Some(name) = var.as_var() else {
-                return true;
-            };
-            !context.assigns(name)
-        })
-    })
-}
 
 /// Reduces a `*_simplify` step to a chain of single-rewrite lemmas.
 pub fn elaborate_simplify(
@@ -118,7 +96,7 @@ pub fn elaborate_simplify(
     let [conclusion] = step.clause.as_slice() else {
         return Err(explanation("conclusion is not a unit clause"));
     };
-    if !context_is_safe(pool, context, &step.clause) {
+    if !super::context_is_safe(pool, context, &step.clause) {
         return Err(explanation("an anchor binds a variable of the conclusion"));
     }
     let (lhs, rhs) = match_term_err!((= l r) = conclusion)?;
@@ -232,7 +210,7 @@ pub fn elaborate_evaluate(
     let [conclusion] = step.clause.as_slice() else {
         return Err(explanation("conclusion is not a unit clause"));
     };
-    if !context_is_safe(pool, context, &step.clause) {
+    if !super::context_is_safe(pool, context, &step.clause) {
         return Err(explanation("an anchor binds a variable of the conclusion"));
     }
     let (term, value) = match_term_err!((= t v) = conclusion)?;
@@ -251,12 +229,15 @@ pub fn elaborate_rare_rewrite(
     let [conclusion] = step.clause.as_slice() else {
         return Err(explanation("conclusion is not a unit clause"));
     };
-    if !context_is_safe(pool, context, &step.clause) {
+    if !super::context_is_safe(pool, context, &step.clause) {
         return Err(explanation("an anchor binds a variable of the conclusion"));
     }
-    if !step.premises.is_empty() {
-        return Err(explanation("premise-carrying RARE rules have no recipe"));
-    }
+    // A RARE rule may carry premises that discharge its *side conditions* — `arith-int-geq-tighten`
+    // takes witnesses that its bound is not an integer and that the tightened bound is the right
+    // one. The rewrite they license is still an unconditional equality, and every arithmetic recipe
+    // validates its own Farkas certificate before emitting, so a step whose premises really are
+    // load-bearing makes the recipe fail rather than produce something that does not check. The
+    // premises are therefore dropped rather than treated as a reason not to try.
     let Some(name) = step.args.first() else {
         return Err(explanation("`rare_rewrite` step without a rule name"));
     };

@@ -32,6 +32,38 @@ pub(crate) use rules::simplification::{
     implies_simplify_step, ite_simplify_step, not_simplify_step, RewriteLabel, SimplifyStepFn,
 };
 
+/// Runs a premise-free, context-free rule against a candidate clause, so that an elaboration pass
+/// can find out whether a step it is about to emit would be accepted.
+///
+/// Only rules that take no premises, close no subproof and read no context are meaningful here: the
+/// premise list, the discharge list and the context are all empty, so a rule that needs any of them
+/// simply fails. That is the point — the caller offers a clause to a battery of rules and keeps the
+/// first that accepts it, and the checker itself decides which one that is.
+pub(crate) fn check_premise_free_rule(
+    pool: &mut dyn TermPool,
+    rule: &str,
+    conclusion: &[Rc<Term>],
+    args: &[Rc<Term>],
+) -> RuleResult {
+    let Some(rule) = shared::get_rule(rule, false, false) else {
+        return Err(CheckerError::UnknownRule);
+    };
+    let mut context = ContextStack::new();
+    let mut polyeq_time = Duration::ZERO;
+    let rare_rules = Rules { rules: IndexMap::new() };
+    rule(RuleArgs {
+        conclusion,
+        premises: &[],
+        args,
+        pool,
+        context: &mut context,
+        rare_rules: &rare_rules,
+        previous_command: None,
+        discharge: &[],
+        polyeq_time: &mut polyeq_time,
+    })
+}
+
 #[derive(Clone)]
 pub struct CheckerStatistics<'s, CR: CollectResults + Send + Default> {
     pub file_name: &'s str,
