@@ -692,7 +692,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
-| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass) |
+| `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass) — and applied in *every* pipeline, including the equality-keeping `eq_cl` configuration: the rename is unconditional (guarded only against assigning anchors), so `eq_reflexive` never survives elaboration |
 | `eq_transitive` | subproof + `trans` (+ `symm`) | ≤ 2n | syntactic | **done** (`core` pass); the older local elaboration canonicalizes flips but keeps the rule |
 | `eq_congruent` | subproof + `cong` (+ `symm`) | ≤ 2n+2 | syntactic | **done** (`core` pass); ditto |
 | `eq_congruent_pred` | subproof + `cong` + `eq_mp` | ≤ 2n+3 | syntactic | **done** (`core` pass); see the spec-divergence note on its conclusion shape |

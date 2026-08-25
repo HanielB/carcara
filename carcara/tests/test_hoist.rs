@@ -486,7 +486,7 @@ fn implicit_premise_congruence_scope_is_replayed()  {
     assert_eq!(count_rule(&collapsed.commands, "subproof"), 0);
     assert_eq!(count_rule(&collapsed.commands, "cong"), 0);
     assert_eq!(count_rule(&collapsed.commands, "eq_congruent"), 1);
-    assert_eq!(count_rule(&collapsed.commands, "eq_reflexive"), 2);
+    assert_eq!(count_rule(&collapsed.commands, "refl"), 2);
 }
 
 /// A body mixing `trans` and `symm` from the assumptions replays through `eq_transitive`.

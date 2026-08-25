@@ -74,7 +74,7 @@ const CLAUSAL_RULES: &[&str] = &[
     "la_totality",
     "la_tautology",
     "la_rw_eq",
-    "eq_reflexive",
+    "refl",
     "distinct_elim",
     "connective_def",
     "nary_elim",
@@ -144,6 +144,14 @@ fn try_clause(
     for rule in CLAUSAL_RULES {
         if is_hole(rule) {
             continue;
+        }
+        // `refl` here means plain reflexivity (the scope has no context), but at elaborated
+        // granularity it is checked syntactically, so only the syntactic case is taken
+        if *rule == "refl" {
+            let syntactic = matches!(clause, [t] if match_term!((= a b) = t).is_some_and(|(a, b)| a == b));
+            if !syntactic {
+                continue;
+            }
         }
         if check_premise_free_rule(pool, rule, clause, &[]).is_ok() {
             return Some(Collapse {
@@ -600,7 +608,7 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
                 used.push((t, r));
             } else if fa == ga {
                 let eq = build_term!(self.pool, (= {fa.clone()} {fa.clone()}));
-                let refl = self.emit(vec![eq.clone()], "eq_reflexive", Vec::new(), Vec::new())?;
+                let refl = self.emit(vec![eq.clone()], "refl", Vec::new(), Vec::new())?;
                 eqs.push(eq.clone());
                 used.push((eq, Replayed::Node { node: refl, hyps: Vec::new() }));
             } else {
@@ -650,7 +658,7 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
         let clause = vec![not_term, not_refl, s.clause.first()?.clone()];
         check_premise_free_rule(self.pool, "eq_transitive", &clause, &[]).ok()?;
         let instance = self.emit(clause, "eq_transitive", Vec::new(), Vec::new())?;
-        let refl = self.emit(vec![refl_eq.clone()], "eq_reflexive", Vec::new(), Vec::new())?;
+        let refl = self.emit(vec![refl_eq.clone()], "refl", Vec::new(), Vec::new())?;
         self.close_over(
             instance,
             vec![
@@ -692,14 +700,20 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
         let Replayed::Node { node, hyps } = self.node(p)? else {
             return None;
         };
-        let rule = if s.rule == "contraction" { "contraction" } else { "reordering" };
-        // The premise's clause gained the hypothesis literals, so the conclusion is recomputed:
-        // the original conclusion plus those literals, deduplicated for contraction and kept as a
-        // permutation for reordering/weakening
-        let clause = replayed_clause(self.pool, &s.clause, &hyps);
-        // A reordering/weakening whose recomputed clause is not a permutation of the premise's is
-        // re-derived as a contraction+weakening; bail instead of getting clever
-        let node = self.emit(clause, rule, vec![node], Vec::new())?;
+        // The premise's clause gained the hypothesis literals, so the conclusion is recomputed.
+        // For contraction and reordering the original conclusion plus those literals still stands
+        // in the required relation to the translated premise (the hypothesis literals appear once
+        // on each side); weakening instead extends the translated premise with whatever the
+        // original step appended, since its conclusion must keep the premise as a prefix
+        let clause = if s.rule == "weakening" {
+            let appended = s.clause.get(p.clause().len()..).unwrap_or(&[]);
+            let mut clause = node.clause().to_vec();
+            clause.extend(appended.iter().cloned());
+            clause
+        } else {
+            replayed_clause(self.pool, &s.clause, &hyps)
+        };
+        let node = self.emit(clause, &s.rule, vec![node], Vec::new())?;
         Some(Replayed::Node { node, hyps })
     }
 

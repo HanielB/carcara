@@ -495,7 +495,7 @@ pub fn la_mult(
         let eq_mm = build_term!(b.pool, (= {m.clone()} {m.clone()}));
         let eq_scaled = build_term!(b.pool, (= {sl.clone()} {sr.clone()}));
         let (not_mm, not_lr) = (b.not(&eq_mm), b.not(&eq_lr));
-        let refl = b.step(vec![eq_mm.clone()], "eq_reflexive", Vec::new(), Vec::new());
+        let refl = b.step(vec![eq_mm.clone()], "refl", Vec::new(), Vec::new());
         let cong = b.step(
             vec![not_mm, not_lr, eq_scaled.clone()],
             "eq_congruent",

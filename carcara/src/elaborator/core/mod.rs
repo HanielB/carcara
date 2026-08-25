@@ -481,18 +481,14 @@ pub(super) fn context_is_safe(
 pub fn get_elaboration_function(rule: &str, keep_equality: bool) -> Option<super::ElaborationFunc> {
     if keep_equality {
         // The predicate congruence rule is redundant even in this vocabulary: it is
-        // `eq_congruent` plus one `equiv_pos` axiom, so it reduces onto the kept rule
+        // `eq_congruent` plus one `equiv_pos` axiom, so it reduces onto the kept rule — and
+        // `eq_reflexive` always reduces, since it is a plain rename to `refl`
         if rule == "eq_congruent_pred" {
             return Some(equality::eq_congruent_pred_to_eq_congruent);
         }
         if matches!(
             rule,
-            "eq_reflexive"
-                | "eq_transitive"
-                | "eq_congruent"
-                | "eq_symmetric"
-                | "not_symm"
-                | "eq_mp"
+            "eq_transitive" | "eq_congruent" | "eq_symmetric" | "not_symm" | "eq_mp"
         ) {
             return None;
         }
