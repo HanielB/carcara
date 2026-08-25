@@ -1,5 +1,6 @@
 mod core;
 pub mod error;
+mod growth;
 mod hoist;
 mod hole;
 mod local;
@@ -23,9 +24,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Prints the per-rewrite recipe costs collected when `CARCARA_RECIPE_COST` is set.
+/// Prints the per-rewrite recipe costs collected when `CARCARA_RECIPE_COST` is set, and the
+/// per-rule growth table collected when `CARCARA_RULE_GROWTH` is set.
 pub fn report_recipe_costs() {
     core::rewrites::report_recipe_costs();
+    growth::report();
 }
 
 #[derive(Debug, Clone, Default)]
@@ -278,7 +281,12 @@ impl<'e> Elaborator<'e> {
                     };
                     match attempt {
                         Some(Ok(new_node)) => {
-                            return Ok(sharing.share(self.pool, context, s, new_node));
+                            // The derivation is measured *after* sharing, so a reduction whose
+                            // result an earlier identical one replaces is charged nothing — the
+                            // proof really did not grow for it
+                            let shared = sharing.share(self.pool, context, s, new_node);
+                            growth::record(s, &shared);
+                            return Ok(shared);
                         }
                         Some(Err(e)) => {
                             log::warn!(
