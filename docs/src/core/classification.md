@@ -38,10 +38,10 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 7 | 3 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
-| **total** | **120** | **54** | **45** | **8** | **8** | **5** |
+| **total** | **120** | **54** | **49** | **4** | **8** | **5** |
 
 The "+1" in the arithmetic row is the extra (non-specification) rule `poly_simp`, promoted into
 the core as the ring-normalization primitive; totals count specification rules only. The new
@@ -867,10 +867,11 @@ the parent chapter for the recipes.
 | `la_disequality` | the [antisym] axiom, `▷ (t1 ≈ t2), ¬(t1 ≤ t2), ¬(t2 ≤ t1)`: premise-free clause, O(1) syntactic check. Kept core because no combination of the other axes can introduce a positive arithmetic equality (see "Lemmas, not axioms" in the RARE chapter); the exact counterpart of cvc5's dedicated `ARITH_TRICHOTOMY` rule, and literally RESOLUTE's `trichotomy` axiom modulo the `¬≤`/`<` atom flip (see the parent chapter's RESOLUTE comparison). Would become reducible only under the two-coefficient-vector generalization of `la_generic` recorded there |
 | `poly_simp` (extra) | the nonlinear computational primitive: unit polynomial equality, checked by ring-normalizing both sides. Its own elaboration into `rare_rewrite` chains is the *aggressive* exemplar — see the parent chapter |
 
-### Reducible (3)
+### Reducible (7)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
+| `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` | `poly_simp` (rename); the integer `div`/`mod` instances, which ring normalization cannot express, rename to `evaluate` instead | 0 | ring / evaluation | **done** (`core` pass). Promoted from *expensive* by the same criterion as `shuffle`/`nary_elim`/`and_simplify`: a one-step move onto a computational primitive the core already has. The check does coarsen — the rules' own per-schema folding becomes the ring check, measured at 12× per step (0.37 µs → 3.95 µs) on the corpus's most `prod_simplify`-dense proof, 1.5 percentage points of that file's checking and ~4 000 steps corpus-wide. Ring normalization distributes over nested products, so its worst case is worse than the folding it replaces; nothing in the corpus exercises that (p99 14 µs) |
 | `la_totality` | `la_generic` + `or`-term packaging (= one `or_intro`) | 6 | Farkas + syntactic | **done** (`core` pass); unit-clause-with-`or` quirk |
 | `la_tautology` | `la_generic` (coeff `[1]`; binary form + `or_intro` packaging) | 1–6 | Farkas + syntactic | **done** (`core` pass); the spec itself states the equivalence |
 | `la_rw_eq` | ← from `la_disequality` + `and_pos` ×2 + `resolution` + `contraction`; → by subproof + `la_generic` ×2 + `and_intro`; closed by `equiv_intro` | ~13 (O(1)) | Farkas + syntactic | **done** (`core` pass); *alternative*: a single `rare_rewrite` instance of the `la-rw-eq` RARE rule — itself a lemma by this same derivation |
@@ -932,14 +933,13 @@ may carry a coefficient of either sign.)
 
 </details>
 
-### Expensive (7)
+### Expensive (3)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
 | `la_mult_pos` | `la_mult_pos_pos` + `poly_simp` + `la_generic` (+ `cong`, case splits for non-strict forms) | O(1) template | a syntactic schema becomes ring + Farkas checking; needs the proposed `la_mult_pos_pos` axiom |
 | `la_mult_neg` | same, with `la_generic` sign-flip preprocessing | O(1) template | ditto |
-| `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` | rename to `poly_simp`; *alternative*: `rare_rewrite` chain over the RARE arithmetic rules | 0, or O(trace) via RARE | per-schema syntactic checking becomes the ring check (the RARE path keeps checks syntactic at trace-length cost) |
-| `div_simplify` | `poly_simp` for real division by constants; `evaluate`/RARE for the integer `div`/`mod` cases | O(1) | integer division semantics are outside the ring primitive |
+| `div_simplify` | `poly_simp` for real division by constants; `evaluate` for the integer `div`/`mod` cases | O(1) | both renames are implemented, so this rule is the obvious next promotion; it is held back only because its two cases take *different* primitives, and the integer one rests on the evaluation function's division semantics rather than on the ring |
 
 <details id="ex-la-mult-pos">
 <summary>Example: <code>la_mult_pos</code>, strict form</summary>

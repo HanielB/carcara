@@ -89,7 +89,7 @@ digraph core_alethe {
     la_mult    [URL="classification.html#ex-la-mult-pos", target="_self", tooltip="la_mult_pos:  ▷ (t1 > 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3\nla_mult_neg:  ▷ (t1 < 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3", label="la_mult_pos/neg", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     la_disequality [URL="classification.html#arithmetic", target="_self", tooltip="▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)\nthe [antisym] order-antisymmetry axiom", color="#2a78d6", penwidth=2.4];
     la_rw_eq   [URL="classification.html#ex-la-rw-eq", target="_self", tooltip="▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)", color="#1baf7a", penwidth=1.6];
-    arith_simp [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −", label="arith simplify (4)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    arith_simp [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −", label="arith simplify (4)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
     div_simplify [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t/t ≈ 1;  t/1 ≈ t;  constant division evaluated", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     comp_simplify [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ (t1 ⋈ t2) ≈ ψ\nfixpoint of the comparison rewrites (⋈ ∈ {<, >, ≤, ≥})", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
   }
@@ -137,7 +137,7 @@ digraph core_alethe {
   la_rw_eq -> la_disequality;
   la_rw_eq -> la_generic;
   la_rw_eq -> rare_rewrite [style=dotted];
-  arith_simp -> poly_simp [style=dashed];
+  arith_simp -> poly_simp [label="rename"];
   arith_simp -> rare_rewrite [style=dotted, label="alt: trace"];
   div_simplify -> poly_simp [style=dashed];
 

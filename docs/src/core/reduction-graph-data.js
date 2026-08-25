@@ -79,7 +79,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i1 ▷ C1;  …;  in ▷ Cn\n⟹  ▷ C, a chain of binary resolutions over the premises\nRUP reading: ¬C unit-propagates to a conflict",
    "x": 300.5,
-   "y": 816.0,
+   "y": 825.0,
    "w": 98.0,
    "h": 36.0
   },
@@ -92,7 +92,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ⊤",
    "x": 300.5,
-   "y": 514.0,
+   "y": 515.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -105,7 +105,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ¬⊥",
    "x": 65.5,
-   "y": 406.0,
+   "y": 407.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -118,7 +118,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ¬(¬¬φ), φ",
    "x": 65.5,
-   "y": 460.0,
+   "y": 461.0,
    "w": 62.0,
    "h": 36.0
   },
@@ -131,7 +131,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "and_pos:  ▷ ¬(φ0 ∧ … ∧ φn), φk\nand_neg:  ▷ (φ1 ∧ … ∧ φn), ¬φ1, …, ¬φn\nor_pos:   ▷ ¬(φ1 ∨ … ∨ φn), φ1, …, φn\nor_neg:   ▷ (φ0 ∨ … ∨ φn), ¬φk",
    "x": 300.5,
-   "y": 730.0,
+   "y": 731.0,
    "w": 119.0,
    "h": 36.0
   },
@@ -144,7 +144,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "equiv_pos1:  ▷ ¬(φ1 ≈ φ2), φ1, ¬φ2\nequiv_pos2:  ▷ ¬(φ1 ≈ φ2), ¬φ1, φ2\nequiv_neg1:  ▷ (φ1 ≈ φ2), ¬φ1, ¬φ2\nequiv_neg2:  ▷ (φ1 ≈ φ2), φ1, φ2",
    "x": 300.5,
-   "y": 568.0,
+   "y": 569.0,
    "w": 114.0,
    "h": 36.0
   },
@@ -157,7 +157,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "the same rule as resolution\n(the name marks a theory-solver origin)",
    "x": 65.5,
-   "y": 838.0,
+   "y": 839.0,
    "w": 92.0,
    "h": 36.0
   },
@@ -170,7 +170,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ l1, …, ln  with lk = ¬^o φ, lm = ¬^p φ, o/p of opposite parity\n⟹  ▷ ⊤",
    "x": 65.5,
-   "y": 514.0,
+   "y": 515.0,
    "w": 73.0,
    "h": 36.0
   },
@@ -183,7 +183,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ a permutation of C",
    "x": 65.5,
-   "y": 730.0,
+   "y": 731.0,
    "w": 78.0,
    "h": 36.0
   },
@@ -196,7 +196,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-clausification",
    "tooltip": "e.g.  and:  i ▷ φ0 ∧ … ∧ φn  ⟹  ▷ φk\nor:  i ▷ φ1 ∨ … ∨ φn  ⟹  ▷ φ1, …, φn\nimplies:  i ▷ φ1 → φ2  ⟹  ▷ ¬φ1, φ2\n(19 rules deconstructing a premise connective)",
    "x": 65.5,
-   "y": 622.0,
+   "y": 623.0,
    "w": 93.0,
    "h": 36.0
   },
@@ -209,7 +209,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "xor_pos1:  ▷ ¬(xor φ1 φ2), φ1, φ2\nxor_neg1:  ▷ (xor φ1 φ2), φ1, ¬φ2\nite_pos1:  ▷ ¬(ite φ1 φ2 φ3), φ1, φ3\nite_neg1:  ▷ (ite φ1 φ2 φ3), φ1, ¬φ3\n(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)",
    "x": 300.5,
-   "y": 676.0,
+   "y": 677.0,
    "w": 119.0,
    "h": 36.0
   },
@@ -222,7 +222,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "implies_pos:   ▷ ¬(φ1 → φ2), ¬φ1, φ2\nimplies_neg1:  ▷ (φ1 → φ2), φ1\nimplies_neg2:  ▷ (φ1 → φ2), ¬φ2",
    "x": 300.5,
-   "y": 622.0,
+   "y": 623.0,
    "w": 123.0,
    "h": 36.0
   },
@@ -235,7 +235,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-equiv-or-intro",
    "tooltip": "(proposed)  i ▷ ¬A, B;   j ▷ A, ¬B\n⟹  ▷ A ≈ B",
    "x": 65.5,
-   "y": 568.0,
+   "y": 569.0,
    "w": 81.0,
    "h": 36.0
   },
@@ -248,7 +248,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-equiv-or-intro",
    "tooltip": "(proposed)  i ▷ l1, …, ln\n⟹  ▷ (l1 ∨ … ∨ ln)",
    "x": 65.5,
-   "y": 676.0,
+   "y": 677.0,
    "w": 81.0,
    "h": 36.0
   },
@@ -261,7 +261,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)\n(rename to resolution under its RUP reading)",
    "x": 65.5,
-   "y": 784.0,
+   "y": 785.0,
    "w": 79.0,
    "h": 36.0
   },
@@ -274,7 +274,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ C with duplicate literals removed\n(rename to resolution under its RUP reading)",
    "x": 65.5,
-   "y": 892.0,
+   "y": 893.0,
    "w": 83.0,
    "h": 36.0
   },
@@ -672,8 +672,8 @@ window.REDGRAPH = {
    "id": "arith_simp",
    "parent": "cat_arith",
    "label": "arith simplify (4)",
-   "level": "expensive",
-   "borderStyle": "dashed",
+   "level": "reducible",
+   "borderStyle": "solid",
    "url": "classification.html#arithmetic",
    "tooltip": "Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −",
    "x": 579.5,
@@ -716,7 +716,7 @@ window.REDGRAPH = {
    "url": "classification.html#bitvector",
    "tooltip": "▷ ∘bv(x̄) ≈ its bit-level Boolean definition\n(14 operations: extract, concat, sext, =, ult, slt,\nadd, neg, mult, and, or, xor, xnor, not)",
    "x": 65.5,
-   "y": 151.0,
+   "y": 149.0,
    "w": 99.0,
    "h": 36.0
   },
@@ -1006,8 +1006,8 @@ window.REDGRAPH = {
   {
    "source": "arith_simp",
    "target": "poly_simp",
-   "style": "dashed",
-   "label": ""
+   "style": "solid",
+   "label": "rename"
   },
   {
    "source": "arith_simp",

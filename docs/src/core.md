@@ -42,8 +42,8 @@ placeholders, solver-implementation artifacts, or superseded by more general rul
 the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
 specification should replace them with principled counterparts.
 
-Of the 120 specification rules, this classification yields **54 core**, **45 reducible**,
-**8 expensive**, **8 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **54 core**, **49 reducible**,
+**4 expensive**, **8 aggressive**, and **5 removal** rules, distributed as follows:
 
 | category | total | core | reducible | expensive | aggressive | removal |
 |---|---|---|---|---|---|---|
@@ -51,7 +51,7 @@ Of the 120 specification rules, this classification yields **54 core**, **45 red
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
 | binder | 13 | 5 | 7 | 1 | 0 | 0 |
 | equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 3 | 7 | 1 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 7 | 3 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 0 | 0 | 0 | 5 |
 
@@ -1041,11 +1041,12 @@ rules) are *not* in this tier: although they rewrite the binder itself — which
 route (the derived ∀-ε-clause template; see "Deriving the quantifier rewrites from
 Skolemization"), so no binder-aware RARE extension is a prerequisite for any rule.
 
-The expensive level collects the schemes that are cheap in steps but upgrade the required
-checking power: the `la_mult_*` family and the arithmetic `*_simplify` members through
-`poly_simp` (the purely arithmetic simplifications — `prod_simplify`, `sum_simplify`,
-`minus_simplify`, `unary_minus_simplify` — have both routes: rename to `poly_simp` with a ring
-check and zero new steps, or a RARE trace with syntactic checks at trace-length cost).
+The expensive level has thinned to three rules: the `la_mult_*` family, which needs the proposed
+`la_mult_pos_pos` axiom, and `div_simplify`, whose two cases take different primitives. The
+purely arithmetic simplifications — `prod_simplify`, `sum_simplify`, `minus_simplify`,
+`unary_minus_simplify` — moved to *reducible* as `poly_simp` renames: the check does coarsen
+from per-schema folding to ring normalization (12× per step, measured), but that is the same
+trade the tier accepted for `shuffle` → `aci_simp`, at ~4 000 corpus steps.
 `shuffle` and `nary_elim` are *reducible*, both by renames to `aci_simp` (see "Other
 reductions"); `nary_elim`'s chainable and non-commutative cases keep the binary-associativity
 `rare_rewrite` chain.
