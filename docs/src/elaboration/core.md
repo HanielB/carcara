@@ -50,9 +50,12 @@ Two variants of the pass extend it over the rewrite vocabulary (the `*_simplify`
   glued by `trans`. `evaluate` and `rare_rewrite` are kept: they are the computational
   vocabulary this regime deliberately retains. The chains use rewrite rules beyond cvc5's
   `rewrites.eo`, shipped in `rare-tests/rare/simplify-rules.eo`; give the checker the
-  concatenation of both files (`--rare-file`). A rewrite the rule file cannot express (the
-  singleton collapse and the flatten of a nested application — the RARE list semantics
-  normalize those rules' own left-hand sides away) is emitted as its core derivation instead.
+  concatenation of both files (`--rare-file`). Two links have no rule and are emitted as their
+  core derivation instead: they equate a *singleton application* of `and`/`or` with its argument,
+  which is not a well-formed Alethe term, so there is nothing for a rule to state (RARE agrees,
+  normalizing `(or x)` to `x`). veriT nevertheless emits such terms — 1 666 occurrences over 71
+  of its corpus proofs, none from cvc5 — so the pass keeps the derivation as a robustness
+  measure for out-of-spec input.
 - **`core-taut`** reduces the whole vocabulary to the core: the chains' lemmas, and every
   `evaluate` and `rare_rewrite` step of the input, become core derivations, using the recipes
   the "frozen RARE set" analysis of the classification proposes (the `poly_simp_rel` template

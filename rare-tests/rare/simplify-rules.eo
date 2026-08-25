@@ -92,10 +92,11 @@
 )
 
 ; and_simplify / or_simplify
-; and-flatten / or-flatten (the singleton unwrap) are deliberately absent: the RARE list
-; semantics normalize `(and (and xs))` to `(and xs)` in the rule's own instantiation, so the
-; rewrite is not expressible as a RARE rule. The elaboration emits its two-step core derivation
-; (`and_pos`/`and_neg`) instead, in both regimes.
+; and-flatten / or-flatten (the singleton unwrap) are deliberately absent, and not because RARE
+; is lacking: a singleton application of an n-ary connective is not a well-formed Alethe term at
+; all, so there is nothing for a rule to state. RARE agrees, normalizing `(or x)` to `x`. veriT
+; nevertheless emits such terms, so the elaboration keeps a two-step core derivation
+; (`or_pos`/`or_neg`) for those links; the fix belongs upstream.
 (declare-rare-rule and-true-elim ((xs1 Bool :list) (ys1 Bool :list))
   :args (xs1 ys1)
   :conclusion (= (and xs1 true ys1) (and xs1 ys1))

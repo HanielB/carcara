@@ -54,11 +54,13 @@ section of `docs/src/core.md`.
 - **The axiom pair `ite_then_intro`/`ite_else_intro`** (`checker/rules/tautology.rs`):
   `(cl (not c) (= (ite c t s) t))` and `(cl c (= (ite c t s) s))` — the definitional
   characterization of term-`ite` the analysis identified as the one genuine gap.
-- **`rare-tests/rare/simplify-rules.eo`**: the 27 rewrite rules the traces need beyond
+- **`rare-tests/rare/simplify-rules.eo`**: the rewrite rules the traces need beyond
   `rewrites.eo` (`rewrites-ext.eo` in the eval dir is the concatenation). `and`/`or-flatten`
-  are deliberately absent — the RARE list semantics normalize `(and (and xs))` to `(and xs)` in
-  the rule's own instantiation, so the singleton unwrap is not RARE-expressible; those links are
-  emitted as their two-step core derivation in both regimes.
+  are deliberately absent, and *not* because RARE is lacking: those links equate a singleton
+  application of an n-ary connective with its argument, which is not a well-formed Alethe term,
+  so there is nothing for a rule to state — RARE's normalization of `(or x)` to `x` is right.
+  veriT emits such terms anyway (1 666 occurrences over 71 of its 489 corpus proofs; cvc5: none),
+  so those links keep a two-step core derivation as a robustness measure for out-of-spec input.
 - **Guard refinement**: `ContextStack` now tracks anchor-*assigned* names separately from
   merely declared ones (`assigns`/`assigns_nothing`); recipes are skipped only when the
   conclusion mentions an assigned variable, since only those change under the context
@@ -72,14 +74,18 @@ section of `docs/src/core.md`.
    resolving once per *distinct* literal everywhere (`and_intro`, `pack_or`, the ground
    recursion, `guarded`'s assumptions — a lookahead's inner `ite` can *be* the right-hand side,
    making two case equalities identical).
-2. **Singleton applications.** The `and`/`or_simplify` checkers compare argument lists, so
-   `(= (or x) x)` and `(= (or false x) (or x))` are both accepted — the right-hand side can be a
-   singleton application `form` would collapse or a bare term. The trace compares lists
-   checker-style and gives the final link the right side exactly as written.
-3. **RARE cannot say everything the checkers do.** Besides the flatten/unit rules, an
-   instantiated right-hand side `(or ys)` meta-normalizes to `ys` while the proof's term keeps
-   the singleton — the `ToRare` lemma emission validates the instantiation against the exact
-   target and falls back to the core recipe on mismatch.
+2. **Singleton applications, which should not exist.** The `and`/`or_simplify` checkers compare
+   argument lists, so `(= (or x) x)` and `(= (or false x) (or x))` are both accepted — the
+   right-hand side can be a singleton application or a bare term. Alethe has no singleton
+   application of an n-ary connective, so these steps are out of spec; **veriT emits them anyway**
+   — 1 666 occurrences over 71 of its 489 corpus proofs, none from cvc5, concentrated in QF_LRA
+   (1 275). Carcara's parser accepts them and the checkers tolerate them, so the elaboration has
+   to as well: the trace compares argument lists checker-style and gives the final link the right
+   side exactly as written, and the `ToRare` lemma emission validates each instantiation against
+   the exact target, falling back to the core derivation when the meta-normalized instance
+   differs. **The fix belongs upstream** — veriT should write `x` rather than `(or x)`, or
+   Carcara should normalize singleton applications at parse time, which would also let the two
+   checkers drop their argument-list special cases.
 4. **`la_generic` takes single negations only** (`negate_disequality` uses `remove_negation`),
    so direction clauses use collapsed literals (`c` for `¬c`) and the equivalence assembly
    resolves on the complement pairs directly.
@@ -131,9 +137,9 @@ rewrite's own semantics, and to a *derivation* otherwise.
 The `core-simp-rare` outputs answer the question the analysis left open: **53 distinct rewrite
 rules** over the corpus — 40 of the 101 active non-BV/array rules of `rewrites.eo` plus 13 of
 `simplify-rules.eo`; veriT's proofs need 28, cvc5's 45 (before the `aci_simp` renames the
-counts were 55/32/45, the difference being the duplicate-removal rules the renames absorb). Two rewrites of the `*_simplify`
-fixpoint systems are not expressible in RARE at all (the singleton collapse and the flatten),
-since the list semantics normalize the rule's own left-hand side away.
+counts were 55/32/45, the difference being the duplicate-removal rules the renames absorb). Two links of the `*_simplify` chains have no rule at
+all, because they equate a singleton application of `and`/`or` with its argument — not a
+well-formed Alethe term (see the singleton note below).
 
 The one blow-up found — QF_LIA/veriT at 10.58 aggregate under `core-taut` (from 4.07), entirely
 from two `Averest` proofs with ~18 000 `and_simplify` steps over hundred-argument conjunctions,

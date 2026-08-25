@@ -160,8 +160,10 @@ fn and_or_trace(
     }
 
     // A singleton application equated with its own argument list (`(or x) ≈ x`, or an identical
-    // argument list under a differently-shaped application) is the unit collapse; the flatten
-    // recipe proves it in one `or_pos`/`or_neg` (or `and_pos`/`and_neg`) pair.
+    // argument list under a differently-shaped application) is the unit collapse. Such terms are
+    // out of spec — Alethe has no singleton application of an n-ary connective — but veriT emits
+    // them, so the trace handles them: the flatten recipe proves the equality in one
+    // `or_pos`/`or_neg` (or `and_pos`/`and_neg`) pair.
     if phis == rhs_args && lhs != rhs {
         links.push(Link {
             before: lhs.clone(),

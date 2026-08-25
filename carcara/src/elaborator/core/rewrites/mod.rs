@@ -349,9 +349,12 @@ fn rare_or_evaluate(
         return Ok(b.step(clause, "evaluate", Vec::new(), Vec::new()));
     }
     if label == "and-flatten" || label == "or-flatten" {
-        // The singleton unwrap cannot be a RARE rule: the list semantics of the meta-rewriting
-        // normalize the rule's own left-hand-side instance away. Its core recipe (one
-        // `and_pos`/`and_neg` or `or_pos`/`or_neg` pair) is emitted in both regimes.
+        // These links only arise from *singleton applications* of `and`/`or`, which the Alethe
+        // specification does not allow but veriT emits anyway (1 666 occurrences over 71 of its
+        // corpus proofs; cvc5 emits none). RARE's meta-level identifies `(or x)` with `x`, and
+        // rightly so, which is why no rule can state the collapse — so these links take their
+        // core derivation (one `and_pos`/`and_neg` or `or_pos`/`or_neg` pair) in both regimes.
+        // The real fix is upstream: veriT should write `x`.
         return recipes::rewrite_lemma(b, label, before, after);
     }
 
