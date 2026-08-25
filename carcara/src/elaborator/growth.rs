@@ -21,9 +21,14 @@
 //! - **net** — `emitted − instances`: the commands the proof gained. A *rename* has net 0 by
 //!   construction, which is exactly why renames are the cheapest reductions in the ladder —
 //!   `th_resolution` above is one.
-//! - **share of growth** — that rule's net against the total, so the table ranks by what actually
-//!   drives a corpus's size rather than by per-instance cost. The two are very different questions:
-//!   a 40-step recipe used twice matters less than a 2-step one used a hundred thousand times.
+//! - **share of growth** — that rule's net against the *gross* growth (the sum of the positive
+//!   nets), so the table ranks by what actually drives a corpus's size rather than by per-instance
+//!   cost. The two are very different questions: a 40-step recipe used twice matters less than a
+//!   2-step one used a hundred thousand times.
+//!
+//! A rule can report a **negative** net: its reduction produced fewer new commands than the number
+//! of steps it replaced, because the sharing pass folded its derivations together. That is a
+//! saving, and it is why shares are normalized by the gross rather than the algebraic total.
 //!
 //! **Sharing is attributed to the reduction that first built the derivation.** A node is charged
 //! once; when the sharing pass replaces a later reduction's output by an earlier identical one,
@@ -122,6 +127,16 @@ pub fn report() {
     let Some(map) = guard.as_ref() else {
         return;
     };
+    // Shares are taken against the *gross* growth — the sum of the positive nets — because a rule
+    // can have a negative net: a reduction whose derivations the sharing pass folds together
+    // produces fewer new commands than the steps it replaced, and that is a saving, not a share of
+    // the growth. Normalizing by the algebraic total would let those savings inflate everyone
+    // else's percentage past 100
+    let gross: i64 = map
+        .values()
+        .map(|(i, e)| *e as i64 - *i as i64)
+        .filter(|net| *net > 0)
+        .sum();
     let total: i64 = map.values().map(|(i, e)| *e as i64 - *i as i64).sum();
     let mut rows: Vec<_> = map
         .iter()
@@ -129,8 +144,8 @@ pub fn report() {
         .collect();
     rows.sort_by_key(|(rule, _, _, net)| (std::cmp::Reverse(*net), (*rule).clone()));
     for (rule, instances, emitted, net) in rows {
-        let share = if total > 0 {
-            100.0 * net as f64 / total as f64
+        let share = if gross > 0 {
+            100.0 * net as f64 / gross as f64
         } else {
             0.0
         };
@@ -140,5 +155,5 @@ pub fn report() {
             net as f64 / instances.max(1) as f64,
         );
     }
-    println!("RULE_GROWTH TOTAL net={total}");
+    println!("RULE_GROWTH TOTAL net={total} gross={gross}");
 }
