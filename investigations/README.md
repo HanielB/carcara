@@ -22,6 +22,13 @@ result can be reviewed without re-running the experiment.
 | 2026-08-21 | [Lifting repeated closed steps](./2026-08-21-hoist-pass.md) | `inv/hoist-pass` | **merged** |
 | 2026-08-21 | [The rewrite-reduction regimes](./2026-08-21-rewrite-reduction-regimes.md) | `coreAlethe` | **merged** |
 | 2026-08-24 | [veriT emits singleton applications of `and`/`or`](./2026-08-24-verit-singleton-applications.md) | `coreAlethe` | solver-side, reported |
+| 2026-08-25 | [An algebraic hierarchy for `aci_simp` and `poly_simp`](./2026-08-25-aci-poly-algebraic-hierarchy.md) | `coreAlethe` | analysis; kept as two primitives |
+| 2026-08-25 | [`la_generic` integer strengthening: two unsoundnesses](./2026-08-25-la-generic-strengthening.md) | `coreAlethe` | **merged** |
+| 2026-08-25 | [Taking `rare_rewrite` to zero](./2026-08-25-rare-rewrite-to-zero.md) | `coreAlethe` | **merged** |
+| 2026-08-25 | [Collapsing lemma scopes clausally: `deep-hoist`](./2026-08-25-deep-hoist.md) | `coreAlethe` | **merged** |
+| 2026-08-25 | [What each rewrite recipe costs](./2026-08-25-recipe-cost-per-rewrite.md) | `coreAlethe` | measurement; no rewrite earns a rule |
+| 2026-08-26 | [Per-rule elaboration growth over the corpus](./2026-08-26-per-rule-growth.md) | `coreAlethe` | measurement; drives the SMT-LIB run |
+| 2026-08-26 | [Splitting the rewrite-removal cost: `rare_rewrite` vs `evaluate`](./2026-08-26-rare-vs-evaluate.md) | `coreAlethe` | **merged** (new `core-no-rare` regime) |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
