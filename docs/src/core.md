@@ -1300,7 +1300,10 @@ conclusion `(= A true)` or `(= A false)`; and Boolean evaluations (`not` 10%, `a
 genuine gap is integer `div`/`mod` (absent here), which no core rule characterizes — reducing
 those needs the `div_intro`-style definitional axioms of the alethe-toolkit branch. So
 `evaluate` too could move to reducible with **zero new trusted code**, deleting 585 lines from
-the TCB; it stays core because the price is steps, not trust — ~90% of its instances are
+the TCB — and the `core-taut` regime *does* reduce it, at about 7 new commands per instance; the
+recipe is the structural recursion documented in [Recipes for eliminating the RARE
+rewrites](./core/rewrite-recipes.md#evaluate-the-structural-recursion). It stays core in the
+classification because the price is steps, not trust — ~90% of its instances are
 duplicates (the `hoist` pass's best customer), and re-deriving what a 20-line interpreter case
 decides in microseconds is the classification's cost criterion applied in reverse. Unlike
 `rare_rewrite`, though, nothing structural depends on it: `evaluate` is the first candidate to
