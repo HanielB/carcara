@@ -45,8 +45,8 @@ default. Re-enabling any of them is one entry in `get_elaboration_function`.
 
 ## The rewrite-reduction regimes
 
-Two variants of the pass extend it over the rewrite vocabulary (the `*_simplify` rules,
-`evaluate`, `rare_rewrite`):
+Three variants of the pass extend it over the rewrite vocabulary (the `*_simplify` rules,
+`evaluate`, `rare_rewrite`), each removing one more piece of it:
 
 - **`core-simp-rare`** replays each `*_simplify` step as the chain of rewrites its checker
   applies, one `rare_rewrite` lemma per rewrite (an `evaluate` lemma for the constant folds),
@@ -59,6 +59,11 @@ Two variants of the pass extend it over the rewrite vocabulary (the `*_simplify`
   normalizing `(or x)` to `x`). veriT nevertheless emits such terms — 1 666 occurrences over 71
   of its corpus proofs, none from cvc5 — so the pass keeps the derivation as a robustness
   measure for out-of-spec input.
+- **`core-no-rare`** goes one rung further: the chains' lemmas and every `rare_rewrite` step of
+  the input become core derivations, but `evaluate` is kept. Constant folding stays one
+  computational primitive instead of a derivation over the `to_int` bounds and the Boolean
+  axioms. This rung exists to isolate what removing `evaluate` alone costs — it is the only
+  difference between this regime and the next.
 - **`core-taut`** reduces the whole vocabulary to the core: the chains' lemmas, and every
   `evaluate` and `rare_rewrite` step of the input, become core derivations, using the recipes
   the "frozen RARE set" analysis of the classification proposes (the `poly_simp_rel` template

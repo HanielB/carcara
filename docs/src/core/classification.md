@@ -151,7 +151,7 @@ The exact axiom pairings for the premise clausification rules (the `equiv` famil
 | `not_implies2` | `implies_neg2` | | | |
 
 <details id="ex-clausification">
-<summary>Example: a clausification rule (<code>and</code>)</summary>
+<summary>Example: all 19 premise clausification rules (<code>and</code>, <code>not_or</code>, <code>or</code>, <code>not_and</code>, <code>xor1</code>, <code>xor2</code>, <code>not_xor1</code>, <code>not_xor2</code>, <code>implies</code>, <code>not_implies1</code>, <code>not_implies2</code>, <code>equiv1</code>, <code>equiv2</code>, <code>not_equiv1</code>, <code>not_equiv2</code>, <code>ite1</code>, <code>ite2</code>, <code>not_ite1</code>, <code>not_ite2</code>)</summary>
 
 ```
 (step t2 (cl q) :rule and :premises (t1) :args (1))     ; t1: (cl (and p q r))
@@ -166,7 +166,155 @@ becomes
 
 The other 18 premise clausification rules follow the identical two-step shape with their paired
 axiom from the table above — all 19 axioms are core, so every reduction lands directly in the
-core fragment.
+core fragment. Spelled out, over `p`, `q`, `r` and the premises `a1 … a12` naming the twelve
+formulas being clausified (`(and p q r)`, `(not (or p q r))`, `(or p q r)`, `(not (and p q))`,
+`(xor p q)`, `(not (xor p q))`, `(=> p q)`, `(not (=> p q))`, `(= p q)`, `(not (= p q))`,
+`(ite p q r)`, `(not (ite p q r))`):
+
+```
+(step s_not_or.c1 (cl (or p q r) (not q)) :rule or_neg :args (1))
+(step s_not_or (cl (not q)) :rule resolution :premises (s_not_or.c1 a2) :args ((or p q r) true))
+
+(step s_or.c1 (cl (not (or p q r)) p q r) :rule or_pos)
+(step s_or (cl p q r) :rule resolution :premises (s_or.c1 a3) :args ((or p q r) false))
+
+(step s_not_and.c1 (cl (and p q) (not p) (not q)) :rule and_neg)
+(step s_not_and (cl (not p) (not q)) :rule resolution :premises (s_not_and.c1 a4) :args ((and p q) true))
+
+(step s_xor1.c1 (cl (not (xor p q)) p q) :rule xor_pos1)
+(step s_xor1 (cl p q) :rule resolution :premises (s_xor1.c1 a5) :args ((xor p q) false))
+
+(step s_xor2.c1 (cl (not (xor p q)) (not p) (not q)) :rule xor_pos2)
+(step s_xor2 (cl (not p) (not q)) :rule resolution :premises (s_xor2.c1 a5) :args ((xor p q) false))
+
+(step s_not_xor1.c1 (cl (xor p q) p (not q)) :rule xor_neg1)
+(step s_not_xor1 (cl p (not q)) :rule resolution :premises (s_not_xor1.c1 a6) :args ((xor p q) true))
+
+(step s_not_xor2.c1 (cl (xor p q) (not p) q) :rule xor_neg2)
+(step s_not_xor2 (cl (not p) q) :rule resolution :premises (s_not_xor2.c1 a6) :args ((xor p q) true))
+
+(step s_implies.c1 (cl (not (=> p q)) (not p) q) :rule implies_pos)
+(step s_implies (cl (not p) q) :rule resolution :premises (s_implies.c1 a7) :args ((=> p q) false))
+
+(step s_not_implies1.c1 (cl (=> p q) p) :rule implies_neg1)
+(step s_not_implies1 (cl p) :rule resolution :premises (s_not_implies1.c1 a8) :args ((=> p q) true))
+
+(step s_not_implies2.c1 (cl (=> p q) (not q)) :rule implies_neg2)
+(step s_not_implies2 (cl (not q)) :rule resolution :premises (s_not_implies2.c1 a8) :args ((=> p q) true))
+
+(step s_equiv1.c1 (cl (not (= p q)) (not p) q) :rule equiv_pos2)
+(step s_equiv1 (cl (not p) q) :rule resolution :premises (s_equiv1.c1 a9) :args ((= p q) false))
+
+(step s_equiv2.c1 (cl (not (= p q)) p (not q)) :rule equiv_pos1)
+(step s_equiv2 (cl p (not q)) :rule resolution :premises (s_equiv2.c1 a9) :args ((= p q) false))
+
+(step s_not_equiv1.c1 (cl (= p q) p q) :rule equiv_neg2)
+(step s_not_equiv1 (cl p q) :rule resolution :premises (s_not_equiv1.c1 a10) :args ((= p q) true))
+
+(step s_not_equiv2.c1 (cl (= p q) (not p) (not q)) :rule equiv_neg1)
+(step s_not_equiv2 (cl (not p) (not q)) :rule resolution :premises (s_not_equiv2.c1 a10) :args ((= p q) true))
+
+(step s_ite1.c1 (cl (not (ite p q r)) p r) :rule ite_pos1)
+(step s_ite1 (cl p r) :rule resolution :premises (s_ite1.c1 a11) :args ((ite p q r) false))
+
+(step s_ite2.c1 (cl (not (ite p q r)) (not p) q) :rule ite_pos2)
+(step s_ite2 (cl (not p) q) :rule resolution :premises (s_ite2.c1 a11) :args ((ite p q r) false))
+
+(step s_not_ite1.c1 (cl (ite p q r) p (not r)) :rule ite_neg1)
+(step s_not_ite1 (cl p (not r)) :rule resolution :premises (s_not_ite1.c1 a12) :args ((ite p q r) true))
+
+(step s_not_ite2.c1 (cl (ite p q r) (not p) (not q)) :rule ite_neg2)
+(step s_not_ite2 (cl (not p) (not q)) :rule resolution :premises (s_not_ite2.c1 a12) :args ((ite p q r) true))
+```
+
+The pivot is always the premise formula; its *polarity* argument is `false` for the nine positive
+rules (the premise is the formula, the axiom carries its negation) and `true` for the ten `not_*`
+rules (the premise is the negation, the axiom carries the formula). That single flag is the whole
+difference between the two halves of the family.
+
+</details>
+
+<details id="ex-clausal-renames">
+<summary>Example: <code>th_resolution</code>, <code>tautology</code>, <code>reordering</code></summary>
+
+`th_resolution` is `resolution` under another name — the spec says so outright, and the reduction
+is the rename, arguments and all:
+
+```
+(step r (cl p r) :rule th_resolution :premises (c1 c2))    ; c1: (cl p q r), c2: (cl (not q))
+```
+
+becomes
+
+```
+(step r (cl p r) :rule resolution :premises (c1 c2))
+```
+
+`tautology` concludes literally `(cl true)`, so once the premise's complementary pair has been
+checked there is nothing left to transport: the conclusion is an instance of the `true` axiom, and
+the premise leaves the DAG.
+
+```
+(step r (cl true) :rule tautology :premises (t))           ; t: (cl p (not p) q)
+```
+
+becomes
+
+```
+(step r (cl true) :rule true)
+```
+
+Note the direction of the trade: the reduction *drops* a dependency rather than adding steps, so
+`t` survives only if something else uses it — one of the few places in the ladder where a
+reduction can make the proof *smaller*.
+
+`reordering` is not reduced but *eliminated*: the reordering pass rewrites the conclusions of the
+steps below it and deletes the step. Given
+
+```
+(step c_or (cl p q r) :rule or :premises (h1))
+(step r (cl r q p) :rule reordering :premises (c_or))
+(step end (cl) :rule hole :premises (r))
+```
+
+the pass emits no replacement for `r` at all and repoints `end` at `c_or`:
+
+```
+(step c_or (cl p q r) :rule or :premises (h1))
+(step end (cl) :rule hole :premises (c_or))
+```
+
+which is sound exactly because every core clausal rule reads its premises as sets.
+
+</details>
+
+<details id="ex-weakening-contraction">
+<summary>Example: <code>weakening</code> and <code>contraction</code></summary>
+
+Both renames are available only under `resolution`'s RUP reading, and both have to satisfy the
+rule's two-premise minimum — which the repeated premise does, since resolution takes its premises
+as a set:
+
+```
+(step w (cl p q r s) :rule weakening :premises (c_or))     ; c_or: (cl p q r)
+(step c (cl p q)     :rule contraction :premises (d))      ; d:    (cl p p q)
+```
+
+become
+
+```
+(step w (cl p q r s) :rule resolution :premises (c_or c_or))
+(step c (cl p q)     :rule resolution :premises (d d))
+```
+
+In both cases negating the conclusion already falsifies the premise clause, before any unit
+propagation happens, so the RUP check succeeds immediately. Under the *chain* reading of
+`resolution` neither rename is available — a chain resolution never introduces a literal, and it
+never merges duplicates — which is why a chain-targeting pipeline keeps both rules and in fact
+emits `contraction` steps of its own. That conditionality is why the two rules sit in *reducible*
+rather than in the core: the rename is real but it is not available in every reading of
+`resolution`. Carcára's `core` pass accordingly leaves both steps in place; the rename above is
+what a RUP-only target would apply, and it costs nothing either way.
 
 </details>
 
@@ -706,6 +854,163 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `or_simplify` | dual: `aci_simp` rename / short-circuit to `true` via `or_neg` + the `true` axiom and the complementary-pair template | 0 / O(1) | ACI / syntactic | **done** (`core` pass) |
 | `multi_rare_rewrite` | `rare_rewrite` chain + `trans`/`cong` | O(k·depth) | syntactic | planned; validate rule-position semantics first |
 
+<details id="ex-eqrw-renames">
+<summary>Example: <code>eq_reflexive</code> and <code>shuffle</code></summary>
+
+Two one-step moves onto primitives the core already has. `eq_reflexive` states `t ≈ t` with no
+context; `refl` states the same thing modulo the anchor's substitution, which on an empty context
+is the identity:
+
+```
+(step r (cl (= x x)) :rule eq_reflexive)      ->   (step r (cl (= x x)) :rule refl)
+```
+
+The rename is unconditional — the only guard is against assigning it *inside* a
+substitution-carrying anchor, where `refl` would mean something else — so `eq_reflexive` never
+survives elaboration.
+
+`shuffle` permutes the arguments of an associative-commutative operator, which is a special case of
+what `aci_simp` normalizes:
+
+```
+(step s (cl (= (or p q r) (or r q p))) :rule shuffle)
+```
+
+becomes
+
+```
+(step s (cl (= (or p q r) (or r q p))) :rule aci_simp)
+```
+
+The check coarsens from a multiset comparison to full ACI normalization. That is a *widening* of
+what the step licenses, which is sound here only because `aci_simp` is the designated ACI
+primitive of the core — the same argument that promotes `nary_elim` and the `*_simplify` bundle.
+
+</details>
+
+<details id="ex-and-or-simplify">
+<summary>Example: <code>and_simplify</code> and <code>or_simplify</code></summary>
+
+These rules do two different jobs and take two different routes. Everything short of
+short-circuiting — flattening, removing `true` from a conjunction or `false` from a disjunction,
+removing duplicates — is ACI normalization, so it renames:
+
+```
+(step s (cl (= (and p true q) (and p q))) :rule and_simplify)
+(step s (cl (= (or p false q) (or p q)))  :rule or_simplify)
+```
+
+become
+
+```
+(step s (cl (= (and p true q) (and p q))) :rule aci_simp)
+(step s (cl (= (or p false q) (or p q)))  :rule aci_simp)
+```
+
+The short-circuit is not an ACI fact and takes a constant-size chain over the CNF axioms instead.
+For the complementary pair, `and_simplify`'s `false` case:
+
+```
+(step s (cl (= (and p (not p)) false)) :rule and_simplify)
+```
+
+becomes
+
+```
+(step s.c4 (cl (= (and p (not p)) false) (and p (not p)) false) :rule equiv_neg2)
+(step s.c5 (cl (not false)) :rule false)
+(step s.c6 (cl (= (and p (not p)) false) (and p (not p)))
+    :rule resolution :premises (s.c4 s.c5) :args (false true))
+(step s.c1 (cl (not (and p (not p))) p) :rule and_pos :args (0))
+(step s.c2 (cl (not (and p (not p))) (not p)) :rule and_pos :args (1))
+(step s.c3 (cl (not (and p (not p)))) :rule resolution :premises (s.c1 s.c2) :args (p true))
+(step s (cl (= (and p (not p)) false))
+    :rule resolution :premises (s.c6 s.c3) :args ((and p (not p)) true))
+```
+
+and `or_simplify`'s `true` case is the exact dual, `and_pos`→`or_neg`, `equiv_neg2`→`equiv_neg1`,
+`false`→`true`:
+
+```
+(step s.c4 (cl (= (or p (not p)) true) (not (or p (not p))) (not true)) :rule equiv_neg1)
+(step s.c5 (cl true) :rule true)
+(step s.c6 (cl (= (or p (not p)) true) (not (or p (not p))))
+    :rule resolution :premises (s.c4 s.c5) :args (true false))
+(step s.c2 (cl (or p (not p)) (not (not p))) :rule or_neg :args (1))
+(step s.c1 (cl (or p (not p)) (not p)) :rule or_neg :args (0))
+(step s.c3 (cl (or p (not p))) :rule resolution :premises (s.c2 s.c1) :args ((not p) false))
+(step s (cl (= (or p (not p)) true))
+    :rule resolution :premises (s.c6 s.c3) :args ((or p (not p)) false))
+```
+
+Seven steps either way, independent of the arity. Keeping the ACI rename for the non-short-circuit
+majority is not an aesthetic choice: the recipe route for a removed constant is linear in the
+arity, and two Averest QF_LIA proofs with hundred-argument conjunctions (~18 000 instances) turn
+that into a 4× logic-wide blowup.
+
+</details>
+
+<details id="ex-connective-def">
+<summary>Example: <code>connective_def</code>, propositional instance</summary>
+
+The quantifier instance of `connective_def` is the `∀/∃` duality and renames to `qnt_duality` in
+one step. The three propositional instances are pure resolution over the CNF axioms of the two
+sides, glued by iff-introduction — no anchor anywhere. Taking the `=`-instance:
+
+```
+(step s (cl (= (= p q) (and (=> p q) (=> q p)))) :rule connective_def)
+```
+
+The derivation has two halves. First `(cl (and (=> p q) (=> q p)) (not (= p q)))` — the
+right-to-left direction, built by proving each implication from the `equiv_pos` axioms and packing
+them with `and_neg`:
+
+```
+(step s.c11 (cl (and (=> p q) (=> q p)) (not (=> p q)) (not (=> q p))) :rule and_neg)
+(step s.c1 (cl (=> p q) p) :rule implies_neg1)
+(step s.c3 (cl (not (= p q)) (not p) q) :rule equiv_pos2)
+(step s.c4 (cl (=> p q) (not (= p q)) q) :rule resolution :premises (s.c1 s.c3) :args (p true))
+(step s.c2 (cl (=> p q) (not q)) :rule implies_neg2)
+(step s.c5 (cl (=> p q) (not (= p q))) :rule resolution :premises (s.c4 s.c2) :args (q true))
+(step s.c12 (cl (and (=> p q) (=> q p)) (not (=> q p)) (not (= p q)))
+    :rule resolution :premises (s.c11 s.c5) :args ((=> p q) false))
+(step s.c6 (cl (=> q p) q) :rule implies_neg1)
+(step s.c8 (cl (not (= p q)) p (not q)) :rule equiv_pos1)
+(step s.c9 (cl (=> q p) (not (= p q)) p) :rule resolution :premises (s.c6 s.c8) :args (q true))
+(step s.c7 (cl (=> q p) (not p)) :rule implies_neg2)
+(step s.c10 (cl (=> q p) (not (= p q))) :rule resolution :premises (s.c9 s.c7) :args (p true))
+(step s.c13 (cl (and (=> p q) (=> q p)) (not (= p q)))
+    :rule resolution :premises (s.c12 s.c10) :args ((=> q p) false))
+```
+
+The mirror half — steps `s.c14` through `s.c24`, ending in
+`(cl (= p q) (not (and (=> p q) (=> q p))))` — is the same shape with every polarity swapped:
+`and_pos` selects each conjunct, `implies_pos` consumes it, `equiv_neg1/2` assembles the
+equivalence. The two halves then meet at the iff-introduction pattern:
+
+```
+(step s.c25 (cl (= (= p q) (and (=> p q) (=> q p))) (= p q) (and (=> p q) (=> q p)))
+    :rule equiv_neg2)
+(step s.c27 (cl (= (= p q) (and (=> p q) (=> q p))) (and (=> p q) (=> q p)))
+    :rule resolution :premises (s.c25 s.c13) :args ((= p q) true))
+(step s.c26 (cl (= (= p q) (and (=> p q) (=> q p))) (not (= p q))
+                (not (and (=> p q) (=> q p)))) :rule equiv_neg1)
+(step s.c28 (cl (= (= p q) (and (=> p q) (=> q p))) (not (and (=> p q) (=> q p))))
+    :rule resolution :premises (s.c26 s.c24) :args ((= p q) false))
+(step s.c29 (cl (= (= p q) (and (=> p q) (=> q p)))
+                (= (= p q) (and (=> p q) (=> q p))))
+    :rule resolution :premises (s.c27 s.c28) :args ((and (=> p q) (=> q p)) true))
+(step s (cl (= (= p q) (and (=> p q) (=> q p)))) :rule contraction :premises (s.c29))
+```
+
+30 steps for the `=`-instance, 34 for `(= (xor p q) (or (and (not p) q) (and p (not q))))` and 32
+for `(= (ite p q r) (and (=> p q) (=> (not p) r)))`. The differences are the `not_not` steps that
+discharge the `¬¬` literals `and_neg`/`or_neg` produce on a *negated* conjunct — two of them in
+the `xor` case, one in the `ite` case — plus, in the `xor` case, the extra `or_neg`/`or_pos` layer
+its disjunctive right-hand side needs. All constant-size, and none of the three needs a subproof.
+
+</details>
+
 <details id="ex-eq-transitive">
 <summary>Example: <code>eq_transitive</code></summary>
 
@@ -937,6 +1242,41 @@ coefficient `[1]`.
 
 </details>
 
+<details id="ex-la-tautology">
+<summary>Example: <code>la_tautology</code>, both forms</summary>
+
+The unit form is the whole reduction — the Farkas certificate is the single coefficient `1`:
+
+```
+(step u (cl (>= x x)) :rule la_tautology)   ->   (step u (cl (>= x x)) :rule la_generic :args (1.0))
+```
+
+The binary form concludes an `or`-*term* rather than a two-literal clause, so after the
+`la_generic` step the disjunction has to be re-introduced — the `or_intro` packaging above, written
+out:
+
+```
+(step t (cl (or (not (<= x 0)) (<= x 1))) :rule la_tautology)
+```
+
+becomes
+
+```
+(step t.c1 (cl (not (<= x 0)) (<= x 1)) :rule la_generic :args (1.0 1.0))
+(step t.c2 (cl (or (not (<= x 0)) (<= x 1)) (not (not (<= x 0)))) :rule or_neg :args (0))
+(step t.c3 (cl (<= x 1) (or (not (<= x 0)) (<= x 1)))
+    :rule resolution :premises (t.c1 t.c2) :args ((not (<= x 0)) true))
+(step t.c4 (cl (or (not (<= x 0)) (<= x 1)) (not (<= x 1))) :rule or_neg :args (1))
+(step t (cl (or (not (<= x 0)) (<= x 1)))
+    :rule resolution :premises (t.c3 t.c4) :args ((<= x 1) true))
+```
+
+Five steps rather than the six of `la_totality`'s `or_intro`: resolution reads its premises as
+sets, so the duplicate copy of the conclusion that `or_intro`'s generic expansion would leave
+behind — and its closing `contraction` — never appears here.
+
+</details>
+
 <details id="ex-la-rw-eq">
 <summary>Example: <code>la_rw_eq</code></summary>
 
@@ -982,6 +1322,54 @@ may carry a coefficient of either sign.)
 | `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
 | `div_simplify` | `poly_simp` (real division by a constant is a ring identity) or `evaluate` (the integer `div`/`mod` cases over constants) — a rename either way, chosen by trying the ring check first | 0 | ring / evaluation | **done** (`core` pass, 2026-08-25). Promoted from *expensive*: the objection was that its two cases take *different* primitives, which is a fact about the recipe, not a cost. All 94 corpus instances are already-folded rational constants, i.e. `poly_simp` renames |
 
+
+<details id="ex-arith-simplify-bundle">
+<summary>Example: <code>prod_simplify</code>, <code>sum_simplify</code>, <code>minus_simplify</code>, <code>unary_minus_simplify</code>, <code>div_simplify</code></summary>
+
+`prod_simplify`, `sum_simplify`, `minus_simplify` and `unary_minus_simplify` each fold a different
+family of arithmetic identities, and every one of those identities is a ring identity — which is
+precisely `poly_simp`'s check. So all four are renames:
+
+```
+(step a1 (cl (= (* 2 3 x) (* 6 x))) :rule prod_simplify)
+(step a2 (cl (= (+ x 0 y) (+ x y)))  :rule sum_simplify)
+(step a3 (cl (= (- x 0) x))          :rule minus_simplify)
+(step a4 (cl (= (- (- x)) x))        :rule unary_minus_simplify)
+```
+
+become
+
+```
+(step a1 (cl (= (* 2 3 x) (* 6 x))) :rule poly_simp)
+(step a2 (cl (= (+ x 0 y) (+ x y)))  :rule poly_simp)
+(step a3 (cl (= (- x 0) x))          :rule poly_simp)
+(step a4 (cl (= (- (- x)) x))        :rule poly_simp)
+```
+
+`div_simplify` is the same rename whenever the identity is a ring one. All 94 corpus instances are
+already-folded rational constants, where it is trivially so:
+
+```
+(step d (cl (= (/ 3.0 2.0) 1.5)) :rule div_simplify)   ->   (step d (cl (= 3/2 3/2)) :rule poly_simp)
+```
+
+The exception is the integer `div`/`mod` cases. Euclidean division is not a ring operation, so
+`poly_simp`'s normalization cannot express the identity at all; on constants it is a plain
+evaluation, and the rename goes to the other computational primitive:
+
+```
+(step d (cl (= (div 7 2) 3)) :rule div_simplify)   ->   (step d (cl (= (div 7 2) 3)) :rule evaluate)
+```
+
+The pass picks between the two by *trying* the ring check first and falling back — the objection
+that once put `div_simplify` in *expensive* was that its cases need different primitives, which is
+a fact about the recipe's shape, not a cost. A non-constant integer instance such as
+`(= (div x 1) x)` satisfies neither check and the step is kept unchanged; nothing in the corpus
+produces one. Under `core-taut`, where `evaluate` is itself reduced, the second case routes
+through the evaluation recipe instead of the rename (see
+[Rewrite recipes](./rewrite-recipes.md)).
+
+</details>
 
 <details id="ex-la-mult-pos">
 <summary>Example: <code>la_mult_pos</code>, strict form</summary>

@@ -43,6 +43,11 @@ pub enum RewriteReduction {
     Keep,
     /// `*_simplify` steps become chains of `rare_rewrite`/`evaluate` lemmas.
     ToRare,
+    /// `*_simplify` and `rare_rewrite` reduce to the core, but `evaluate` is kept: constant
+    /// folding stays a single computational primitive rather than a derivation over the two
+    /// `to_int` bounds and the Boolean axioms. This is the rung between `ToRare` and `ToCore`,
+    /// and it isolates what removing `evaluate` alone costs.
+    ToCoreKeepEval,
     /// `*_simplify`, `evaluate` and `rare_rewrite` steps all reduce to the core (plus the
     /// term-`ite` selection axioms).
     ToCore,
@@ -335,29 +340,10 @@ fn lemma(
     rules: Option<&Rules>,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     let inner = match &link.inner {
-        None => match reduction {
-            RewriteReduction::ToRare => {
-                rare_or_evaluate(b, link.label, &link.before, &link.after, rules)?
-            }
-            RewriteReduction::ToCore => {
-                let node = core_lemma(b, link.label, &link.before, &link.after)?;
-                record_cost(link.label, derivation_size(&node));
-                node
-            }
-            RewriteReduction::Keep => unreachable!(),
-        },
+        None => single_lemma(b, link.label, &link.before, &link.after, reduction, rules)?,
         Some((inner_before, inner_after)) => {
-            let base = match reduction {
-                RewriteReduction::ToRare => {
-                    rare_or_evaluate(b, link.label, inner_before, inner_after, rules)?
-                }
-                RewriteReduction::ToCore => {
-                    let node = core_lemma(b, link.label, inner_before, inner_after)?;
-                    record_cost(link.label, derivation_size(&node));
-                    node
-                }
-                RewriteReduction::Keep => unreachable!(),
-            };
+            let base =
+                single_lemma(b, link.label, inner_before, inner_after, reduction, rules)?;
             // Lift the inner rewrite to the root by congruence. The `cong` checker skips
             // syntactically equal argument pairs, so the single premise suffices.
             let clause = vec![build_term!(
@@ -368,6 +354,33 @@ fn lemma(
         }
     };
     Ok(inner)
+}
+
+/// The lemma for one rewrite, in whichever form the regime asks for.
+///
+/// `ToCoreKeepEval` differs from `ToCore` in exactly one place — a constant fold stays an
+/// `evaluate` step instead of expanding into its recipe — which is what makes the two configs a
+/// clean measurement of `evaluate`'s reduction cost.
+fn single_lemma(
+    b: &mut Builder,
+    label: RewriteLabel,
+    before: &Rc<Term>,
+    after: &Rc<Term>,
+    reduction: RewriteReduction,
+    rules: Option<&Rules>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
+    match reduction {
+        RewriteReduction::ToRare => rare_or_evaluate(b, label, before, after, rules),
+        RewriteReduction::ToCoreKeepEval if label == "evaluate" => {
+            rare_or_evaluate(b, label, before, after, rules)
+        }
+        RewriteReduction::ToCoreKeepEval | RewriteReduction::ToCore => {
+            let node = core_lemma(b, label, before, after)?;
+            record_cost(label, derivation_size(&node));
+            Ok(node)
+        }
+        RewriteReduction::Keep => unreachable!(),
+    }
 }
 
 fn core_lemma(

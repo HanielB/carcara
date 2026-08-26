@@ -82,10 +82,12 @@ This is the only place the core needs to know what `to_int` *is*, and it needs n
 it: the two bounds pin the value to a half-open unit interval and `la_generic`'s integer
 strengthening picks the integer out of it.
 
-**Cost.** Measured over the corpus in the `core-taut` regime, `evaluate` reduces at about **7 new
-commands per instance** — the bridge plus a handful of axiom instances. `div` and `mod` at a
-symbolic divisor are the one shape with no recipe; they need the `div_intro` definitional axioms
-and do not occur in this corpus.
+**Cost.** Measured over the corpus in the `core-taut` regime, `evaluate` reduces at **2.09 new
+commands per instance** — 26 099 instances, 54 427 emitted, net +28 328 — the bridge plus a
+handful of axiom instances, and after the sharing pass has folded the repeated ones. (veriT emits
+no `evaluate` at all, so the whole figure is cvc5's.) `div` and `mod` at a symbolic divisor are the
+one shape with no recipe; they need the `div_intro` definitional axioms and do not occur in this
+corpus.
 
 ## The four shared closures
 

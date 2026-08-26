@@ -71,6 +71,10 @@ pub enum ElaborationPass {
     /// The `core` pass, additionally replaying the `*_simplify` rules as chains of
     /// `rare_rewrite`/`evaluate` lemmas (the rewrite vocabulary itself is kept).
     CoreSimpRare,
+    /// The `core` pass, additionally reducing `*_simplify` and `rare_rewrite` to the core but
+    /// keeping `evaluate`. The rung between `core-simp-rare` and `core-taut`: it isolates the
+    /// cost of removing constant folding as a primitive.
+    CoreNoRare,
     /// The `core` pass, additionally reducing the whole rewrite vocabulary (`*_simplify`,
     /// `evaluate`, `rare_rewrite`) to the core plus the term-`ite` selection axioms.
     CoreTaut,
@@ -132,6 +136,9 @@ impl<'e> Elaborator<'e> {
                 }
                 ElaborationPass::CoreSimpRare => {
                     self.elaborate_core(current, core::rewrites::RewriteReduction::ToRare)?
+                }
+                ElaborationPass::CoreNoRare => {
+                    self.elaborate_core(current, core::rewrites::RewriteReduction::ToCoreKeepEval)?
                 }
                 ElaborationPass::CoreTaut => {
                     self.elaborate_core(current, core::rewrites::RewriteReduction::ToCore)?
@@ -263,9 +270,16 @@ impl<'e> Elaborator<'e> {
                             "evaluate" if rewrites == RewriteReduction::ToCore => {
                                 Some(core::rewrites::elaborate_evaluate(self.pool, context, s))
                             }
-                            "rare_rewrite" if rewrites == RewriteReduction::ToCore => Some(
-                                core::rewrites::elaborate_rare_rewrite(self.pool, context, s),
-                            ),
+                            "rare_rewrite"
+                                if matches!(
+                                    rewrites,
+                                    RewriteReduction::ToCore | RewriteReduction::ToCoreKeepEval
+                                ) =>
+                            {
+                                Some(core::rewrites::elaborate_rare_rewrite(
+                                    self.pool, context, s,
+                                ))
+                            }
                             "evaluate" | "rare_rewrite" => None,
                             _ => Some(core::rewrites::elaborate_simplify(
                                 self.pool,
