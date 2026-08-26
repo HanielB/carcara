@@ -26,6 +26,67 @@ observation: `and-flatten`, `or-flatten`, `and-dup-elim`, `or-dup-elim`, `arith-
 `ite-then-true-else-false`, `ite-then-false-else-true`. They are implemented and unit-tested, not
 exercised at scale.
 
+## `evaluate`: the structural recursion
+
+`evaluate` is not a rewrite rule but a *computational primitive* — its check is the 580-line
+interpreter in `ast/evaluate.rs`. The `core-taut` regime removes it all the same, and this is where
+that happens, so it belongs here even though it is not a RARE rule. Two entry points reach the same
+code (`core/rewrites/ground.rs`):
+
+- an `evaluate` **step of the input**, via `elaborate_evaluate`;
+- a constant-folding **link of a `*_simplify` trace**, which the checkers label `"evaluate"` rather
+  than with a RARE rule name; `core_lemma` routes that label here instead of to `rewrite_lemma`.
+
+`evaluation(term, value)` first re-runs the checker's own evaluator and refuses if the two disagree,
+then splits on what the value is:
+
+| the value is | derivation |
+|---|---|
+| `true` | derive the literal `(cl term)` by the recursion below, then `bridge_true` |
+| `false` | derive `(cl ¬term)`, then `bridge_false` |
+| a number | the conclusion is a ring identity: **one `poly_simp` step** |
+| a branch of a term-`ite` | the selection axiom picks the branch, the branch's own evaluation closes by `trans` |
+
+The Boolean case is the recursion, `literal(t, want)`, deriving the unit clause `(cl t)` or
+`(cl ¬t)` for a ground `t`. It is a *guided descent*: at each node it asks the evaluator what the
+subterms are worth and emits only the CNF axiom instances that case needs.
+
+| shape | derivation |
+|---|---|
+| `true` / `false` | the `true` / `false` axiom |
+| `¬u` | recurse on `u` with the polarity flipped; for the negative direction, `nn_intro` + one resolution |
+| `(and …)` true | `and_neg` resolved against each conjunct's literal |
+| `(and …)` false | `and_pos` at the first false conjunct |
+| `(or …)`, `(=>)`, `(xor)`, `(ite)` | dually, by the corresponding `*_pos`/`*_neg` axioms at the deciding argument |
+| `(= x y)` at `Bool` | the four `equiv_pos`/`equiv_neg` cases, by the two sides' truth values |
+| `(= x y)` numeric, true | a ring identity: one `poly_simp` |
+| `(= x y)` numeric, false | one `la_generic` unit clause |
+| `<`, `≤`, `>`, `≥` | one `la_generic` unit clause, positive or negated |
+
+**Ground `to_int` is folded first.** Both the ring normalization and `la_generic` treat
+`(to_int c)` as an opaque atom, so a term mixing it with arithmetic — cvc5 emits
+`(= (+ (to_int -3/2) 1) -1)` — is not a ring identity until the application is gone. `fold_to_int`
+replaces every such subterm by its value, carrying the replacement through the surrounding term by
+`cong`, and the value itself comes from the two floor axioms:
+
+```
+(step f1 (cl (<= (to_real (to_int c)) c)))         :rule to_int_lower
+(step f2 (cl (< c (+ (to_real (to_int c)) 1))))    :rule to_int_upper
+(step f3 (cl ¬f1 (<= (to_int c) k)))               :rule la_generic   ; k = ⌊c⌋
+(step f4 (cl ¬f2 (<= k (to_int c))))               :rule la_generic
+(step f5 (cl (or (= (to_int c) k) ¬… ¬…)))         :rule la_disequality
+… or + resolutions …                               → (cl (= (to_int c) k))
+```
+
+This is the only place the core needs to know what `to_int` *is*, and it needs no evaluator to do
+it: the two bounds pin the value to a half-open unit interval and `la_generic`'s integer
+strengthening picks the integer out of it.
+
+**Cost.** Measured over the corpus in the `core-taut` regime, `evaluate` reduces at about **7 new
+commands per instance** — the bridge plus a handful of axiom instances. `div` and `mod` at a
+symbolic divisor are the one shape with no recipe; they need the `div_intro` definitional axioms
+and do not occur in this corpus.
+
 ## The four shared closures
 
 Almost every recipe below is one of four shapes, so they are stated once.
