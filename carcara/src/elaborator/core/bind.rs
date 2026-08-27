@@ -255,17 +255,56 @@ fn witnesses(
 /// its witness, closed by `sko_forall`, and unpacked by `equiv2`.
 fn epsilon_clause(
     b: &mut Builder,
+    context: &mut ContextStack,
     quant: &Rc<Term>,
     bindings: &[SortedVar],
     body: &Rc<Term>,
     witnesses: &[Rc<Term>],
-    skolemized: &Rc<Term>,
-) -> Res {
+) -> Result<(Rc<ProofNode>, Rc<Term>), ElaborationError> {
     let anchor_args: Vec<AnchorArg> = bindings
         .iter()
         .zip(witnesses)
         .map(|(var, w)| AnchorArg::Assign(var.clone(), w.clone()))
         .collect();
+
+    // `sko_forall` recomputes the witnesses for *this* quantifier, from the body as the enclosing
+    // substitution leaves it, and compares them with the anchor's up to α-equivalence. Checking
+    // that here keeps a caller from handing over witnesses that belong to another quantifier
+    {
+        // The quantifier and the body must be each other's: `sko_forall` reads the body off the
+        // conclusion, so a caller that passes a body from elsewhere gets witnesses for it
+        match quant.as_ref() {
+            Term::Binder(Binder::Forall, bs, inner) if bs.0 == bindings && inner == body => (),
+            _ => {
+                return Err(explanation(
+                    "the ε-clause's quantifier and body do not match",
+                ))
+            }
+        }
+        let body_in_context = context.apply(b.pool, body);
+        let (expected, _) =
+            crate::elaborator::core::bind::witnesses(b.pool, bindings, &body_in_context);
+        let mut time = std::time::Duration::ZERO;
+        let matches = expected.len() == witnesses.len()
+            && expected
+                .iter()
+                .zip(witnesses)
+                .all(|(e, w)| crate::ast::alpha_equiv(e, w, &mut time));
+        if !matches {
+            return Err(explanation(
+                "the ε-clause's witnesses are not the ones `sko_forall` recomputes",
+            ));
+        }
+    }
+
+    // The Skolemized body is read off the context stack with the anchor pushed, which is what the
+    // `refl` inside the scope will be checked against — the enclosing substitution reaches the
+    // witnesses there, and composing the two by hand gets that wrong whenever it is not
+    // idempotent
+    context.push(&anchor_args);
+    let skolemized = context.apply(b.pool, body);
+    context.pop();
+    let skolemized = &skolemized;
 
     b.open();
     let equality = build_term!(b.pool, (= {body.clone()} {skolemized.clone()}));
@@ -280,12 +319,13 @@ fn epsilon_clause(
     );
 
     let not_skolemized = b.not(skolemized);
-    Ok(b.step(
+    let clause = b.step(
         vec![quant.clone(), not_skolemized],
         "equiv2",
         vec![sko],
         Vec::new(),
-    ))
+    );
+    Ok((clause, skolemized.clone()))
 }
 
 /// Emits `(cl ¬(∀ v̄. χ) χ[t̄])`: one `forall_inst` step (whose conclusion is a unit clause holding
@@ -328,7 +368,12 @@ type ReplayCache = HashMap<(Rc<ProofNode>, usize), Rc<ProofNode>>;
 /// What makes this hold under an enclosing anchor is that the witnesses are built over the
 /// context-applied body: being closed under the enclosing substitution, they commute with it, so
 /// a `refl` leaf that held as `Γ(ρ(a)) ≡ b` still holds as `Γ(σ(a)) ≡ σ(b)`.
-fn transport(b: &mut Builder, replacement: &mut Replacement, term: &Rc<Term>) -> Rc<Term> {
+fn transport(
+    b: &mut Builder,
+    _context: &mut ContextStack,
+    replacement: &mut Replacement,
+    term: &Rc<Term>,
+) -> Rc<Term> {
     replacement.apply(b.pool, term)
 }
 
@@ -372,7 +417,7 @@ fn replay(
             if let Some(done) = assumes.get(&key) {
                 return Ok(done.clone());
             }
-            let term = transport(b, replacement, term);
+            let term = transport(b, context, replacement, term);
             let assumption = b.assume_at(at, term);
             assumes.insert(key, assumption.clone());
             assumption
@@ -428,7 +473,7 @@ fn replay(
                 .map(|arg| match arg {
                     AnchorArg::Variable(v) => AnchorArg::Variable(v.clone()),
                     AnchorArg::Assign(v, value) => {
-                        AnchorArg::Assign(v.clone(), transport(b, replacement, value))
+                        AnchorArg::Assign(v.clone(), transport(b, context, replacement, value))
                     }
                 })
                 .collect();
@@ -494,7 +539,7 @@ fn replay(
             let clause: Vec<_> = last
                 .clause
                 .iter()
-                .map(|t| transport(b, replacement, t))
+                .map(|t| transport(b, context, replacement, t))
                 .collect();
             b.close_with_premises(args, &last.rule, clause, premises, discharge, inner)
         }
@@ -515,12 +560,12 @@ fn replay(
             let clause: Vec<_> = s
                 .clause
                 .iter()
-                .map(|t| transport(b, replacement, t))
+                .map(|t| transport(b, context, replacement, t))
                 .collect();
             let args: Vec<_> = s
                 .args
                 .iter()
-                .map(|t| transport(b, replacement, t))
+                .map(|t| transport(b, context, replacement, t))
                 .collect();
             b.step(clause, &s.rule, premises, args)
         }
@@ -634,24 +679,6 @@ fn replay_let(
     Ok(b.step(clause, "trans", premises, Vec::new()))
 }
 
-/// Whether an anchor is the kind an α-renaming `bind` scope opens: it introduces variables and
-/// assigns variables to variables, and does at least one of the latter. Those are the anchors
-/// this reduction removes, so a `bind` under one waits for the round that removes it. An anchor
-/// that assigns a *term* belongs to a `let` or a Skolemization scope, and one that only
-/// introduces variables to a `bind_let` or a ∀-closure — none of which this reduction takes
-/// away, so a `bind` under one is attempted where it stands.
-fn renaming_anchor(args: &[AnchorArg]) -> bool {
-    let renames = args.iter().any(|arg| match arg {
-        AnchorArg::Variable(_) => false,
-        AnchorArg::Assign(_, value) => value.as_var().is_some(),
-    });
-    renames
-        && args.iter().all(|arg| match arg {
-            AnchorArg::Variable(_) => true,
-            AnchorArg::Assign(_, value) => value.as_var().is_some(),
-        })
-}
-
 /// The anchor's renaming, as the pair of binder lists it renames between.
 fn anchor_renaming(args: &[AnchorArg]) -> Option<(Vec<SortedVar>, Vec<SortedVar>)> {
     let mut declared = Vec::new();
@@ -666,6 +693,7 @@ fn anchor_renaming(args: &[AnchorArg]) -> Option<(Vec<SortedVar>, Vec<SortedVar>
             }
         }
     }
+
     // An anchor that only declares variables renames nothing: both sides bind the same names, and
     // the identity is the renaming between them
     if assigned.is_empty() {
@@ -690,18 +718,6 @@ pub fn bind(pool: &mut PrimitivePool, context: &mut ContextStack, subproof: &Rc<
     let Some(previous) = &last.previous_step else {
         return Err(explanation("`bind` has no previous step"));
     };
-    // Only a `bind` whose anchor is the outermost one left is reduced. Anything built here — an
-    // ε-witness, a `let` expansion, a contextual `refl` — is written against the substitution in
-    // force where it is built, and a *later* reduction of an enclosing `bind` would carry it out
-    // of that substitution and leave it stating something else. Reducing outermost-first removes
-    // the question: the enclosing scope is gone by the time this one is reached, and the pass
-    // repeats until no layer is left (see `Elaborator::elaborate_core_expensive`).
-    if context.all_args().iter().any(|args| renaming_anchor(args)) {
-        return Err(explanation(
-            "a `bind` under an enclosing `bind` anchor, left for the round that removes it",
-        ));
-    }
-
     let inner_depth = sub.last_step.depth();
     let mut b = Builder::new(pool, last);
     // The reduction lives at the depth of the subproof, not of its body
@@ -964,9 +980,8 @@ fn alpha_quant(b: &mut Builder, context: &mut ContextStack, lhs: &Rc<Term>, rhs:
         // `sko_forall`'s checker recomputes the witnesses over the *context-applied* body, so
         // they are built there; the ε-clause's own `refl` is contextual and reconciles the two
         let to_body_ctx = context.apply(b.pool, to_body);
-        let (ws, stages) = witnesses(b.pool, to_vars, &to_body_ctx);
-        let to_skolemized = stages[to_vars.len()].clone();
-        let eps = epsilon_clause(b, to, to_vars, to_body, &ws, &to_skolemized)?;
+        let (ws, _) = witnesses(b.pool, to_vars, &to_body_ctx);
+        let (eps, to_skolemized) = epsilon_clause(b, context, to, to_vars, to_body, &ws)?;
 
         // `forall_inst` is context-free, so the instance is of the body *as written*
         let map: IndexMap<_, _> = from_vars
@@ -1133,6 +1148,15 @@ fn congruence(
             "the `bind` reduction covers `forall` congruence only, not `{kind}`"
         )));
     };
+    // Both sides must bind the same number of variables: the witnesses are computed per binder
+    // position, and the ε-term for the first of two variables — which quantifies the second — is
+    // not the ε-term for a lone one
+    if x_vars.len() != y_vars.len() {
+        return Err(explanation(
+            "quantifiers binding different numbers of variables",
+        ));
+    }
+
     // An anchor that only declares variables renames nothing — both sides bind the same names —
     // so the renaming is the identity on the quantifier's own variables
     let declares_only = sub
@@ -1188,26 +1212,54 @@ fn congruence(
     if substitute(b.pool, &phi_in_context, renaming) == psi {
         // The exact-renaming case: both sides Skolemize to the very same term, so two
         // `sko_forall` scopes and a `symm`/`trans` close it in four steps
-        let (ws, stages) = witnesses(b.pool, &x_vars, &phi_in_context);
-        let skolemized = stages[x_vars.len()].clone();
+        let (ws, _) = witnesses(b.pool, &x_vars, &phi_in_context);
 
-        let side = |b: &mut Builder, quant: &Rc<Term>, vars: &[SortedVar], body: &Rc<Term>| {
+        // `sko_forall` compares an anchor's witnesses with the ones it recomputes for *that*
+        // side, up to α-equivalence. Sharing the left side's witnesses with the right is what
+        // makes this route work, and it is a claim about the two bodies, so it is checked rather
+        // than assumed: a vacuous binder, for one, has a witness that mentions nothing of the
+        // other side
+        let psi_in_context = context.apply(b.pool, &psi);
+        let (right_ws, _) = witnesses(b.pool, &y_vars, &psi_in_context);
+        let mut time = std::time::Duration::ZERO;
+        let interchangeable = ws
+            .iter()
+            .zip(&right_ws)
+            .all(|(l, r)| crate::ast::alpha_equiv(l, r, &mut time));
+
+        // Each side is its own ε-clause's Skolemization; they agree because the witnesses are the
+        // same and the bodies are α-variants, which is what put us on this path
+        let side = |b: &mut Builder,
+                    context: &mut ContextStack,
+                    quant: &Rc<Term>,
+                    vars: &[SortedVar],
+                    body: &Rc<Term>| {
             let anchor_args: Vec<AnchorArg> = vars
                 .iter()
                 .zip(&ws)
                 .map(|(var, w)| AnchorArg::Assign(var.clone(), w.clone()))
                 .collect();
+            context.push(&anchor_args);
+            let skolemized = context.apply(b.pool, body);
+            context.pop();
             b.open();
             let equality = build_term!(b.pool, (= {body.clone()} {skolemized.clone()}));
             let refl = b.step(vec![equality], "refl", Vec::new(), Vec::new());
             let closing = build_term!(b.pool, (= {quant.clone()} {skolemized.clone()}));
-            b.close_with(anchor_args, "sko_forall", vec![closing], Vec::new(), refl)
+            (
+                b.close_with(anchor_args, "sko_forall", vec![closing], Vec::new(), refl),
+                skolemized,
+            )
         };
-        let left = side(b, lhs, &x_vars, &phi);
-        let right = side(b, rhs, &y_vars, &psi);
-        let flipped = b.symm(&right);
-        let conclusion = build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}));
-        return Ok(b.step(vec![conclusion], "trans", vec![left, flipped], Vec::new()));
+        if interchangeable {
+            let (left, left_sk) = side(b, context, lhs, &x_vars, &phi);
+            let (right, right_sk) = side(b, context, rhs, &y_vars, &psi);
+            if left_sk == right_sk {
+                let flipped = b.symm(&right);
+                let conclusion = build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}));
+                return Ok(b.step(vec![conclusion], "trans", vec![left, flipped], Vec::new()));
+            }
+        }
     }
 
     // General α-equivalence — the renaming also touches *nested* bound names, or the body
@@ -1233,9 +1285,8 @@ fn congruence(
         // `sko_forall`'s checker recomputes the witnesses over the context-applied body, so they
         // are built there; the ε-clause's own `refl` is contextual and reconciles the two
         let to_body_ctx = context.apply(b.pool, to_body);
-        let (ws, stages) = witnesses(b.pool, to_vars, &to_body_ctx);
-        let skolemized = stages[to_vars.len()].clone();
-        let eps = epsilon_clause(b, to, to_vars, to_body, &ws, &skolemized)?;
+        let (ws, _) = witnesses(b.pool, to_vars, &to_body_ctx);
+        let (eps, skolemized) = epsilon_clause(b, context, to, to_vars, to_body, &ws)?;
 
         // The instance `forall_inst` will state, which must be the literal one: the rule is
         // context-insensitive and knows nothing of the replay's renamings
@@ -1390,26 +1441,18 @@ fn closure(
         return Err(explanation("the closure does not wrap the literal"));
     }
 
-    // The ε-clause skolemizes the body as `sko_forall`'s checker recomputes it — through the
-    // enclosing substitution — while the replay states the body as written. In the vanilla form
-    // the two are joined by a `refl`, which the equivalence there can carry; here the judgment is
-    // a clause, with nothing to hang that step on
+    // The ε-clause skolemizes the body as `sko_forall` recomputes it — through the enclosing
+    // substitution — while the replay states it as written. The vanilla form joins the two with a
+    // `refl` that its equivalence can carry; a clause judgment has nothing to hang that on
     let body_in_context = context.apply(b.pool, &body);
     if body_in_context != body {
         return Err(explanation(
             "a ∀-closure whose body the enclosing anchor rewrites",
         ));
     }
-    let (ws, stages) = witnesses(b.pool, &closure_vars, &body_in_context);
-    let skolemized = stages[closure_vars.len()].clone();
-    let eps = epsilon_clause(
-        b,
-        &conclusion[index],
-        &closure_vars,
-        &body,
-        &ws,
-        &skolemized,
-    )?;
+    let (ws, _) = witnesses(b.pool, &closure_vars, &body_in_context);
+    let (eps, skolemized) =
+        epsilon_clause(b, context, &conclusion[index], &closure_vars, &body, &ws)?;
 
     let mut map = IndexMap::new();
     for (var, w) in closure_vars.iter().zip(&ws) {

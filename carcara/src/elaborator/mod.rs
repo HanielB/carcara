@@ -99,6 +99,51 @@ pub struct Elaborator<'e> {
 /// loses one layer per round, and nests deeper than this are vanishingly rare.
 const MAX_EXPENSIVE_ROUNDS: usize = 8;
 
+/// The `bind` scopes that sit inside another `bind` scope.
+///
+/// Those wait for a later round. Anything a reduction builds is written against the substitution
+/// in force where it is built, and reducing an enclosing `bind` afterwards would carry it out of
+/// that substitution and leave it stating something else — so the enclosing one goes first, and
+/// the scopes it contained are then reduced where they have landed.
+fn nested_binds(proof: &ProofNodeForest) -> HashSet<Rc<ProofNode>> {
+    fn closes_bind(node: &Rc<ProofNode>) -> bool {
+        match node.as_ref() {
+            ProofNode::Subproof(sub) => sub.last_step.as_step().is_some_and(|s| s.rule == "bind"),
+            _ => false,
+        }
+    }
+
+    let mut out = HashSet::new();
+    let mut seen: HashSet<(*const ProofNode, bool)> = HashSet::new();
+    let mut stack: Vec<(&Rc<ProofNode>, bool)> = proof.0.iter().map(|r| (r, false)).collect();
+    while let Some((node, inside)) = stack.pop() {
+        if !seen.insert((Rc::as_ptr(node), inside)) {
+            continue;
+        }
+        match node.as_ref() {
+            ProofNode::Assume { .. } => (),
+            ProofNode::Step(s) => stack.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(s.previous_step.iter())
+                    .map(|p| (p, inside)),
+            ),
+            ProofNode::Subproof(sub) => {
+                let is_bind = closes_bind(node);
+                if is_bind && inside {
+                    out.insert(node.clone());
+                }
+                let within = inside || is_bind;
+                stack.push((&sub.last_step, within));
+                stack.extend(sub.extra_steps.iter().map(|e| (e, within)));
+                stack.extend(sub.outbound_premises.iter().map(|p| (p, inside)));
+            }
+        }
+    }
+    out
+}
+
 /// The number of `bind` scopes left in the proof.
 fn count_binds(proof: &ProofNodeForest) -> usize {
     let mut count = 0;
@@ -393,6 +438,7 @@ impl<'e> Elaborator<'e> {
         reduced: &Cell<usize>,
     ) -> Result<ProofNodeForest, Error> {
         let mut sharing = core::share::Sharing::new(&proof);
+        let deferred = nested_binds(&proof);
         let result = proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
@@ -417,7 +463,7 @@ impl<'e> Elaborator<'e> {
                 // substitution is exactly what it eliminates
                 ProofNode::Subproof(sub) => {
                     let last = sub.last_step.as_step();
-                    if last.is_some_and(|s| s.rule == "bind") {
+                    if last.is_some_and(|s| s.rule == "bind") && !deferred.contains(node) {
                         let s = last.unwrap();
                         match core::bind::bind(self.pool, context, node) {
                             Ok(new_node) => {

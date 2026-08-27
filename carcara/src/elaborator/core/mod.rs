@@ -642,7 +642,7 @@ pub fn get_expensive_elaboration_function(rule: &str) -> Option<super::Elaborati
         "aci_simp" => expensive::aci_simp,
 
         // The Skolemization dual
-        "sko_ex" if std::env::var("NO_SKO_EX").is_err() => skolem::sko_ex,
+        "sko_ex" => skolem::sko_ex,
 
         _ => return None,
     })
