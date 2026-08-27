@@ -596,6 +596,7 @@ fn alpha_bridge(b: &mut Builder, context: &mut ContextStack, a: &Rc<Term>, t: &R
                 "α-difference under a `choice`/`lambda` binder has no core route",
             )),
         },
+        (Term::Let(..), Term::Let(..)) => alpha_let(b, context, a, t),
         (Term::Op(op_a, args_a), Term::Op(op_t, args_t))
             if op_a == op_t && args_a.len() == args_t.len() =>
         {
@@ -701,6 +702,70 @@ fn alpha_quant(b: &mut Builder, context: &mut ContextStack, lhs: &Rc<Term>, rhs:
     let forward = direction(b, context, true)?;
     let backward = direction(b, context, false)?;
     b.equiv_intro(lhs.clone(), rhs.clone(), forward, backward)
+}
+
+/// Two α-equivalent `let` terms, expanded and rejoined — the `let` analogue of [`alpha_quant`],
+/// and the same shape: each side reduces to its own expansion by one `let` scope (whose body is
+/// the contextual `refl` that states the expansion), the expansions are bridged recursively, and
+/// `symm`/`trans` close the equivalence.
+///
+/// `bind_let` cannot do this: its checker requires the two binding lists to carry the *same*
+/// names, which is exactly what an α-difference violates. Expanding sidesteps the question — a
+/// `let` is a definition, and two definitions that differ only in the defined name have the same
+/// expansion.
+fn alpha_let(b: &mut Builder, context: &mut ContextStack, a: &Rc<Term>, t: &Rc<Term>) -> Res {
+    let (Some((a_bindings, a_body)), Some((t_bindings, t_body))) = (a.as_let(), t.as_let()) else {
+        return Err(explanation("not a `let` pair"));
+    };
+    if a_bindings.len() != t_bindings.len() {
+        return Err(explanation("`let` binding lists differ in length"));
+    }
+    let (a_bindings, a_body) = (a_bindings.clone(), a_body.clone());
+    let (t_bindings, t_body) = (t_bindings.clone(), t_body.clone());
+
+    let mut side = |b: &mut Builder,
+                    context: &mut ContextStack,
+                    term: &Rc<Term>,
+                    bindings: &BindingList,
+                    body: &Rc<Term>|
+     -> (Rc<ProofNode>, Rc<Term>) {
+        // The expansion is taken from the context stack itself, with the anchor pushed: the
+        // checker computes it by one cumulative substitution, and computing it here in two
+        // (enclosing first, then the bindings) can rename a shadowing binder differently
+        let anchor: Vec<AnchorArg> = bindings
+            .0
+            .iter()
+            .map(|(name, value)| {
+                let sort = b.pool.sort(value);
+                AnchorArg::Assign((name.clone(), sort), value.clone())
+            })
+            .collect();
+        context.push(&anchor);
+        let expanded = context.apply(b.pool, body);
+        context.pop();
+
+        b.open();
+        let equality = build_term!(b.pool, (= {body.clone()} {expanded.clone()}));
+        let refl = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+        let closing = build_term!(b.pool, (= {term.clone()} {expanded.clone()}));
+        let node = b.close_with(anchor, "let", vec![closing], Vec::new(), refl);
+        (node, expanded)
+    };
+
+    let (left, a_expanded) = side(b, context, a, &a_bindings, &a_body);
+    let (right, t_expanded) = side(b, context, t, &t_bindings, &t_body);
+    let flipped = b.symm(&right);
+    let conclusion = build_term!(b.pool, (= {a.clone()} {t.clone()}));
+    if a_expanded == t_expanded {
+        return Ok(b.step(vec![conclusion], "trans", vec![left, flipped], Vec::new()));
+    }
+    let middle = alpha_bridge(b, context, &a_expanded, &t_expanded)?;
+    Ok(b.step(
+        vec![conclusion],
+        "trans",
+        vec![left, middle, flipped],
+        Vec::new(),
+    ))
 }
 
 /// The `∃` half of [`alpha_quant`]: both sides through `qnt_duality`, the `∀` case on the negated
