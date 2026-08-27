@@ -37,8 +37,14 @@ fn eq(pool: &mut PrimitivePool, a: &Rc<Term>, b: &Rc<Term>) -> Rc<Term> {
 /// have a value, and it is the same one.
 pub fn ground_equal(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
     let value = lhs.evaluate(b.pool);
-    if value != rhs.evaluate(b.pool) || (!value.is_bool_constant(true) && !value.is_bool_constant(false) && value.as_fraction().is_none()) {
-        return Err(explanation("the two sides are not ground with a common value"));
+    if value != rhs.evaluate(b.pool)
+        || (!value.is_bool_constant(true)
+            && !value.is_bool_constant(false)
+            && value.as_fraction().is_none())
+    {
+        return Err(explanation(
+            "the two sides are not ground with a common value",
+        ));
     }
     let left = evaluation(b, lhs, &value)?;
     if *rhs == value {
@@ -68,10 +74,20 @@ fn to_int_value(b: &mut Builder, arg: &Rc<Term>) -> Res {
 
     // The two axioms
     let lower_lit = build_term!(b.pool, (<= {real_floor.clone()} {arg.clone()}));
-    let lower = b.step(vec![lower_lit.clone()], "to_int_lower", Vec::new(), Vec::new());
+    let lower = b.step(
+        vec![lower_lit.clone()],
+        "to_int_lower",
+        Vec::new(),
+        Vec::new(),
+    );
     let bound = build_term!(b.pool, (+ {real_floor.clone()} {one}));
     let upper_lit = build_term!(b.pool, (< {arg.clone()} {bound}));
-    let upper = b.step(vec![upper_lit.clone()], "to_int_upper", Vec::new(), Vec::new());
+    let upper = b.step(
+        vec![upper_lit.clone()],
+        "to_int_upper",
+        Vec::new(),
+        Vec::new(),
+    );
 
     // Each axiom tightens to the corresponding bound on `k`
     let le = build_term!(b.pool, (<= {floor_term.clone()} {k.clone()}));
@@ -87,13 +103,11 @@ fn to_int_value(b: &mut Builder, arg: &Rc<Term>) -> Res {
     let (n_le, n_ge) = (b.not(&le), b.not(&ge));
     let disj = build_term!(b.pool, (or {goal.clone()} {n_le.clone()} {n_ge.clone()}));
     let anti = b.step(vec![disj], "la_disequality", Vec::new(), Vec::new());
-    let split = b.step(
-        vec![goal, n_le, n_ge],
-        "or",
-        vec![anti],
-        Vec::new(),
-    );
-    b.resolve(vec![split, le_unit, ge_unit], vec![(le, false), (ge, false)])
+    let split = b.step(vec![goal, n_le, n_ge], "or", vec![anti], Vec::new());
+    b.resolve(
+        vec![split, le_unit, ge_unit],
+        vec![(le, false), (ge, false)],
+    )
 }
 
 /// Replaces every `(to_int c)` subterm of a ground term by its value, returning a derivation of
@@ -102,14 +116,17 @@ fn to_int_value(b: &mut Builder, arg: &Rc<Term>) -> Res {
 /// The ring normalization behind `poly_simp` treats `(to_int c)` as an atom, so a term that mixes
 /// it with arithmetic — cvc5 emits `(= (+ (to_int -3/2) 1) -1)` — is not a ring identity until the
 /// application is folded away. Congruence carries the folding through the surrounding term.
-fn fold_to_int(b: &mut Builder, term: &Rc<Term>) -> Result<Option<(Rc<ProofNode>, Rc<Term>)>, ElaborationError> {
+fn fold_to_int(
+    b: &mut Builder,
+    term: &Rc<Term>,
+) -> Result<Option<(Rc<ProofNode>, Rc<Term>)>, ElaborationError> {
     if let Some(arg) = match_term!((to_int a) = term) {
         if arg.as_fraction().is_none() {
             return Ok(None);
         }
         let arg = arg.clone();
         let node = to_int_value(b, &arg)?;
-        let value = build_term!(b.pool, (to_int {arg})).evaluate(b.pool);
+        let value = build_term!(b.pool, (to_int { arg })).evaluate(b.pool);
         return Ok(Some((node, value)));
     }
     let Term::Op(op, args) = term.as_ref() else {
@@ -202,7 +219,12 @@ fn literal(b: &mut Builder, t: &Rc<Term>, want: bool) -> Res {
             b.resolve(vec![e2, inner], vec![(rest_term, false)])
         } else {
             let _ = equiv;
-            let e1 = b.step(vec![nt, rest_term.clone()], "equiv1", vec![folded], Vec::new());
+            let e1 = b.step(
+                vec![nt, rest_term.clone()],
+                "equiv1",
+                vec![folded],
+                Vec::new(),
+            );
             b.resolve(vec![e1, inner], vec![(rest_term, true)])
         };
     }

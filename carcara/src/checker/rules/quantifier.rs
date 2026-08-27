@@ -29,7 +29,6 @@ pub fn qnt_duality(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     }
 }
 
-
 pub fn forall_inst(
     RuleArgs {
         conclusion, args, pool, polyeq_time, ..

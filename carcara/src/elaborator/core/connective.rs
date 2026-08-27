@@ -27,11 +27,7 @@ fn explanation(msg: impl Into<String>) -> ElaborationError {
     CheckerError::Explanation(msg.into()).into()
 }
 
-pub fn connective_def(
-    pool: &mut PrimitivePool,
-    _: &mut ContextStack,
-    step: &StepNode,
-) -> Res {
+pub fn connective_def(pool: &mut PrimitivePool, _: &mut ContextStack, step: &StepNode) -> Res {
     let [conclusion] = step.clause.as_slice() else {
         return Err(explanation("conclusion is not a unit clause"));
     };
@@ -39,7 +35,10 @@ pub fn connective_def(
     let (lhs, rhs) = (lhs.clone(), rhs.clone());
 
     // The quantifier duality is the dedicated axiom: a rename
-    if matches!(lhs.as_ref(), Term::Binder(Binder::Forall | Binder::Exists, ..)) {
+    if matches!(
+        lhs.as_ref(),
+        Term::Binder(Binder::Forall | Binder::Exists, ..)
+    ) {
         return Ok(Rc::new(ProofNode::Step(StepNode {
             rule: "qnt_duality".to_owned(),
             premises: Vec::new(),
@@ -81,8 +80,18 @@ fn iff_def(
 
     // ---- right: (cl ¬lhs rhs) ----
     // `(cl P ¬lhs)`: `P = a → b` holds unless `a ∧ ¬b`, which `lhs` forbids
-    let pn1 = b.step(vec![p.clone(), x.clone()], "implies_neg1", Vec::new(), Vec::new());
-    let pn2 = b.step(vec![p.clone(), ny.clone()], "implies_neg2", Vec::new(), Vec::new());
+    let pn1 = b.step(
+        vec![p.clone(), x.clone()],
+        "implies_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let pn2 = b.step(
+        vec![p.clone(), ny.clone()],
+        "implies_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
     let pos2 = b.step(
         vec![nlhs.clone(), nx.clone(), y.clone()],
         "equiv_pos2",
@@ -92,8 +101,18 @@ fn iff_def(
     let r1 = b.resolve(vec![pn1, pos2], vec![(x.clone(), true)])?;
     let have_p = b.resolve(vec![r1, pn2], vec![(y.clone(), true)])?;
     // `(cl Q ¬lhs)`, symmetrically
-    let qn1 = b.step(vec![q.clone(), y.clone()], "implies_neg1", Vec::new(), Vec::new());
-    let qn2 = b.step(vec![q.clone(), nx.clone()], "implies_neg2", Vec::new(), Vec::new());
+    let qn1 = b.step(
+        vec![q.clone(), y.clone()],
+        "implies_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let qn2 = b.step(
+        vec![q.clone(), nx.clone()],
+        "implies_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
     let pos1 = b.step(
         vec![nlhs, x.clone(), ny.clone()],
         "equiv_pos1",
@@ -102,12 +121,7 @@ fn iff_def(
     );
     let r2 = b.resolve(vec![qn1, pos1], vec![(y.clone(), true)])?;
     let have_q = b.resolve(vec![r2, qn2], vec![(x.clone(), true)])?;
-    let and_neg = b.step(
-        vec![rhs.clone(), np, nq],
-        "and_neg",
-        Vec::new(),
-        Vec::new(),
-    );
+    let and_neg = b.step(vec![rhs.clone(), np, nq], "and_neg", Vec::new(), Vec::new());
     let r3 = b.resolve(vec![and_neg, have_p], vec![(p.clone(), false)])?;
     let right = b.resolve(vec![r3, have_q], vec![(q.clone(), false)])?;
 
@@ -134,7 +148,12 @@ fn iff_def(
         Vec::new(),
         Vec::new(),
     );
-    let neg1 = b.step(vec![lhs.clone(), nx, ny], "equiv_neg1", Vec::new(), Vec::new());
+    let neg1 = b.step(
+        vec![lhs.clone(), nx, ny],
+        "equiv_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
     let l3 = b.resolve(vec![neg2, l1], vec![(x.clone(), true)])?;
     let l4 = b.resolve(vec![neg1, l2], vec![(x.clone(), false)])?;
     let left = b.resolve(vec![l3, l4], vec![(y.clone(), true)])?;
@@ -214,7 +233,12 @@ fn xor_def(
         Vec::new(),
         Vec::new(),
     );
-    let xn2 = b.step(vec![lhs.clone(), nx, y.clone()], "xor_neg2", Vec::new(), Vec::new());
+    let xn2 = b.step(
+        vec![lhs.clone(), nx, y.clone()],
+        "xor_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
     let la = b.resolve(vec![xn1, ap_a0], vec![(x.clone(), true)])?;
     let la = b.resolve(vec![la, ap_a1], vec![(y.clone(), false)])?;
     let lb = b.resolve(vec![xn2, ap_b0], vec![(x.clone(), false)])?;
@@ -240,8 +264,18 @@ fn ite_def(
     let (np, nq) = (b.not(&p), b.not(&q));
 
     // ---- right: (cl ¬lhs rhs) ----
-    let pn1 = b.step(vec![p.clone(), c.clone()], "implies_neg1", Vec::new(), Vec::new());
-    let pn2 = b.step(vec![p.clone(), nx.clone()], "implies_neg2", Vec::new(), Vec::new());
+    let pn1 = b.step(
+        vec![p.clone(), c.clone()],
+        "implies_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let pn2 = b.step(
+        vec![p.clone(), nx.clone()],
+        "implies_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
     let ip2 = b.step(
         vec![nlhs.clone(), nc.clone(), x.clone()],
         "ite_pos2",
@@ -250,8 +284,18 @@ fn ite_def(
     );
     let r1 = b.resolve(vec![pn1, ip2], vec![(c.clone(), true)])?;
     let have_p = b.resolve(vec![r1, pn2], vec![(x.clone(), true)])?;
-    let qn1 = b.step(vec![q.clone(), nc.clone()], "implies_neg1", Vec::new(), Vec::new());
-    let qn2 = b.step(vec![q.clone(), ny.clone()], "implies_neg2", Vec::new(), Vec::new());
+    let qn1 = b.step(
+        vec![q.clone(), nc.clone()],
+        "implies_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
+    let qn2 = b.step(
+        vec![q.clone(), ny.clone()],
+        "implies_neg2",
+        Vec::new(),
+        Vec::new(),
+    );
     let ip1 = b.step(
         vec![nlhs, c.clone(), y.clone()],
         "ite_pos1",
@@ -290,7 +334,12 @@ fn ite_def(
         Vec::new(),
         Vec::new(),
     );
-    let in1 = b.step(vec![lhs.clone(), c.clone(), ny], "ite_neg1", Vec::new(), Vec::new());
+    let in1 = b.step(
+        vec![lhs.clone(), c.clone(), ny],
+        "ite_neg1",
+        Vec::new(),
+        Vec::new(),
+    );
     let l3 = b.resolve(vec![in2, l1], vec![(x.clone(), false)])?;
     let l4 = b.resolve(vec![in1, l2], vec![(y.clone(), false)])?;
     let left = b.resolve(vec![l3, l4], vec![(c.clone(), false)])?;

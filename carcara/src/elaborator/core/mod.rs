@@ -256,6 +256,13 @@ impl<'a> Builder<'a> {
         self.depth -= 1;
     }
 
+    /// Undoes an [`Builder::open`] without closing a subproof: for a step built at the inner
+    /// depth that some later closing will absorb.
+    pub fn leave_scope(&mut self) {
+        self.ids.pop();
+        self.depth -= 1;
+    }
+
     /// Closes a subproof opened by [`Builder::open`] with a `subproof` step discharging the given
     /// assumptions: the closing clause is the negation of each assumption followed by the (unit or
     /// empty) conclusion of the subproof's last step.

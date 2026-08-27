@@ -148,7 +148,8 @@ fn try_clause(
         // `refl` here means plain reflexivity (the scope has no context), but at elaborated
         // granularity it is checked syntactically, so only the syntactic case is taken
         if *rule == "refl" {
-            let syntactic = matches!(clause, [t] if match_term!((= a b) = t).is_some_and(|(a, b)| a == b));
+            let syntactic =
+                matches!(clause, [t] if match_term!((= a b) = t).is_some_and(|(a, b)| a == b));
             if !syntactic {
                 continue;
             }
@@ -197,7 +198,11 @@ fn index_rule(
     let args = vec![pool.add(Term::new_int(index))];
     check_premise_free_rule(pool, rule, clause, &args)
         .is_ok()
-        .then(|| Collapse { rule: rule.to_owned(), args, weaken_from: None })
+        .then(|| Collapse {
+            rule: rule.to_owned(),
+            args,
+            weaken_from: None,
+        })
 }
 
 /// Tries `la_generic`, whose arguments are one Farkas coefficient per literal.
@@ -398,7 +403,9 @@ pub(super) fn replay(
         }
         let em = {
             let eq = build_term!(replay.pool, (= {h.clone()} {h.clone()}));
-            let refl = replay.emitter.step(vec![eq.clone()], "refl", Vec::new(), Vec::new());
+            let refl = replay
+                .emitter
+                .step(vec![eq.clone()], "refl", Vec::new(), Vec::new());
             let not_eq = build_term!(replay.pool, (not {eq.clone()}));
             let pos2 = replay.emitter.step(
                 vec![not_eq, nh.clone(), h.clone()],
@@ -447,7 +454,9 @@ pub(super) fn replay(
     } else {
         let mut clause = current;
         clause.extend(missing);
-        replay.emitter.step(clause, "weakening", vec![fin], Vec::new())
+        replay
+            .emitter
+            .step(clause, "weakening", vec![fin], Vec::new())
     };
     if node.clause() == target.as_slice() {
         return Some(node);
@@ -497,7 +506,10 @@ impl<H: Fn(&str) -> bool> ReplayState<'_, '_, H> {
     fn translate(&mut self, node: &Rc<ProofNode>) -> Option<Replayed> {
         // Anything already visible outside the scope is used where it is
         if node.depth() < self.scope_depth {
-            return Some(Replayed::Node { node: node.clone(), hyps: Vec::new() });
+            return Some(Replayed::Node {
+                node: node.clone(),
+                hyps: Vec::new(),
+            });
         }
         if let Some((_, term)) = self.assumes.iter().find(|(a, _)| a == node) {
             return Some(Replayed::Hyp(term.clone()));

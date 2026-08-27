@@ -158,7 +158,6 @@ pub fn report_recipe_costs() {
     }
 }
 
-
 /// Reduces a `*_simplify` step to a chain of single-rewrite lemmas.
 pub fn elaborate_simplify(
     pool: &mut PrimitivePool,
@@ -342,8 +341,7 @@ fn lemma(
     let inner = match &link.inner {
         None => single_lemma(b, link.label, &link.before, &link.after, reduction, rules)?,
         Some((inner_before, inner_after)) => {
-            let base =
-                single_lemma(b, link.label, inner_before, inner_after, reduction, rules)?;
+            let base = single_lemma(b, link.label, inner_before, inner_after, reduction, rules)?;
             // Lift the inner rewrite to the root by congruence. The `cong` checker skips
             // syntactically equal argument pairs, so the single premise suffices.
             let clause = vec![build_term!(

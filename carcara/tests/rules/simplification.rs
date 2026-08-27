@@ -847,7 +847,6 @@ fn aci_simp_idempotence_is_only_for_semilattices() {
 /// it, so neither subsumes the other outright.
 #[test]
 fn poly_simp_subsumes_aci_simp_on_ring_operators() {
-
     test_cases! {
         definitions = "
             (declare-fun i () Int)
@@ -888,4 +887,3 @@ fn poly_simp_subsumes_aci_simp_on_ring_operators() {
         }
     }
 }
-

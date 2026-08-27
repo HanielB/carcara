@@ -307,40 +307,40 @@ impl<'a> Hoisting<'a> {
                 // so it runs only where no anchor in scope binds anything
                 if context.binds_nothing() {
                     if let Some(found) = super::scopes::collapse(pool, subproof, &is_hole) {
-                    *self.collapsed.entry(found.rule.clone()).or_default() += 1;
-                    let last = subproof.last_step.as_step().unwrap();
-                    // The scope's id is pinned — a subproof refers to its last step by position —
-                    // so the replacement takes a fresh one instead, which also lets it be shared
-                    let id = self.next_id();
-                    let clause = found.weaken_from.unwrap_or_else(|| last.clause.clone());
-                    let weaken = clause != last.clause;
-                    let replacement = Rc::new(ProofNode::Step(StepNode {
-                        id,
-                        depth: node.depth(),
-                        clause,
-                        rule: found.rule,
-                        premises: Vec::new(),
-                        args: found.args,
-                        discharge: Vec::new(),
-                        previous_step: None,
-                    }));
-                    let replacement = self.rewrite(pool, context, &replacement);
-                    if !weaken {
-                        return replacement;
-                    }
-                    let id = self.next_id();
-                    let weakened = Rc::new(ProofNode::Step(StepNode {
-                        id,
-                        depth: node.depth(),
-                        clause: last.clause.clone(),
-                        rule: "weakening".to_owned(),
-                        premises: vec![replacement],
-                        args: Vec::new(),
-                        discharge: Vec::new(),
-                        previous_step: None,
-                    }));
-                    self.record_closed(&weakened);
-                    return weakened;
+                        *self.collapsed.entry(found.rule.clone()).or_default() += 1;
+                        let last = subproof.last_step.as_step().unwrap();
+                        // The scope's id is pinned — a subproof refers to its last step by position —
+                        // so the replacement takes a fresh one instead, which also lets it be shared
+                        let id = self.next_id();
+                        let clause = found.weaken_from.unwrap_or_else(|| last.clause.clone());
+                        let weaken = clause != last.clause;
+                        let replacement = Rc::new(ProofNode::Step(StepNode {
+                            id,
+                            depth: node.depth(),
+                            clause,
+                            rule: found.rule,
+                            premises: Vec::new(),
+                            args: found.args,
+                            discharge: Vec::new(),
+                            previous_step: None,
+                        }));
+                        let replacement = self.rewrite(pool, context, &replacement);
+                        if !weaken {
+                            return replacement;
+                        }
+                        let id = self.next_id();
+                        let weakened = Rc::new(ProofNode::Step(StepNode {
+                            id,
+                            depth: node.depth(),
+                            clause: last.clause.clone(),
+                            rule: "weakening".to_owned(),
+                            premises: vec![replacement],
+                            args: Vec::new(),
+                            discharge: Vec::new(),
+                            previous_step: None,
+                        }));
+                        self.record_closed(&weakened);
+                        return weakened;
                     }
                     // The clausal replay: translate the body into the premise-free vocabulary,
                     // with the scope's assumptions as hypothesis literals

@@ -78,7 +78,8 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
     // Rebuild bottom-up, dropping each subproof's dead extra steps. Only subproofs (and the nodes
     // above one) change, so unaffected subgraphs are passed through as they are
     let mut cache: HashMap<Rc<ProofNode>, Rc<ProofNode>> = HashMap::new();
-    let mut todo: Vec<(Rc<ProofNode>, bool)> = roots.iter().rev().map(|r| (r.clone(), false)).collect();
+    let mut todo: Vec<(Rc<ProofNode>, bool)> =
+        roots.iter().rev().map(|r| (r.clone(), false)).collect();
     while let Some((node, is_done)) = todo.pop() {
         if cache.contains_key(&node) {
             continue;

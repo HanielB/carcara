@@ -182,7 +182,9 @@ fn collapse_not(b: &mut Builder, x: &Rc<Term>) -> Rc<Term> {
 /// `la_rw_eq` — the core's definitional rule for an arithmetic equality — split with `and_pos`.
 fn int_eq_conflict(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
     if !rhs.is_bool_false() {
-        return Err(explanation("`arith-int-eq-conflict` does not conclude `false`"));
+        return Err(explanation(
+            "`arith-int-eq-conflict` does not conclude `false`",
+        ));
     }
     let (t, c) = match_term_err!((= t c) = lhs)?;
     let (t, c) = (t.clone(), c.clone());
@@ -198,12 +200,7 @@ fn int_eq_conflict(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
     let rw = eq(b.pool, lhs, &conj);
     let rw = b.step(vec![rw], "la_rw_eq", Vec::new(), Vec::new());
     let not_lhs = b.not(lhs);
-    let split = b.step(
-        vec![not_lhs, conj.clone()],
-        "equiv1",
-        vec![rw],
-        Vec::new(),
-    );
+    let split = b.step(vec![not_lhs, conj.clone()], "equiv1", vec![rw], Vec::new());
     let not_conj = b.not(&conj);
     let mut bounds = Vec::new();
     for (i, bound) in [le_tc.clone(), le_ct.clone()].into_iter().enumerate() {

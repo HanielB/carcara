@@ -36,7 +36,12 @@ fn parse(
 
 /// Runs the `deep-hoist` pass, which additionally collapses lemma scopes.
 fn run_deep_hoist_pass(problem: &str, proof: &str, config: checker::Config) -> ast::Proof {
-    run_pass(problem, proof, config, elaborator::ElaborationPass::DeepHoist)
+    run_pass(
+        problem,
+        proof,
+        config,
+        elaborator::ElaborationPass::DeepHoist,
+    )
 }
 
 /// Runs the `hoist` pass on a proof and returns the result. The input is checked before the pass and
@@ -461,7 +466,7 @@ fn an_allowed_rule_is_not_used_to_collapse_a_scope() {
 /// battery cannot touch it. The clausal replay translates the body instead: `eq_congruent` over
 /// every argument pair, with `eq_reflexive` supplying the identical ones.
 #[test]
-fn implicit_premise_congruence_scope_is_replayed()  {
+fn implicit_premise_congruence_scope_is_replayed() {
     let definitions = "
         (declare-fun f (Int Int Int Int) Int)
         (declare-const a Int)
