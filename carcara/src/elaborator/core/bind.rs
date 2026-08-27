@@ -521,12 +521,23 @@ fn alpha_bridge(b: &mut Builder, context: &mut ContextStack, a: &Rc<Term>, t: &R
             crate::checker::cong_equal(b.pool, &premise_terms, &equivalence)?;
             Ok(b.step(vec![equivalence], "cong", vec![p1, p2], Vec::new()))
         }
-        (Term::Binder(qa, _, _), Term::Binder(qt, _, _)) if qa == qt => match qa {
-            Binder::Forall | Binder::Exists => alpha_quant(b, context, a, t),
-            _ => Err(explanation(
-                "α-difference under a `choice`/`lambda` binder has no core route",
-            )),
-        },
+        (Term::Binder(qa, _, _), Term::Binder(qt, _, _)) if qa == qt => {
+            // A pure α-difference between binder terms is what `refl` licenses: the
+            // specification's `refl` is up to renaming of bound variables. This is also the
+            // RESOLUTE answer to `choice`: α-identification lives *below* the proof system, so
+            // relating two α-variant ε-terms is not congruence and needs no binder rule
+            let mut time = std::time::Duration::ZERO;
+            if crate::ast::alpha_equiv(a, t, &mut time) {
+                let clause = vec![build_term!(b.pool, (= {a.clone()} {t.clone()}))];
+                return Ok(b.step(clause, "refl", Vec::new(), Vec::new()));
+            }
+            match qa {
+                Binder::Forall | Binder::Exists => alpha_quant(b, context, a, t),
+                _ => Err(explanation(
+                    "a rewritten body under a `choice`/`lambda` binder has no core route",
+                )),
+            }
+        }
         (Term::Op(op_a, args_a), Term::Op(op_t, args_t))
             if op_a == op_t && args_a.len() == args_t.len() =>
         {

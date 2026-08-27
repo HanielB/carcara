@@ -48,7 +48,15 @@ pub fn refl(
     Ok(())
 }
 
-pub fn strict_refl(RuleArgs { conclusion, pool, context, .. }: RuleArgs) -> RuleResult {
+pub fn strict_refl(
+    RuleArgs {
+        conclusion,
+        pool,
+        context,
+        polyeq_time,
+        ..
+    }: RuleArgs,
+) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
     let (left, right) = match_term_err!((= l r) = &conclusion[0])?;
@@ -56,12 +64,25 @@ pub fn strict_refl(RuleArgs { conclusion, pool, context, .. }: RuleArgs) -> Rule
     if left == right {
         return Ok(());
     }
+
+    // Between two binder terms, α-equivalence is what the specification's `refl` licenses — a
+    // renaming of bound variables is below the proof system, not a congruence — and it is the one
+    // place the elaborated fragment cannot avoid it: two ε-witnesses for the same quantifier may
+    // differ in their bound name, and no rule relates them otherwise. Everywhere else the strict
+    // check stays syntactic
+    if left.as_binder().is_some()
+        && right.as_binder().is_some()
+        && alpha_equiv(left, right, polyeq_time)
+    {
+        return Ok(());
+    }
+
     if context.is_empty() {
         return Err(CheckerError::ReflexivityFailed(left.clone(), right.clone()));
     }
 
-    // Unlike the traditional `refl` function, we do not use alpha equivalence, and we only try to
-    // apply the context on the left-hand side.
+    // Unlike the traditional `refl` function, we do not use alpha equivalence (except between
+    // binder terms, above), and we only try to apply the context on the left-hand side.
     let new_left = context.apply(pool, left);
     rassert!(
         new_left == *right,

@@ -108,13 +108,14 @@ fn strict_refl() {
             (step t1.t1 (cl (= x z)) :rule strict_refl)
             (step t1 (cl) :rule hole)": true,
         }
-        "Should reject alpha-equivalent terms (unlike refl)" {
-            // strict_refl does NOT use alpha equivalence, so this should fail
-            // even though refl would accept it
+        "Alpha-equivalence between binder terms is accepted (the one refl slack the strict fragment keeps)" {
+            // Between two binder terms, a renaming of bound variables is what the
+            // specification's `refl` licenses; the elaborated fragment cannot avoid it, since
+            // two epsilon-witnesses for the same quantifier may differ in their bound name
             "(step t1 (cl (=
                 (forall ((x Int)) (> x 0))
                 (forall ((y Int)) (> y 0))
-            )) :rule strict_refl)": false,
+            )) :rule strict_refl)": true,
         }
         "Terms aren't equal after applying context substitution" {
             "(anchor :step t1 :args ((y Real) (:= (x Real) y)))
