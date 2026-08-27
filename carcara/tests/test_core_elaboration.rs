@@ -472,10 +472,11 @@ fn nested_bind_inner_reduces() {
     assert!(rules.iter().filter(|r| *r == "sko_forall").count() >= 2);
 }
 
-/// A *rewriting* `bind` under an enclosing anchor is kept: its replay would have to compose the
-/// enclosing substitution with the witness one.
+/// A *rewriting* `bind` under an enclosing anchor reduces too: its replay composes the enclosing
+/// substitution with the witness one, transporting each of the body's terms through the context
+/// before substituting the witnesses.
 #[test]
-fn nested_rewriting_bind_is_kept() {
+fn nested_rewriting_bind_is_reduced() {
     let definitions = "
         (declare-sort S 0)
         (declare-fun P (S S) Bool)
@@ -495,5 +496,6 @@ fn nested_rewriting_bind_is_kept() {
         proof,
         elaborator::ElaborationPass::CoreExpensive,
     );
-    assert!(rules.iter().any(|r| r == "bind"));
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
+    assert!(rules.iter().any(|r| r == "forall_inst"));
 }

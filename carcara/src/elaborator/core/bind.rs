@@ -208,8 +208,27 @@ fn any_rebinds(terms: &[Rc<Term>], names: &[&str]) -> bool {
     terms.iter().any(|t| rebinds(t, names, &mut seen))
 }
 
+/// Transports one of the body's terms into the replay: the enclosing anchors' substitution
+/// first, then the witnesses.
+///
+/// Under an enclosing anchor the body's steps were checked against the *cumulative* context, so
+/// what the replayed step must state is the term as that context makes it — and applying the
+/// enclosing substitution first is also what makes the two commute, since the witnesses are then
+/// built over context-applied bodies and the enclosing substitution has nothing left to do
+/// inside them.
+fn transport(
+    b: &mut Builder,
+    context: &mut ContextStack,
+    term: &Rc<Term>,
+    map: &IndexMap<Rc<Term>, Rc<Term>>,
+) -> Rc<Term> {
+    let in_context = context.apply(b.pool, term);
+    substitute(b.pool, &in_context, map.clone())
+}
+
 fn replay(
     b: &mut Builder,
+    context: &mut ContextStack,
     node: &Rc<ProofNode>,
     map: &IndexMap<Rc<Term>, Rc<Term>>,
     inner_depth: usize,
@@ -227,7 +246,7 @@ fn replay(
     }
     let result = match node.as_ref() {
         ProofNode::Assume { term, .. } => {
-            let term = substitute(b.pool, term, map.clone());
+            let term = transport(b, context, term, map);
             b.assume(term)
         }
         ProofNode::Subproof(sub) => {
@@ -263,7 +282,7 @@ fn replay(
                 .map(|arg| match arg {
                     AnchorArg::Variable(v) => AnchorArg::Variable(v.clone()),
                     AnchorArg::Assign(v, value) => {
-                        AnchorArg::Assign(v.clone(), substitute(b.pool, value, map.clone()))
+                        AnchorArg::Assign(v.clone(), transport(b, context, value, map))
                     }
                 })
                 .collect();
@@ -275,10 +294,10 @@ fn replay(
             // built it, so a sibling scope needs a copy of its own
             b.open();
             let mut inner_cache = ReplayCache::new();
-            let inner = replay(b, previous, map, inner_depth, &mut inner_cache)?;
+            let inner = replay(b, context, previous, map, inner_depth, &mut inner_cache)?;
             let mut discharge = Vec::new();
             for a in &last.discharge {
-                discharge.push(replay(b, a, map, inner_depth, &mut inner_cache)?);
+                discharge.push(replay(b, context, a, map, inner_depth, &mut inner_cache)?);
             }
             let names: Vec<&str> = map.keys().filter_map(|k| k.as_var()).collect();
             if any_rebinds(&last.clause, &names) {
@@ -289,7 +308,7 @@ fn replay(
             let clause: Vec<_> = last
                 .clause
                 .iter()
-                .map(|t| substitute(b.pool, t, map.clone()))
+                .map(|t| transport(b, context, t, map))
                 .collect();
             b.close_with(args, &last.rule, clause, discharge, inner)
         }
@@ -302,17 +321,17 @@ fn replay(
             }
             let mut premises = Vec::new();
             for p in &s.premises {
-                premises.push(replay(b, p, map, inner_depth, cache)?);
+                premises.push(replay(b, context, p, map, inner_depth, cache)?);
             }
             let clause: Vec<_> = s
                 .clause
                 .iter()
-                .map(|t| substitute(b.pool, t, map.clone()))
+                .map(|t| transport(b, context, t, map))
                 .collect();
             let args: Vec<_> = s
                 .args
                 .iter()
-                .map(|t| substitute(b.pool, t, map.clone()))
+                .map(|t| transport(b, context, t, map))
                 .collect();
             b.step(clause, &s.rule, premises, args)
         }
@@ -377,12 +396,7 @@ pub fn bind(pool: &mut PrimitivePool, context: &mut ContextStack, subproof: &Rc<
 
     // The generalized form: a clause with one literal closed as `(∀Ȳ. l)`, the others passing
     // through
-    if !context.is_empty() {
-        return Err(explanation(
-            "the ∀-closure reduction is only built outside an enclosing anchor",
-        ));
-    }
-    closure(&mut b, sub, previous, inner_depth, &last.clause)
+    closure(&mut b, context, sub, previous, inner_depth, &last.clause)
 }
 
 fn quant_parts(term: &Rc<Term>) -> Option<(Vec<SortedVar>, Rc<Term>)> {
@@ -763,19 +777,16 @@ fn congruence(
 
     // One direction: Skolemize `to`, instantiate `from` at the same witnesses, replay the body
     // there, and cross the two with the equivalence
-    let direction = |b: &mut Builder, forward: bool| -> Res {
+    let direction = |b: &mut Builder, context: &mut ContextStack, forward: bool| -> Res {
         let (from, from_vars, to, to_vars, to_body) = if forward {
             (lhs, &x_vars, rhs, &y_vars, &psi)
         } else {
             (rhs, &y_vars, lhs, &x_vars, &phi)
         };
-        if !context.is_empty() {
-            return Err(explanation(
-                "a rewriting `bind` under an enclosing anchor: the replay would have to compose \
-                 the two substitutions",
-            ));
-        }
-        let (ws, stages) = witnesses(b.pool, to_vars, to_body);
+        // `sko_forall`'s checker recomputes the witnesses over the context-applied body, so they
+        // are built there; the ε-clause's own `refl` is contextual and reconciles the two
+        let to_body_ctx = context.apply(b.pool, to_body);
+        let (ws, stages) = witnesses(b.pool, to_vars, &to_body_ctx);
         let skolemized = stages[to_vars.len()].clone();
         let eps = epsilon_clause(b, to, to_vars, to_body, &ws, &skolemized)?;
 
@@ -788,7 +799,7 @@ fn congruence(
             }
         }
         let mut cache = ReplayCache::new();
-        let replayed = replay(b, previous, &map, inner_depth, &mut cache)?;
+        let replayed = replay(b, context, previous, &map, inner_depth, &mut cache)?;
         let [equality] = replayed.clause() else {
             return Err(explanation("the body of `bind` is not a unit equality"));
         };
@@ -836,8 +847,8 @@ fn congruence(
         b.resolve(vec![with_instance, eps], vec![(pivots.1, true)])
     };
 
-    let forward = direction(b, true)?;
-    let backward = direction(b, false)?;
+    let forward = direction(b, context, true)?;
+    let backward = direction(b, context, false)?;
     let node = b.equiv_intro(lhs.clone(), rhs.clone(), forward, backward)?;
     Ok(node)
 }
@@ -845,6 +856,7 @@ fn congruence(
 /// The generalized case: a clause whose literal `l` is closed as `(∀Ȳ. l)`.
 fn closure(
     b: &mut Builder,
+    context: &mut ContextStack,
     sub: &SubproofNode,
     previous: &Rc<ProofNode>,
     inner_depth: usize,
@@ -869,7 +881,8 @@ fn closure(
         return Err(explanation("the closure does not wrap the literal"));
     }
 
-    let (ws, stages) = witnesses(b.pool, &closure_vars, &body);
+    let body_in_context = context.apply(b.pool, &body);
+    let (ws, stages) = witnesses(b.pool, &closure_vars, &body_in_context);
     let skolemized = stages[closure_vars.len()].clone();
     let eps = epsilon_clause(
         b,
@@ -885,6 +898,6 @@ fn closure(
         map.insert(b.pool.add(Term::from(var.clone())), w.clone());
     }
     let mut cache = ReplayCache::new();
-    let replayed = replay(b, previous, &map, inner_depth, &mut cache)?;
+    let replayed = replay(b, context, previous, &map, inner_depth, &mut cache)?;
     Ok(b.resolve(vec![replayed, eps], vec![(skolemized, true)])?)
 }
