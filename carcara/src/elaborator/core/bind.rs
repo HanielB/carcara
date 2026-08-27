@@ -185,14 +185,15 @@ fn rebinds(term: &Rc<Term>, names: &[&str], seen: &mut HashSet<Rc<Term>>) -> boo
     if !seen.insert(term.clone()) {
         return false;
     }
+    let bound_here =
+        |bindings: &BindingList| bindings.0.iter().any(|(n, _)| names.contains(&n.as_str()));
     match term.as_ref() {
-        Term::Binder(_, bindings, inner) => {
-            bindings.0.iter().any(|(n, _)| names.contains(&n.as_str()))
+        Term::Binder(_, bindings, inner) => bound_here(bindings) || rebinds(inner, names, seen),
+        Term::Let(bindings, inner) => {
+            bound_here(bindings)
+                || bindings.0.iter().any(|(_, v)| rebinds(v, names, seen))
                 || rebinds(inner, names, seen)
         }
-        // Any `let` at all: substituting into one renames its bound variables independently of
-        // the surrounding term, which desynchronizes the replay the same way a rebinding does
-        Term::Let(..) => true,
         Term::Op(_, args) | Term::ParamOp { args, .. } => {
             args.iter().any(|a| rebinds(a, names, seen))
         }
@@ -203,27 +204,63 @@ fn rebinds(term: &Rc<Term>, names: &[&str], seen: &mut HashSet<Rc<Term>>) -> boo
     }
 }
 
+/// The names the substitution would have to rename to avoid capture: a binder inside the body
+/// that binds a variable occurring free in one of the witnesses. Renaming is *correct* but
+/// desynchronizes the replay — the same literal reached through a term that renames and one that
+/// does not would come out with different names, and the resolutions between them would no longer
+/// find their pivots — so the reduction refuses those bodies too.
+fn capture_names(b: &mut Builder, map: &IndexMap<Rc<Term>, Rc<Term>>) -> Vec<String> {
+    let mut out = Vec::new();
+    for value in map.values() {
+        for var in b.pool.free_vars(value) {
+            if let Some(name) = var.as_var() {
+                out.push(name.to_owned());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The names no binder in the body may rebind: the ones being substituted (rebinding one would
+/// stop the substitution under it, so occurrences inside and outside would disagree) and the ones
+/// the witnesses mention free (rebinding one would trigger capture-avoiding renaming).
+fn guarded_names(b: &mut Builder, map: &IndexMap<Rc<Term>, Rc<Term>>) -> Vec<String> {
+    let mut names: Vec<String> = map
+        .keys()
+        .filter_map(|k| k.as_var().map(str::to_owned))
+        .collect();
+    names.extend(capture_names(b, map));
+    names.sort();
+    names.dedup();
+    names
+}
+
 fn any_rebinds(terms: &[Rc<Term>], names: &[&str]) -> bool {
     let mut seen = HashSet::new();
     terms.iter().any(|t| rebinds(t, names, &mut seen))
 }
 
-/// Transports one of the body's terms into the replay: the enclosing anchors' substitution
-/// first, then the witnesses.
+/// Transports one of the body's terms into the replay: the witness substitution, and nothing
+/// else.
 ///
-/// Under an enclosing anchor the body's steps were checked against the *cumulative* context, so
-/// what the replayed step must state is the term as that context makes it — and applying the
-/// enclosing substitution first is also what makes the two commute, since the witnesses are then
-/// built over context-applied bodies and the enclosing substitution has nothing left to do
-/// inside them.
+/// The enclosing anchors' substitution is deliberately *not* applied. The replayed derivation
+/// sits at the same depth as the `bind` step it replaces, so its `refl` leaves are checked
+/// against the same cumulative context the originals were; every other rule compares terms
+/// syntactically, and premises reached from *outside* the subproof keep the shape they have
+/// there, which they would not if the replay rewrote its terms.
+///
+/// What makes this hold under an enclosing anchor is that the witnesses are built over the
+/// context-applied body: being closed under the enclosing substitution, they commute with it, so
+/// a `refl` leaf that held as `Γ(ρ(a)) ≡ b` still holds as `Γ(σ(a)) ≡ σ(b)`.
 fn transport(
     b: &mut Builder,
-    context: &mut ContextStack,
+    _context: &mut ContextStack,
     term: &Rc<Term>,
     map: &IndexMap<Rc<Term>, Rc<Term>>,
 ) -> Rc<Term> {
-    let in_context = context.apply(b.pool, term);
-    substitute(b.pool, &in_context, map.clone())
+    substitute(b.pool, term, map.clone())
 }
 
 fn replay(
@@ -256,11 +293,11 @@ fn replay(
             if !last.premises.is_empty() {
                 return Err(explanation("nested closing step with premises"));
             }
-            // `sko_forall` closings replay soundly because the substitution is of closed terms
-            // for variables the scope does not bind (the rebinds guard ensures it), so it
-            // commutes with the witness recomputation the checker performs. `let`/`onepoint`
-            // closings have side conditions the replay does not track
-            if last.rule != "bind" && last.rule != "subproof" && last.rule != "sko_forall" {
+            // These closings replay soundly because the substitution is of terms the scope does
+            // not bind (the rebinds guard ensures it), so it commutes with whatever the closing
+            // rule recomputes — `sko_forall`'s witnesses, `let`'s anchor-to-binding match.
+            // `onepoint` has a side condition the replay does not track
+            if !matches!(last.rule.as_str(), "bind" | "subproof" | "sko_forall") {
                 return Err(explanation(format!(
                     "nested scope closed by `{}` cannot be replayed",
                     last.rule
@@ -299,7 +336,8 @@ fn replay(
             for a in &last.discharge {
                 discharge.push(replay(b, context, a, map, inner_depth, &mut inner_cache)?);
             }
-            let names: Vec<&str> = map.keys().filter_map(|k| k.as_var()).collect();
+            let names = guarded_names(b, map);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
             if any_rebinds(&last.clause, &names) {
                 return Err(explanation(
                     "the body rebinds a variable the witnesses replace",
@@ -313,7 +351,8 @@ fn replay(
             b.close_with(args, &last.rule, clause, discharge, inner)
         }
         ProofNode::Step(s) => {
-            let names: Vec<&str> = map.keys().filter_map(|k| k.as_var()).collect();
+            let names = guarded_names(b, map);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
             if any_rebinds(&s.clause, &names) || any_rebinds(&s.args, &names) {
                 return Err(explanation(
                     "the body rebinds a variable the witnesses replace",
@@ -493,6 +532,22 @@ fn exists_congruence(
     ))
 }
 
+/// The shape of a term, for diagnostics — naming it does not print it, which the printer's sort
+/// lookup would need and cannot always do for a term built mid-elaboration.
+fn kind(term: &Rc<Term>) -> String {
+    match term.as_ref() {
+        Term::Const(_) => "const".to_owned(),
+        Term::Var(..) => "var".to_owned(),
+        Term::App(..) => "app".to_owned(),
+        Term::Op(op, _) => format!("op {op}"),
+        Term::Sort(_) => "sort".to_owned(),
+        Term::Binder(q, ..) => format!("binder {q}"),
+        Term::Let(..) => "let".to_owned(),
+        Term::ParamOp { op, .. } => format!("paramop {op}"),
+        Term::Match(..) => "match".to_owned(),
+    }
+}
+
 /// Derives `(cl (= a b))` for two α-equivalent terms, by structural recursion.
 ///
 /// Equal terms are `refl`; an application whose children differ only α-recursively is `cong`
@@ -567,7 +622,11 @@ fn alpha_bridge(b: &mut Builder, context: &mut ContextStack, a: &Rc<Term>, t: &R
             let clause = vec![build_term!(b.pool, (= {a.clone()} {t.clone()}))];
             Ok(b.step(clause, "cong", premises, Vec::new()))
         }
-        _ => Err(explanation("terms differ beyond α-equivalence")),
+        _ => Err(explanation(format!(
+            "terms differ beyond α-equivalence ({} vs {})",
+            kind(a),
+            kind(t)
+        ))),
     }
 }
 
@@ -691,6 +750,12 @@ fn alpha_exists(
 }
 
 /// The vanilla case: `(∀x̄.φ) ≈ (∀ȳ.ψ)` from the body's `φ ≈ ψ`.
+///
+/// Under an enclosing anchor the judgment is contextual — what it asserts is `Γ(∀x̄.φ) ≈ (∀ȳ.ψ)`
+/// — while most of the rules the reduction is built from are not. The seam is handled where it
+/// appears: the ε-clause is about the context-applied body, since that is what `sko_forall`'s
+/// checker recomputes its witnesses from, and one contextual `refl` step joins it to the replayed
+/// body, which stays as written.
 #[allow(clippy::too_many_arguments)]
 fn congruence(
     b: &mut Builder,
@@ -789,6 +854,16 @@ fn congruence(
         let (ws, stages) = witnesses(b.pool, to_vars, &to_body_ctx);
         let skolemized = stages[to_vars.len()].clone();
         let eps = epsilon_clause(b, to, to_vars, to_body, &ws, &skolemized)?;
+        // `skolemized` is the *context-applied* body at the witnesses, since that is what
+        // `sko_forall` recomputes; the replayed body is as written. When the enclosing anchor
+        // separates the two, a contextual `refl` — which is exactly the claim that the enclosing
+        // substitution is what it is — joins them
+        let mut to_map = IndexMap::new();
+        for (var, w) in to_vars.iter().zip(&ws) {
+            let var_term = b.pool.add(Term::from(var.clone()));
+            to_map.insert(var_term, w.clone());
+        }
+        let written_skolemized = substitute(b.pool, to_body, to_map);
 
         // The replay substitutes *both* binder families by the witnesses: the body mentions the
         // left variables directly and the right ones through the anchor's renaming
@@ -799,7 +874,43 @@ fn congruence(
             }
         }
         let mut cache = ReplayCache::new();
-        let replayed = replay(b, context, previous, &map, inner_depth, &mut cache)?;
+        let mut replayed = replay(b, context, previous, &map, inner_depth, &mut cache)?;
+        if written_skolemized != skolemized {
+            let bridge = {
+                let clause = vec![build_term!(
+                    b.pool,
+                    (= {written_skolemized.clone()} {skolemized.clone()})
+                )];
+                b.step(clause, "refl", Vec::new(), Vec::new())
+            };
+            let [equality] = replayed.clause() else {
+                return Err(explanation("the body of `bind` is not a unit equality"));
+            };
+            let (left, right) = match_term_err!((= l r) = equality)?;
+            let (left, right) = (left.clone(), right.clone());
+            let ends_at_witnesses = if forward {
+                right == written_skolemized
+            } else {
+                left == written_skolemized
+            };
+            if !ends_at_witnesses {
+                return Err(explanation(
+                    "the replayed body does not end at the witnesses the ε-clause uses",
+                ));
+            }
+            let (new_left, new_right) = if forward {
+                (left, skolemized.clone())
+            } else {
+                (skolemized.clone(), right)
+            };
+            let clause = vec![build_term!(b.pool, (= {new_left} {new_right}))];
+            let premises = if forward {
+                vec![replayed, bridge]
+            } else {
+                vec![b.symm(&bridge), replayed]
+            };
+            replayed = b.step(clause, "trans", premises, Vec::new());
+        }
         let [equality] = replayed.clause() else {
             return Err(explanation("the body of `bind` is not a unit equality"));
         };
