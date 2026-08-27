@@ -19,6 +19,7 @@ use crate::{
 use error::ElaborationError;
 use indexmap::IndexSet;
 use polyeq::PolyeqElaborator;
+use std::cell::Cell;
 use std::{
     collections::{HashMap, HashSet},
     time::{Duration, Instant},
@@ -92,6 +93,26 @@ pub struct Elaborator<'e> {
     pool: &'e mut PrimitivePool,
     problem: &'e Problem,
     config: Config,
+}
+
+/// How many times [`Elaborator::elaborate_core_expensive`] may repeat. A nest of `bind` scopes
+/// loses one layer per round, and nests deeper than this are vanishingly rare.
+const MAX_EXPENSIVE_ROUNDS: usize = 8;
+
+/// The number of `bind` scopes left in the proof.
+fn count_binds(proof: &ProofNodeForest) -> usize {
+    let mut count = 0;
+    let mut visited = VisitedNodes::new();
+    for root in proof.0.iter() {
+        root.traverse_with(&mut visited, |node| {
+            if let ProofNode::Subproof(sub) = node.as_ref() {
+                if sub.last_step.as_step().is_some_and(|s| s.rule == "bind") {
+                    count += 1;
+                }
+            }
+        });
+    }
+    count
 }
 
 impl<'e> Elaborator<'e> {
@@ -332,9 +353,44 @@ impl<'e> Elaborator<'e> {
     /// `aci_simp`, the clausal equality rules and `sko_ex` — which the other regimes deliberately
     /// leave alone. It shares derivations exactly as the main pass does, and is likewise
     /// best-effort: a shape a recipe does not cover keeps its step.
+    /// Runs the expensive reductions, repeating while `bind` steps keep disappearing.
+    ///
+    /// A `bind` is reduced only where its anchor is the outermost one left (see
+    /// [`core::bind::bind`]), so a nest of them peels one layer per round: each round's
+    /// replacement leaves the scopes it contained standing outside the anchor that enclosed
+    /// them, and the next round reduces those.
     fn elaborate_core_expensive(
         &mut self,
         proof: ProofNodeForest,
+    ) -> Result<ProofNodeForest, Error> {
+        let mut proof = proof;
+        for round in 0..MAX_EXPENSIVE_ROUNDS {
+            let reduced = Cell::new(0usize);
+            proof = self.elaborate_core_expensive_round(proof, &reduced)?;
+            if count_binds(&proof) == 0 {
+                break;
+            }
+            // A round that reduced nothing will not do better for being repeated. Counting what
+            // was reduced rather than what is left is what makes this terminate: a replay copies
+            // the scopes inside the body once per direction, so the number of `bind` scopes can
+            // *rise* in a round that made real progress
+            if reduced.get() == 0 {
+                break;
+            }
+            log::info!(
+                "expensive elaboration round {}: {} `bind` scopes reduced, {} left",
+                round + 1,
+                reduced.get(),
+                count_binds(&proof)
+            );
+        }
+        Ok(proof)
+    }
+
+    fn elaborate_core_expensive_round(
+        &mut self,
+        proof: ProofNodeForest,
+        reduced: &Cell<usize>,
     ) -> Result<ProofNodeForest, Error> {
         let mut sharing = core::share::Sharing::new(&proof);
         let result = proof.mutate(|context, node, _| {
@@ -366,6 +422,7 @@ impl<'e> Elaborator<'e> {
                         match core::bind::bind(self.pool, context, node) {
                             Ok(new_node) => {
                                 growth::record(s, &new_node);
+                                reduced.set(reduced.get() + 1);
                                 return Ok(new_node);
                             }
                             Err(e) => log::warn!(

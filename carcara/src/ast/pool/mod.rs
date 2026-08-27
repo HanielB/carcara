@@ -434,7 +434,13 @@ impl PrimitivePool {
                 return sort.clone();
             }
         }
-        self.sorts_cache[term].clone()
+        if let Some(sort) = self.sorts_cache.get(term) {
+            return sort.clone();
+        }
+        // A term can reach here without having been sorted — one built by an elaborator in
+        // another pool, say, and then printed. Computing the sort is what `add` would have done,
+        // and is in any case better than the panic an unwrapped lookup gives
+        self.compute_sort(term)
     }
 
     // TODO: Try to workaround the lifetime specifiers and return a ref
@@ -482,6 +488,13 @@ impl PrimitivePool {
                     let sort = self.sort_with_priorities(value, prior_pools);
                     let term = self.add_with_priorities((var.clone(), sort).into(), prior_pools);
                     vars.swap_remove(&term);
+                }
+                // A binding's *value* is evaluated in the enclosing scope, so whatever is free in
+                // it is free in the `let` term. Leaving these out under-approximates the free
+                // variables, which is what capture-avoidance and `is_closed` are asked about
+                for (_, value) in bindings {
+                    let value_vars = self.free_vars_with_priorities(value, prior_pools);
+                    vars.extend(value_vars);
                 }
                 vars
             }

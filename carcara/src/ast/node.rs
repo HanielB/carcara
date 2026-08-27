@@ -401,6 +401,43 @@ fn proof_list_to_nodes(commands: Vec<ProofCommand>) -> ProofNodeForest {
 }
 
 /// Converts a `ProofNode` into a list of proof commands.
+/// The `assume` commands belonging to a subproof's own scope, in the order the proof reaches
+/// them. They have to be emitted before its steps, which is not where a premise-following
+/// traversal would first reach them.
+fn scope_assumes(subproof: &SubproofNode, depth: usize) -> Vec<&Rc<ProofNode>> {
+    use std::collections::HashSet;
+
+    let mut out = Vec::new();
+    let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
+    let mut stack: Vec<&Rc<ProofNode>> = vec![&subproof.last_step];
+    stack.extend(subproof.extra_steps.iter());
+    while let Some(node) = stack.pop() {
+        if !seen.insert(node) {
+            continue;
+        }
+        match node.as_ref() {
+            ProofNode::Assume { depth: d, .. } => {
+                if *d == depth {
+                    out.push(node);
+                }
+            }
+            ProofNode::Step(s) => stack.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(s.previous_step.iter()),
+            ),
+            ProofNode::Subproof(s) => {
+                stack.push(&s.last_step);
+                stack.extend(s.extra_steps.iter());
+                stack.extend(s.outbound_premises.iter());
+            }
+        }
+    }
+    out.reverse();
+    out
+}
+
 fn proof_nodes_to_list(proof: &ProofNodeForest) -> Vec<ProofCommand> {
     use std::collections::{HashMap, HashSet};
 
@@ -464,6 +501,14 @@ fn proof_nodes_to_list(proof: &ProofNodeForest) -> Vec<ProofCommand> {
                 todo.push((node, true));
                 todo.push((&s.last_step, false));
                 todo.extend(s.extra_steps.iter().rev().map(|node| (node, false)));
+
+                // A subproof's `assume` commands have to precede its steps, while this traversal
+                // reaches a node when a premise first needs it — which, for a proof an elaborator
+                // rebuilt, can be after several steps. Emitting the scope's own assumptions
+                // before anything else puts them where the format wants them
+                let assumes = scope_assumes(s, stack.len());
+                todo.extend(assumes.into_iter().rev().map(|node| (node, false)));
+
                 stack.push(Vec::new());
                 continue;
             }

@@ -43,6 +43,11 @@ pub struct Substitution {
     /// binder term.
     should_be_renamed: Option<IndexSet<String>>,
 
+    /// The names occurring free in the substitution's range. A binder that binds one of these
+    /// genuinely has to be renamed; a binder that merely shadows a substituted variable does not
+    /// (see [`Substitution::apply_to_binder`]).
+    captured: Option<IndexSet<String>>,
+
     /// The memoization cache for `apply`. Each entry records the generation at which it was
     /// stored, which is what allows its validity to be decided lazily. See
     /// [`Substitution::get_cached`].
@@ -74,6 +79,7 @@ impl Substitution {
             map: IndexMap::new(),
             avoid_capture: true,
             should_be_renamed: None,
+            captured: None,
             cache: IndexMap::new(),
             generation: 0,
             invalidated_at: IndexMap::new(),
@@ -110,6 +116,7 @@ impl Substitution {
             map,
             avoid_capture: true,
             should_be_renamed: None,
+            captured: None,
             cache: IndexMap::new(),
             generation: 0,
             invalidated_at: IndexMap::new(),
@@ -152,11 +159,15 @@ impl Substitution {
 
         if let Some(should_be_renamed) = &mut self.should_be_renamed {
             if x != t {
-                let free_vars = pool
+                let free_vars: Vec<String> = pool
                     .free_vars(&t)
                     .into_iter()
-                    .map(|v| v.as_var().unwrap().to_owned());
-                should_be_renamed.extend(free_vars);
+                    .map(|v| v.as_var().unwrap().to_owned())
+                    .collect();
+                should_be_renamed.extend(free_vars.iter().cloned());
+                if let Some(captured) = &mut self.captured {
+                    captured.extend(free_vars);
+                }
                 if let Some(var) = x.as_var() {
                     should_be_renamed.insert(var.to_owned());
                 }
@@ -223,6 +234,28 @@ impl Substitution {
         let was_present = self.map.swap_remove(x).is_some();
         if was_present {
             self.should_be_renamed = None;
+            self.captured = None;
+        }
+    }
+
+    /// This substitution with the given variables removed from its domain: what applies under a
+    /// binder that binds them. It gets a fresh cache, since the same subterm can come out
+    /// differently on the two sides of that binder.
+    fn without(&self, vars: &[Rc<Term>]) -> Self {
+        let map = self
+            .map
+            .iter()
+            .filter(|(x, _)| !vars.contains(x))
+            .map(|(x, t)| (x.clone(), t.clone()))
+            .collect();
+        Self {
+            map,
+            avoid_capture: self.avoid_capture,
+            should_be_renamed: self.should_be_renamed.clone(),
+            captured: self.captured.clone(),
+            cache: IndexMap::new(),
+            generation: 0,
+            invalidated_at: IndexMap::new(),
         }
     }
 
@@ -254,6 +287,7 @@ impl Substitution {
         // See https://en.wikipedia.org/wiki/Lambda_calculus#Capture-avoiding_substitutions for
         // more details.
         let mut should_be_renamed = IndexSet::new();
+        let mut captured = IndexSet::new();
         for (x, t) in &self.map {
             if x == t {
                 continue; // We ignore reflexive substitutions
@@ -262,12 +296,14 @@ impl Substitution {
                 .free_vars(t)
                 .into_iter()
                 .map(|v| v.as_var().unwrap().to_owned());
-            should_be_renamed.extend(free_vars);
+            captured.extend(free_vars);
             if let Some(var) = x.as_var() {
                 should_be_renamed.insert(var.to_owned());
             }
         }
+        should_be_renamed.extend(captured.iter().cloned());
         self.should_be_renamed = Some(should_be_renamed);
+        self.captured = Some(captured);
     }
 
     /// Applies the substitution to `term`, and returns the result as a new term.
@@ -306,6 +342,35 @@ impl Substitution {
                 if self.avoid_capture {
                     self.compute_should_be_renamed(pool);
                 }
+
+                // As in `apply_to_binder`: a `let` that merely shadows substituted variables
+                // needs no renaming, only the mappings dropped while descending into its body.
+                // Its bound *values* live in the enclosing scope, so they keep the full mapping
+                if self.avoid_capture {
+                    let captures = binding_list
+                        .iter()
+                        .any(|(name, _)| self.captured.as_ref().unwrap().contains(name));
+                    let shadowed: Vec<Rc<Term>> = binding_list
+                        .iter()
+                        .map(|(name, value)| {
+                            let sort = pool.sort(value);
+                            pool.add(Term::new_var(name.clone(), sort))
+                        })
+                        .filter(|var| self.map.contains_key(var))
+                        .collect();
+                    if !captures && !shadowed.is_empty() {
+                        let new_bindings = BindingList(
+                            binding_list
+                                .iter()
+                                .map(|(var, value)| (var.clone(), self.apply(pool, value)))
+                                .collect(),
+                        );
+                        let mut under = self.without(&shadowed);
+                        let new_term = under.apply(pool, inner);
+                        return pool.add(Term::Let(new_bindings, new_term));
+                    }
+                }
+
                 let (new_bindings, mut renaming) =
                     self.rename_binding_list(pool, binding_list, true);
                 // A `let`'s bound values live in the *enclosing* scope, so the substitution
@@ -454,6 +519,34 @@ impl Substitution {
         // (i.e., by not computing "should_be_renamed" maybe this will be applied inadvertently)
         if self.avoid_capture && self.can_skip_instead_of_renaming(binding_list) {
             return original_term.clone();
+        }
+
+        // The same reasoning, for any number of mappings: a binder that merely *shadows*
+        // substituted variables needs no renaming, since the substitution does not reach the
+        // occurrences it binds. Dropping those mappings while descending returns the term the
+        // renaming would only have produced an α-variant of — which matters wherever the result
+        // has to keep matching a term nothing renamed, as in a proof written by a solver or
+        // replayed by the elaborator. A binder that binds a name occurring free in the range is a
+        // genuine capture and still has to be renamed.
+        if self.avoid_capture {
+            let shadowed: Vec<Rc<Term>> = binding_list
+                .iter()
+                .filter(|(name, _)| !self.captured.as_ref().unwrap().contains(name))
+                .map(|(name, sort)| pool.add(Term::new_var(name.clone(), sort.clone())))
+                .filter(|var| self.map.contains_key(var))
+                .collect();
+            let captures = binding_list
+                .iter()
+                .any(|(name, _)| self.captured.as_ref().unwrap().contains(name));
+            if !captures && !shadowed.is_empty() {
+                let mut under = self.without(&shadowed);
+                let new_term = under.apply(pool, inner);
+                return pool.add(Term::Binder(
+                    binder,
+                    BindingList(binding_list.to_vec()),
+                    new_term,
+                ));
+            }
         }
 
         let (new_bindings, mut renaming) = self.rename_binding_list(pool, binding_list, false);

@@ -297,6 +297,20 @@ impl<'a> Builder<'a> {
         discharge: Vec<Rc<ProofNode>>,
         last_inner: Rc<ProofNode>,
     ) -> Rc<ProofNode> {
+        self.close_with_premises(anchor_args, rule, clause, Vec::new(), discharge, last_inner)
+    }
+
+    /// Like [`Builder::close_with`], for a closing step that also takes premises — `bind_let`
+    /// justifies each rewritten binding with one.
+    pub fn close_with_premises(
+        &mut self,
+        anchor_args: Vec<AnchorArg>,
+        rule: &str,
+        clause: Vec<Rc<Term>>,
+        premises: Vec<Rc<ProofNode>>,
+        discharge: Vec<Rc<ProofNode>>,
+        last_inner: Rc<ProofNode>,
+    ) -> Rc<ProofNode> {
         let inner_depth = self.depth;
         self.ids.pop();
         self.depth -= 1;
@@ -306,7 +320,7 @@ impl<'a> Builder<'a> {
             depth: inner_depth,
             clause,
             rule: rule.to_owned(),
-            premises: Vec::new(),
+            premises,
             args: Vec::new(),
             discharge,
             previous_step: Some(last_inner),

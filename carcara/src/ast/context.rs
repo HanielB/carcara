@@ -104,6 +104,22 @@ impl ContextStack {
             .map(|id| self.context_vec[*id].1.read().unwrap())
     }
 
+    /// The anchor arguments of every context on the stack, outermost first.
+    pub fn all_args(&self) -> Vec<Vec<AnchorArg>> {
+        self.stack
+            .iter()
+            .map(|id| {
+                self.context_vec[*id]
+                    .1
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .map(|c| c.args.clone())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
     pub fn last_mut(&mut self) -> Option<RwLockWriteGuard<'_, Option<Context>>> {
         self.stack
             .last_mut()

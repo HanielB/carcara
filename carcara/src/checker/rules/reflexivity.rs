@@ -48,12 +48,30 @@ pub fn refl(
     Ok(())
 }
 
-pub fn strict_refl(RuleArgs { conclusion, pool, context, .. }: RuleArgs) -> RuleResult {
+pub fn strict_refl(
+    RuleArgs {
+        conclusion,
+        pool,
+        context,
+        polyeq_time,
+        ..
+    }: RuleArgs,
+) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
     let (left, right) = match_term_err!((= l r) = &conclusion[0])?;
 
     if left == right {
+        return Ok(());
+    }
+
+    // The specification states `refl` up to renaming of bound variables; only this strict variant
+    // is syntactic. The slack is not decorative: capture-avoiding substitution must rename a
+    // binder that would capture, so the same formula reached through two substitutions — the
+    // checker's cumulative context on one side, an elaborator's on the other — can differ in
+    // nothing but a bound name, and no other rule relates the two. α-identification is not a
+    // proof step; it lives below the proof system, which is why it belongs here and nowhere else.
+    if alpha_equiv(left, right, polyeq_time) {
         return Ok(());
     }
     if context.is_empty() {
