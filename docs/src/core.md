@@ -621,9 +621,12 @@ Two prerequisites make this exact, both worth raising with the specification:
   checker (`checker/rules/subproof.rs`) expects `εxᵢ.¬(∀x_{i+1}…xₙ.φ')`, remaining variables
   re-quantified and earlier skolemizations substituted — the exact dual of `sko_ex`'s
   `εxᵢ.(∃x_{i+1}…xₙ.φ')`. The spec text should be fixed to the sequential form.
-- **Binder congruence for `choice` is part of `bind`.** The witnesses of a `sko_ex` step
-  (`εxᵢ.(∃…φ)`) and those produced by the dual route (`εxᵢ.¬(∀…¬φ)`) differ by a duality rewrite
-  *under* `ε`, so bridging them needs congruence under the choice binder. Rather than a separate
+- **Binder congruence for `choice` is part of `bind`** — if the `sko_ex` reduction is wanted at
+  all. The witnesses of a `sko_ex` step (`εxᵢ.(∃…φ)`) and those produced by the dual route
+  (`εxᵢ.¬(∀…¬φ)`) differ by a duality rewrite *under* `ε`, so bridging them needs congruence
+  under the choice binder. This is the *only* thing that needs it: solvers never write a `bind`
+  over `choice`, so a core that keeps `sko_ex` never reshapes a witness and never asks the
+  question. Rather than a separate
   primitive (the earlier divergence-5 proposal), the `bind` rule is read as *binder-generic*:
   from `Γ, x↦y ▷ φ ≈ ψ` conclude `Γ ▷ εx.φ ≈ εy.ψ`, with exactly the mechanics it already has
   for `∀`/`∃` — which is in fact how Carcara's `bind` checker is implemented, so no new rule is
@@ -1392,11 +1395,21 @@ extending it, all worth raising with the Alethe specification maintainers:
    sequential form `εxᵢ.¬(∀x_{i+1}…xₙ.φ')`. The spec text should be corrected to the sequential
    form.
 5. **The Skolemization pair and choice-binder congruence**: only one of `sko_ex`/`sko_forall`
-   needs to be primitive (see the Skolemization section); making the reduction applicable to
-   existing proofs requires binder congruence for `choice`. The proposal is to state `bind` as
-   *binder-generic* — the same rule, mechanics unchanged, over `∀`/`∃`/`ε` alike — rather than
-   to add a separate rule; Carcara's `bind` checker already implements this reading, and the
-   `core` pass's `sko_ex` reduction relies on it.
+   needs to be primitive (see the Skolemization section); making that reduction applicable to
+   *existing* proofs requires binder congruence for `choice`, for which the proposal is to state
+   `bind` as *binder-generic* — the same rule, mechanics unchanged, over `∀`/`∃`/`ε` alike —
+   rather than to add a separate rule; Carcara's `bind` checker already implements this reading.
+
+   **The divergence is conditional on that reduction, and only on it.** Choice congruence is
+   never needed to *check* a solver's proof: no corpus `bind` step is over a `choice` binder
+   (0 of 12,893), and the only construction that emits one is the `sko_ex` reduction's own
+   witness bridge. Keeping `sko_ex` in the core instead — which is exactly what having both
+   `∃`-introduction and `∃`-elimination primitive means, and what RESOLUTE does with its four
+   quantifier axioms — leaves every witness in the shape the solver wrote it, and the choice
+   binder then needs no rule at all. So the trade is: *derive `sko_ex` from `sko_forall` and pay
+   for it with binder-generic `bind`, or keep both Skolemization rules and pay nothing.* The
+   `bind` reduction, which needs the quantifier rules but never the choice one, is what makes
+   the second option cheap: with `sko_ex` core, `bind` itself becomes eliminable.
 6. **Extend `connective_def` with implication**: adding `(φ₁ → φ₂) ≈ (¬φ₁ ∨ φ₂)` to
    `connective_def`'s definition list lets the three `implies` CNF axioms reduce like the `xor`
    and `ite` families, shrinking the axiomatic CNF base to the `and`/`or`/`equiv` families.
