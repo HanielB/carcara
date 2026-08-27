@@ -324,6 +324,19 @@ impl Substitution {
             return t.clone();
         }
 
+        // A term with nothing free to substitute is returned as it stands. Descending into it
+        // could still rename a binder — the renaming set is computed from the substitution, not
+        // from what is actually replaced — and that would return an α-variant of the term for no
+        // reason, which matters wherever the result has to keep matching a term nothing renamed.
+        // Only for a substitution of variables, since free variables are what `free_vars`
+        // reports: a `define-sort` expansion substitutes sorts, which it does not see
+        if self.avoid_capture && self.map.keys().all(|k| k.as_var().is_some()) {
+            let free = pool.free_vars(term);
+            if !self.map.keys().any(|k| free.contains(k)) {
+                return term.clone();
+            }
+        }
+
         let result = match term.as_ref() {
             Term::App(func, args) => {
                 let new_args = apply_to_sequence!(args);
@@ -682,8 +695,9 @@ mod tests {
             "(+ 2 x)" [x -> (+ 3 4 5)] => "(+ 2 (+ 3 4 5))",
             "(forall ((p Bool)) (and p q))" [q -> r] => "(forall ((p Bool)) (and p r))",
 
-            // Simple renaming
-            "(forall ((y Int)) (> y 0))" [x -> y] => "(forall ((y_renamed Int)) (> y_renamed 0))",
+            // Nothing to substitute: the term comes back as it stands, rather than as an
+            // α-variant of itself
+            "(forall ((y Int)) (> y 0))" [x -> y] => "(forall ((y Int)) (> y 0))",
 
             // Renaming may be skipped
             "(forall ((x Int)) (> x 0))" [x -> y] => "(forall ((x Int)) (> x 0))",
@@ -691,25 +705,33 @@ mod tests {
             // Capture-avoidance
             "(forall ((y Int)) (> y x))" [x -> y] => "(forall ((y_renamed Int)) (> y_renamed y))",
             "(forall ((x Int) (y Int)) (= x y))" [x -> y] =>
-                "(forall ((x_renamed Int) (y_renamed Int)) (= x_renamed y_renamed))",
+                "(forall ((x Int) (y Int)) (= x y))",
             "(forall ((x Int) (y Int)) (= x y))" [x -> x] => "(forall ((x Int) (y Int)) (= x y))",
             "(forall ((y Int)) (> y x))" [x -> (+ y 0)] =>
                 "(forall ((y_renamed Int)) (> y_renamed (+ y 0)))",
 
+            // With `x` free under the binders, the renaming fires and cascades
+            "(forall ((y Int) (y_renamed Int)) (= y y_renamed x))" [x -> y] =>
+                "(forall ((y_renamed Int) (y_renamed_renamed Int))
+                    (= y_renamed y_renamed_renamed y))",
+
+            // With nothing to substitute, the term comes back as it stands
             "(forall ((y Int) (y_renamed Int)) (= y y_renamed))" [x -> y] =>
-                "(forall ((y_renamed Int) (y_renamed_renamed Int)) (= y_renamed y_renamed_renamed))",
+                "(forall ((y Int) (y_renamed Int)) (= y y_renamed))",
             "(forall ((y Int) (y_renamed Int) (y_renamed_renamed Int))
                 (= y y_renamed y_renamed_renamed))" [x -> y]
-            => "(forall ((y_renamed Int) (y_renamed_renamed Int) (y_renamed_renamed_renamed Int))
-                    (= y_renamed y_renamed_renamed y_renamed_renamed_renamed))",
+            => "(forall ((y Int) (y_renamed Int) (y_renamed_renamed Int))
+                    (= y y_renamed y_renamed_renamed))",
 
             // The capture-avoidance may disambiguate repeated bindings
-            "(forall ((y Int) (y_renamed Int) (y_renamed Int)) (= y y_renamed y_renamed))" [x -> y] =>
-                "(forall ((y_renamed Int) (y_renamed_renamed Int) (y_renamed_renamed_renamed Int))
-                    (= y_renamed y_renamed_renamed_renamed y_renamed_renamed_renamed))",
+            "(forall ((y Int) (y_renamed Int) (y_renamed Int))
+                (= y y_renamed y_renamed x))" [x -> y]
+            => "(forall ((y_renamed Int) (y_renamed_renamed Int) (y_renamed_renamed_renamed Int))
+                    (= y_renamed y_renamed_renamed_renamed y_renamed_renamed_renamed y))",
 
-            // In theory, since x does not appear in this term, renaming y to y_renamed is unnecessary
-            "(forall ((y Int)) (> y 0))" [x -> y] => "(forall ((y_renamed Int)) (> y_renamed 0))",
+            // Since x does not appear in this term, renaming y to y_renamed is unnecessary — and
+            // it is not done: the substitution returns the term it was given
+            "(forall ((y Int)) (> y 0))" [x -> y] => "(forall ((y Int)) (> y 0))",
 
             // Name collision with variables with different types
             "(forall ((y Bool)) (and y (> x 0)))" [x -> y] =>

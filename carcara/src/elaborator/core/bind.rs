@@ -666,8 +666,10 @@ fn anchor_renaming(args: &[AnchorArg]) -> Option<(Vec<SortedVar>, Vec<SortedVar>
             }
         }
     }
+    // An anchor that only declares variables renames nothing: both sides bind the same names, and
+    // the identity is the renaming between them
     if assigned.is_empty() {
-        return None;
+        return Some((declared.clone(), declared));
     }
     Some((
         assigned.iter().map(|(x, _)| x.clone()).collect(),
@@ -1131,13 +1133,37 @@ fn congruence(
             "the `bind` reduction covers `forall` congruence only, not `{kind}`"
         )));
     };
-    let Some((assigned, targets)) = anchor_renaming(&sub.args) else {
-        return Err(explanation("the anchor is not a renaming"));
-    };
-    if assigned != x_vars || targets != y_vars {
-        return Err(explanation(
-            "the anchor does not rename the quantifier's own variables",
-        ));
+    // An anchor that only declares variables renames nothing — both sides bind the same names —
+    // so the renaming is the identity on the quantifier's own variables
+    let declares_only = sub
+        .args
+        .iter()
+        .all(|arg| matches!(arg, AnchorArg::Variable(_)));
+    if declares_only {
+        if x_vars != y_vars {
+            return Err(explanation(format!(
+                "an anchor that renames nothing, between quantifiers binding [{}] and [{}]",
+                x_vars
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                y_vars
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )));
+        }
+    } else {
+        let Some((assigned, targets)) = anchor_renaming(&sub.args) else {
+            return Err(explanation("the anchor is not a renaming"));
+        };
+        if assigned != x_vars || targets != y_vars {
+            return Err(explanation(
+                "the anchor does not rename the quantifier's own variables",
+            ));
+        }
     }
 
     // When the two sides are α-variants — which is what `bind` is *for*, and what the body then
@@ -1364,7 +1390,16 @@ fn closure(
         return Err(explanation("the closure does not wrap the literal"));
     }
 
+    // The ε-clause skolemizes the body as `sko_forall`'s checker recomputes it — through the
+    // enclosing substitution — while the replay states the body as written. In the vanilla form
+    // the two are joined by a `refl`, which the equivalence there can carry; here the judgment is
+    // a clause, with nothing to hang that step on
     let body_in_context = context.apply(b.pool, &body);
+    if body_in_context != body {
+        return Err(explanation(
+            "a ∀-closure whose body the enclosing anchor rewrites",
+        ));
+    }
     let (ws, stages) = witnesses(b.pool, &closure_vars, &body_in_context);
     let skolemized = stages[closure_vars.len()].clone();
     let eps = epsilon_clause(
@@ -1393,5 +1428,6 @@ fn closure(
         &mut cache,
         &mut assumes,
     )?;
+
     Ok(b.resolve(vec![replayed, eps], vec![(skolemized, true)])?)
 }
