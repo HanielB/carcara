@@ -2,10 +2,27 @@
 //!
 //! `bind` closes a subproof that derives `φ ≈ ψ` under an anchor renaming the quantifier's
 //! variables, and concludes `(∀x̄.φ) ≈ (∀ȳ.ψ)`. The core derives the same equivalence without it,
-//! by the route the classification calls *admissibility of the generalized `bind`*: Skolemize the
-//! target, instantiate the premise at the same witnesses, and **replay the subproof's derivation
-//! with the witnesses substituted for the anchor's variables** — every core rule is schematic, so
-//! its instances stay valid under a uniform substitution of closed terms.
+//! and the cost depends entirely on what the body actually did.
+//!
+//! **When the two sides are α-variants** — the case `bind` exists for, where the body is a `refl`
+//! chain under the renaming context — the reduction is four steps and does not look at the body
+//! at all. Skolemize *both* sides at the *same* witnesses: `sko_forall` compares an anchor's
+//! witnesses with its own only up to α-equivalence, so the witnesses ε̄ of `(∀x̄.φ)` serve for
+//! `(∀ȳ.ψ)` as well, and both sides Skolemize to the very same term.
+//!
+//! ```text
+//! (cl (= (∀x̄.φ) φ[ε̄]))       refl under the anchor x̄ ↦ ε̄, closed by sko_forall
+//! (cl (= (∀ȳ.ψ) φ[ε̄]))       refl under the anchor ȳ ↦ ε̄, closed by sko_forall
+//! (cl (= φ[ε̄] (∀ȳ.ψ)))       symm
+//! (cl (= (∀x̄.φ) (∀ȳ.ψ)))     trans
+//! ```
+//!
+//! **When the body rewrites** — the sides are not α-variants, so their Skolemizations differ and
+//! the body's reasoning has to be transported — the reduction falls back on the route the
+//! classification calls *admissibility of the generalized `bind`*: Skolemize the target,
+//! instantiate the premise at the same witnesses, and **replay the subproof's derivation with the
+//! witnesses substituted for the anchor's variables** — every core rule is schematic, so its
+//! instances stay valid under a uniform substitution of closed terms.
 //!
 //! For one direction, with `ε̄` the sequential ε-witnesses of `(∀ȳ.ψ)`:
 //!
@@ -323,12 +340,7 @@ pub fn bind(pool: &mut PrimitivePool, context: &mut ContextStack, subproof: &Rc<
     let ProofNode::Subproof(sub) = subproof.as_ref() else {
         return Err(explanation("not a subproof"));
     };
-    // Under an enclosing anchor the cumulative substitution also reaches the terms this reduction
-    // builds — the `refl` closing the ∀-ε-clause would have to state what that substitution makes
-    // of the body, not the body as written — so a `bind` inside another scope is left alone
-    if !context.is_empty() {
-        return Err(explanation("`bind` under an enclosing anchor"));
-    }
+
     let Some(last) = sub.last_step.as_step() else {
         return Err(explanation("subproof does not end in a step"));
     };
@@ -344,12 +356,17 @@ pub fn bind(pool: &mut PrimitivePool, context: &mut ContextStack, subproof: &Rc<
     if let [conclusion] = last.clause.as_slice() {
         if let Some((lhs, rhs)) = match_term!((= l r) = conclusion) {
             let (lhs, rhs) = (lhs.clone(), rhs.clone());
-            return congruence(&mut b, sub, previous, inner_depth, &lhs, &rhs);
+            return congruence(&mut b, context, sub, previous, inner_depth, &lhs, &rhs);
         }
     }
 
     // The generalized form: a clause with one literal closed as `(∀Ȳ. l)`, the others passing
     // through
+    if !context.is_empty() {
+        return Err(explanation(
+            "the ∀-closure reduction is only built outside an enclosing anchor",
+        ));
+    }
     closure(&mut b, sub, previous, inner_depth, &last.clause)
 }
 
@@ -361,8 +378,10 @@ fn quant_parts(term: &Rc<Term>) -> Option<(Vec<SortedVar>, Rc<Term>)> {
 }
 
 /// The vanilla case: `(∀x̄.φ) ≈ (∀ȳ.ψ)` from the body's `φ ≈ ψ`.
+#[allow(clippy::too_many_arguments)]
 fn congruence(
     b: &mut Builder,
+    context: &mut ContextStack,
     sub: &SubproofNode,
     previous: &Rc<ProofNode>,
     inner_depth: usize,
@@ -383,6 +402,48 @@ fn congruence(
         ));
     }
 
+    // When the two sides are α-variants — which is what `bind` is *for*, and what the body then
+    // proves by `refl` under the renaming context — the equivalence needs no replay at all.
+    // Skolemizing both sides at the *same* witnesses gives the same term, so `sko_forall` twice,
+    // one `symm` and one `trans` close it, in four steps and independently of the body's size.
+    // `sko_forall` compares the anchor's witnesses with its own up to α-equivalence, which is
+    // exactly the slack this uses: the witnesses of `(∀x̄.φ)` serve for `(∀ȳ.ψ)` too
+    let renaming: IndexMap<_, _> = x_vars
+        .iter()
+        .zip(&y_vars)
+        .map(|(x, y)| {
+            (
+                b.pool.add(Term::from(x.clone())),
+                b.pool.add(Term::from(y.clone())),
+            )
+        })
+        .collect();
+    // The judgment is *contextual*: an enclosing anchor's substitution applies to the left body,
+    // and `sko_forall`'s own checker applies it too when it recomputes the witnesses
+    let phi_in_context = context.apply(b.pool, &phi);
+    if substitute(b.pool, &phi_in_context, renaming) == psi {
+        let (ws, stages) = witnesses(b.pool, &x_vars, &phi_in_context);
+        let skolemized = stages[x_vars.len()].clone();
+
+        let side = |b: &mut Builder, quant: &Rc<Term>, vars: &[SortedVar], body: &Rc<Term>| {
+            let anchor_args: Vec<AnchorArg> = vars
+                .iter()
+                .zip(&ws)
+                .map(|(var, w)| AnchorArg::Assign(var.clone(), w.clone()))
+                .collect();
+            b.open();
+            let equality = build_term!(b.pool, (= {body.clone()} {skolemized.clone()}));
+            let refl = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+            let closing = build_term!(b.pool, (= {quant.clone()} {skolemized.clone()}));
+            b.close_with(anchor_args, "sko_forall", vec![closing], Vec::new(), refl)
+        };
+        let left = side(b, lhs, &x_vars, &phi);
+        let right = side(b, rhs, &y_vars, &psi);
+        let flipped = b.symm(&right);
+        let conclusion = build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}));
+        return Ok(b.step(vec![conclusion], "trans", vec![left, flipped], Vec::new()));
+    }
+
     // One direction: Skolemize `to`, instantiate `from` at the same witnesses, replay the body
     // there, and cross the two with the equivalence
     let direction = |b: &mut Builder, forward: bool| -> Res {
@@ -391,6 +452,12 @@ fn congruence(
         } else {
             (rhs, &y_vars, lhs, &x_vars, &phi)
         };
+        if !context.is_empty() {
+            return Err(explanation(
+                "a rewriting `bind` under an enclosing anchor: the replay would have to compose \
+                 the two substitutions",
+            ));
+        }
         let (ws, stages) = witnesses(b.pool, to_vars, to_body);
         let skolemized = stages[to_vars.len()].clone();
         let eps = epsilon_clause(b, to, to_vars, to_body, &ws, &skolemized)?;

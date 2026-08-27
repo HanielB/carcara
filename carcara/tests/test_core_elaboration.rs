@@ -384,8 +384,31 @@ fn bind_to_skolemization() {
         proof,
         elaborator::ElaborationPass::CoreExpensive,
     );
+    // The α-renaming case: both sides Skolemize at the same witnesses, so four steps close it and
+    // the body is not even looked at — no `forall_inst`, no replay
     assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
     assert_eq!(rules.iter().filter(|r| *r == "sko_forall").count(), 2);
+    assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "trans").count(), 1);
+}
+
+/// When the body genuinely rewrites, the two sides no longer Skolemize to the same term, so the
+/// reduction falls back on instantiating the premise at the target's witnesses and replaying.
+#[test]
+fn rewriting_bind_replays_the_body() {
+    let definitions = "
+        (declare-sort S 0)
+        (declare-fun P (S) Bool)
+        (declare-fun Q (S) Bool)
+    ";
+    let proof = "
+        (anchor :step t1 :args ((y S) (:= (x S) y)))
+        (step t1.t1 (cl (= (P x) (Q y))) :rule hole)
+        (step t1 (cl (= (forall ((x S)) (P x)) (forall ((y S)) (Q y)))) :rule bind)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(definitions, proof, elaborator::ElaborationPass::CoreExpensive);
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
     assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 2);
 }
 
@@ -415,10 +438,11 @@ fn generalized_bind_to_skolemization() {
     assert_eq!(rules.iter().filter(|r| *r == "sko_forall").count(), 1);
 }
 
-/// A `bind` under an enclosing anchor is kept: the cumulative substitution would also reach the
-/// terms the reduction builds.
+/// A nested α-renaming `bind` reduces as well: the judgment is contextual, so the reduction takes
+/// the left body to be what the enclosing substitution makes of it — which is also what
+/// `sko_forall`'s checker does when it recomputes the witnesses.
 #[test]
-fn nested_bind_is_kept() {
+fn nested_bind_is_reduced() {
     let definitions = "
         (declare-sort S 0)
         (declare-fun P (S S) Bool)
@@ -437,5 +461,28 @@ fn nested_bind_is_kept() {
         proof,
         elaborator::ElaborationPass::CoreExpensive,
     );
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
+    assert!(rules.iter().filter(|r| *r == "sko_forall").count() >= 4);
+}
+
+/// A *rewriting* `bind` under an enclosing anchor is kept: its replay would have to compose the
+/// enclosing substitution with the witness one.
+#[test]
+fn nested_rewriting_bind_is_kept() {
+    let definitions = "
+        (declare-sort S 0)
+        (declare-fun P (S S) Bool)
+        (declare-fun Q (S S) Bool)
+    ";
+    let proof = "
+        (anchor :step t1 :args ((v S) (:= (u S) v)))
+        (anchor :step t1.t1 :args ((y S) (:= (x S) y)))
+        (step t1.t1.t1 (cl (= (P x u) (Q y v))) :rule hole)
+        (step t1.t1 (cl (= (forall ((x S)) (P x u)) (forall ((y S)) (Q y v)))) :rule bind)
+        (step t1 (cl (= (forall ((u S)) (forall ((x S)) (P x u)))
+                        (forall ((v S)) (forall ((y S)) (Q y v))))) :rule bind)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(definitions, proof, elaborator::ElaborationPass::CoreExpensive);
     assert!(rules.iter().any(|r| r == "bind"));
 }

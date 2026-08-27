@@ -1137,9 +1137,11 @@ for any rule.
 
 The **expensive** level is the last stage, and every rule on it has an implemented reduction,
 applied by the `core-expensive` pass: `poly_simp` (linear identities → two Farkas bounds +
-`la_disequality`), `aci_simp` (→ the two clausal directions of the equivalence), `bind` (→ the
-∀-ε-clause plus a replay of its body at the witnesses — the admissibility argument of
-"what the generalization buys", made executable), and `sko_ex` (→ the duality route). What defines the level is not a missing prerequisite but a measured
+`la_disequality`), `aci_simp` (→ the two clausal directions of the equivalence), `bind` (→ for
+an α-renaming, Skolemizing *both* sides at the same witnesses and joining them, four steps and
+no look at the body; for a rewriting body, the ∀-ε-clause plus a replay at the witnesses — the
+admissibility argument of "what the generalization buys", made executable), and `sko_ex` (→ the
+duality route). What defines the level is not a missing prerequisite but a measured
 price: `aci_simp` is where 46% of veriT's post-elaboration checking time went when the pass
 created 300 000 of them, `poly_simp`'s six-steps-per-identity is pure growth, and `sko_ex`'s
 recipe costs an ~8× local blowup — so the default regimes keep the rules, and the stage exists
