@@ -1441,15 +1441,7 @@ fn closure(
         return Err(explanation("the closure does not wrap the literal"));
     }
 
-    // The ε-clause skolemizes the body as `sko_forall` recomputes it — through the enclosing
-    // substitution — while the replay states it as written. The vanilla form joins the two with a
-    // `refl` that its equivalence can carry; a clause judgment has nothing to hang that on
     let body_in_context = context.apply(b.pool, &body);
-    if body_in_context != body {
-        return Err(explanation(
-            "a ∀-closure whose body the enclosing anchor rewrites",
-        ));
-    }
     let (ws, _) = witnesses(b.pool, &closure_vars, &body_in_context);
     let (eps, skolemized) =
         epsilon_clause(b, context, &conclusion[index], &closure_vars, &body, &ws)?;
@@ -1458,10 +1450,10 @@ fn closure(
     for (var, w) in closure_vars.iter().zip(&ws) {
         map.insert(b.pool.add(Term::from(var.clone())), w.clone());
     }
-    let mut replacement = Replacement::new(b.pool, map);
+    let mut replacement = Replacement::new(b.pool, map.clone());
     let mut cache = ReplayCache::new();
     let mut assumes = ReplayCache::new();
-    let replayed = replay(
+    let mut replayed = replay(
         b,
         context,
         previous,
@@ -1471,6 +1463,23 @@ fn closure(
         &mut cache,
         &mut assumes,
     )?;
+
+    // The ε-clause skolemizes the body as `sko_forall` recomputes it — through the enclosing
+    // substitution — while the replay states it as written. A contextual `refl`, read as an
+    // implication by `equiv1`, carries the replayed literal to the one the ε-clause offers
+    let written = substitute(b.pool, &body, map);
+    if written != skolemized {
+        let equality = build_term!(b.pool, (= {written.clone()} {skolemized.clone()}));
+        let bridge = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+        let not_written = b.not(&written);
+        let implied = b.step(
+            vec![not_written, skolemized.clone()],
+            "equiv1",
+            vec![bridge],
+            Vec::new(),
+        );
+        replayed = b.resolve(vec![replayed, implied], vec![(written, true)])?;
+    }
 
     Ok(b.resolve(vec![replayed, eps], vec![(skolemized, true)])?)
 }
