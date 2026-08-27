@@ -5,8 +5,8 @@
 `bind` is Alethe's congruence-under-a-binder rule: from a subproof proving `Γ, x̄ ↦ ȳ ▷ φ ≈ ψ`
 it concludes `Γ ▷ (Qx̄. φ) ≈ (Qȳ. ψ)`. The [classification](../docs/src/core/classification.md)
 calls it *expensive* — reducible, but at a price the default regimes decline to pay. This note
-records what the reduction actually needs, after the round of work that took corpus coverage from
-57% to 89%.
+records what the reduction actually needs, after the work that took corpus coverage from 57% to
+every `bind` step the corpus contains.
 
 ## The question that started it: is `bind` beyond the other rules?
 
