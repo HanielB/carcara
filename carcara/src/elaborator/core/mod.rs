@@ -125,8 +125,16 @@ impl<'a> Builder<'a> {
 
     /// Adds an `assume` command at the current depth.
     pub fn assume(&mut self, term: Rc<Term>) -> Rc<ProofNode> {
+        let depth = self.depth;
+        self.assume_at(depth, term)
+    }
+
+    /// An assumption belonging to a scope other than the one being built — for a replay that
+    /// reaches an outer scope's assumption from inside a deeper one. The node's depth is what
+    /// decides which subproof prints it, so stating it is enough to put it there.
+    pub fn assume_at(&mut self, depth: usize, term: Rc<Term>) -> Rc<ProofNode> {
         let id = self.ids.next_id();
-        Rc::new(ProofNode::Assume { id, depth: self.depth, term })
+        Rc::new(ProofNode::Assume { id, depth, term })
     }
 
     /// Computes the clause that results from resolving the given premises with the given pivots.

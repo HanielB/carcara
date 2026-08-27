@@ -344,6 +344,7 @@ fn replay(
     inner_depth: usize,
     shift: usize,
     cache: &mut ReplayCache,
+    assumes: &mut ReplayCache,
 ) -> Res {
     // The cache is per scope (see the nested-subproof arm), so the depth in the key only guards
     // against a node being reused across the boundary of the scope that built it
@@ -357,17 +358,24 @@ fn replay(
     }
     let result = match node.as_ref() {
         ProofNode::Assume { term, depth, .. } => {
-            // The replay drops one level — the `bind` anchor — so an assumption belongs where its
-            // own scope has landed. Reaching one from a deeper scope, which happens when a step
-            // there is the first to need it, would create it in the wrong scope, where nothing
-            // discharges it
-            if depth.saturating_sub(shift) != b.depth() {
-                return Err(explanation(
-                    "an assumption of a scope other than the one being replayed",
-                ));
+            // The replay drops levels — the `bind` anchor, and every `let` scope it dissolves —
+            // so an assumption belongs at the depth its own scope has landed at, which is not
+            // necessarily the one being built: a step in a deeper scope can be the first to need
+            // it. The node's depth is what decides which subproof prints it
+            let Some(at) = depth.checked_sub(shift) else {
+                return Err(explanation("an assumption from outside the subproof"));
+            };
+            // Assumptions are shared across the scopes of one replay, not cached per scope like
+            // everything else: the scope that discharges an assumption and the one that uses it
+            // are different scopes, and two copies would leave one of them undischarged
+            let key = (node.clone(), at);
+            if let Some(done) = assumes.get(&key) {
+                return Ok(done.clone());
             }
             let term = transport(b, replacement, term);
-            b.assume(term)
+            let assumption = b.assume_at(at, term);
+            assumes.insert(key, assumption.clone());
+            assumption
         }
         ProofNode::Subproof(sub) => {
             let Some(last) = sub.last_step.as_step() else {
@@ -394,6 +402,7 @@ fn replay(
                     inner_depth,
                     shift,
                     cache,
+                    assumes,
                 );
             }
             // `onepoint` is the one closing whose side condition the replay does not track: it
@@ -451,6 +460,7 @@ fn replay(
                         inner_depth,
                         shift,
                         &mut inner_cache,
+                        assumes,
                     )?);
                 }
                 let inner = replay(
@@ -461,6 +471,7 @@ fn replay(
                     inner_depth,
                     shift,
                     &mut inner_cache,
+                    assumes,
                 )?;
                 let mut premises = Vec::new();
                 for p in &last.premises {
@@ -472,6 +483,7 @@ fn replay(
                         inner_depth,
                         shift,
                         &mut inner_cache,
+                        assumes,
                     )?);
                 }
                 Ok((inner, discharge, premises))
@@ -497,6 +509,7 @@ fn replay(
                     inner_depth,
                     shift,
                     cache,
+                    assumes,
                 )?);
             }
             let clause: Vec<_> = s
@@ -535,6 +548,7 @@ fn replay_let(
     inner_depth: usize,
     shift: usize,
     _cache: &mut ReplayCache,
+    assumes: &mut ReplayCache,
 ) -> Res {
     let [conclusion] = last.clause.as_slice() else {
         return Err(explanation("a `let` step with a non-unit clause"));
@@ -591,6 +605,7 @@ fn replay_let(
         inner_depth,
         shift + 1,
         &mut cache,
+        assumes,
     )?;
     let [equality] = body.clause() else {
         return Err(explanation(
@@ -619,12 +634,18 @@ fn replay_let(
     Ok(b.step(clause, "trans", premises, Vec::new()))
 }
 
-/// Whether an anchor is the kind a `bind` scope opens: it introduces variables and assigns
-/// variables to variables, and nothing else. Those are the anchors this reduction removes, so a
-/// `bind` under one waits for the round that removes it; an anchor that assigns a *term* belongs
-/// to a `let` or a Skolemization scope, which stays where it is.
+/// Whether an anchor is the kind an α-renaming `bind` scope opens: it introduces variables and
+/// assigns variables to variables, and does at least one of the latter. Those are the anchors
+/// this reduction removes, so a `bind` under one waits for the round that removes it. An anchor
+/// that assigns a *term* belongs to a `let` or a Skolemization scope, and one that only
+/// introduces variables to a `bind_let` or a ∀-closure — none of which this reduction takes
+/// away, so a `bind` under one is attempted where it stands.
 fn renaming_anchor(args: &[AnchorArg]) -> bool {
-    !args.is_empty()
+    let renames = args.iter().any(|arg| match arg {
+        AnchorArg::Variable(_) => false,
+        AnchorArg::Assign(_, value) => value.as_var().is_some(),
+    });
+    renames
         && args.iter().all(|arg| match arg {
             AnchorArg::Variable(_) => true,
             AnchorArg::Assign(_, value) => value.as_var().is_some(),
@@ -1209,6 +1230,7 @@ fn congruence(
         }
         let mut replacement = Replacement::new(b.pool, map);
         let mut cache = ReplayCache::new();
+        let mut assumes = ReplayCache::new();
         let mut replayed = replay(
             b,
             context,
@@ -1217,6 +1239,7 @@ fn congruence(
             inner_depth,
             1,
             &mut cache,
+            &mut assumes,
         )?;
 
         // What the replay ends at and what the surrounding steps need can differ in two harmless
@@ -1359,6 +1382,7 @@ fn closure(
     }
     let mut replacement = Replacement::new(b.pool, map);
     let mut cache = ReplayCache::new();
+    let mut assumes = ReplayCache::new();
     let replayed = replay(
         b,
         context,
@@ -1367,6 +1391,7 @@ fn closure(
         inner_depth,
         1,
         &mut cache,
+        &mut assumes,
     )?;
     Ok(b.resolve(vec![replayed, eps], vec![(skolemized, true)])?)
 }
