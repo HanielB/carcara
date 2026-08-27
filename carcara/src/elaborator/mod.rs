@@ -105,7 +105,7 @@ const MAX_EXPENSIVE_ROUNDS: usize = 8;
 /// in force where it is built, and reducing an enclosing `bind` afterwards would carry it out of
 /// that substitution and leave it stating something else — so the enclosing one goes first, and
 /// the scopes it contained are then reduced where they have landed.
-fn nested_binds(proof: &ProofNodeForest) -> HashSet<Rc<ProofNode>> {
+fn nested_binds(proof: &ProofNodeForest) -> HashSet<String> {
     fn closes_bind(node: &Rc<ProofNode>) -> bool {
         match node.as_ref() {
             ProofNode::Subproof(sub) => sub.last_step.as_step().is_some_and(|s| s.rule == "bind"),
@@ -132,7 +132,12 @@ fn nested_binds(proof: &ProofNodeForest) -> HashSet<Rc<ProofNode>> {
             ProofNode::Subproof(sub) => {
                 let is_bind = closes_bind(node);
                 if is_bind && inside {
-                    out.insert(node.clone());
+                    // Keyed by the closing step's id, not by the node: a pass is handed a
+                    // *rebuilt* node whenever one of its premises moved, and that node is not
+                    // the one this traversal saw
+                    if let Some(step) = sub.last_step.as_step() {
+                        out.insert(step.id.clone());
+                    }
                 }
                 let within = inside || is_bind;
                 stack.push((&sub.last_step, within));
@@ -463,7 +468,9 @@ impl<'e> Elaborator<'e> {
                 // substitution is exactly what it eliminates
                 ProofNode::Subproof(sub) => {
                     let last = sub.last_step.as_step();
-                    if last.is_some_and(|s| s.rule == "bind") && !deferred.contains(node) {
+                    if last.is_some_and(|s| s.rule == "bind")
+                        && !last.is_some_and(|s| deferred.contains(&s.id))
+                    {
                         let s = last.unwrap();
                         match core::bind::bind(self.pool, context, node) {
                             Ok(new_node) => {

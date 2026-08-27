@@ -251,6 +251,46 @@ fn witnesses(
     (result, stages)
 }
 
+/// The substitution an anchor assigning these witnesses actually stands for.
+///
+/// A context builds its substitution one assignment at a time, applying what it has so far to
+/// each new value (see `ContextStack::catch_up_cumulative`). That matters when a binder list
+/// repeats a name — veriT writes `(∀ x y y x. φ)` for what binds each of them once — since the
+/// later assignment's value is then rewritten by the earlier ones.
+fn anchor_map(
+    pool: &mut PrimitivePool,
+    vars: &[SortedVar],
+    ws: &[Rc<Term>],
+) -> IndexMap<Rc<Term>, Rc<Term>> {
+    let mut map: IndexMap<Rc<Term>, Rc<Term>> = IndexMap::new();
+    for (var, w) in vars.iter().zip(ws) {
+        let value = substitute(pool, w, map.clone());
+        let var_term = pool.add(Term::from(var.clone()));
+        map.insert(var_term, value);
+    }
+    map
+}
+
+/// Whether a contextual `refl` can carry `have` to `want` — that is, whether the enclosing
+/// substitution is the whole of the difference between them. It usually is, since the one side
+/// is the body as written and the other the body as the ε-clause skolemizes it; when it is not,
+/// there is no step to state, and the reduction says so instead of writing one that fails.
+fn bridgeable(
+    b: &mut Builder,
+    context: &mut ContextStack,
+    have: &Rc<Term>,
+    want: &Rc<Term>,
+) -> Result<(), ElaborationError> {
+    let applied = context.apply(b.pool, have);
+    let mut time = std::time::Duration::ZERO;
+    if applied == *want || crate::ast::alpha_equiv(&applied, want, &mut time) {
+        return Ok(());
+    }
+    Err(explanation(
+        "the replayed body and the ε-clause differ by more than the enclosing substitution",
+    ))
+}
+
 /// Emits the ∀-ε-clause `(cl (∀ v̄. χ) ¬χ[ε̄])`: a `refl` under an anchor assigning each variable
 /// its witness, closed by `sko_forall`, and unpacked by `equiv2`.
 fn epsilon_clause(
@@ -1148,14 +1188,6 @@ fn congruence(
             "the `bind` reduction covers `forall` congruence only, not `{kind}`"
         )));
     };
-    // Both sides must bind the same number of variables: the witnesses are computed per binder
-    // position, and the ε-term for the first of two variables — which quantifies the second — is
-    // not the ε-term for a lone one
-    if x_vars.len() != y_vars.len() {
-        return Err(explanation(
-            "quantifiers binding different numbers of variables",
-        ));
-    }
 
     // An anchor that only declares variables renames nothing — both sides bind the same names —
     // so the renaming is the identity on the quantifier's own variables
@@ -1164,7 +1196,15 @@ fn congruence(
         .iter()
         .all(|arg| matches!(arg, AnchorArg::Variable(_)));
     if declares_only {
-        if x_vars != y_vars {
+        // The lists may differ in a repeated binder — `(∀ x y y x. φ)` binds each of x and y
+        // once — so what has to agree is which variables they bind, not how often
+        let names = |vars: &[SortedVar]| {
+            let mut names: Vec<String> = vars.iter().map(|(n, _)| n.clone()).collect();
+            names.sort();
+            names.dedup();
+            names
+        };
+        if names(&x_vars) != names(&y_vars) {
             return Err(explanation(format!(
                 "an anchor that renames nothing, between quantifiers binding [{}] and [{}]",
                 x_vars
@@ -1196,6 +1236,9 @@ fn congruence(
     // one `symm` and one `trans` close it, in four steps and independently of the body's size.
     // `sko_forall` compares the anchor's witnesses with its own up to α-equivalence, which is
     // exactly the slack this uses: the witnesses of `(∀x̄.φ)` serve for `(∀ȳ.ψ)` too
+    // The four-step and α routes pair the binders position by position, so they need lists of
+    // the same length; the replay route below reads the witnesses by name and does not
+    let same_arity = x_vars.len() == y_vars.len();
     let renaming: IndexMap<_, _> = x_vars
         .iter()
         .zip(&y_vars)
@@ -1209,7 +1252,7 @@ fn congruence(
     // The judgment is *contextual*: an enclosing anchor's substitution applies to the left body,
     // and `sko_forall`'s own checker applies it too when it recomputes the witnesses
     let phi_in_context = context.apply(b.pool, &phi);
-    if substitute(b.pool, &phi_in_context, renaming) == psi {
+    if same_arity && substitute(b.pool, &phi_in_context, renaming) == psi {
         // The exact-renaming case: both sides Skolemize to the very same term, so two
         // `sko_forall` scopes and a `symm`/`trans` close it in four steps
         let (ws, _) = witnesses(b.pool, &x_vars, &phi_in_context);
@@ -1269,7 +1312,7 @@ fn congruence(
     {
         let mut time = std::time::Duration::ZERO;
         let lhs_in_context = context.apply(b.pool, lhs);
-        if crate::ast::alpha_equiv(&lhs_in_context, rhs, &mut time) {
+        if same_arity && crate::ast::alpha_equiv(&lhs_in_context, rhs, &mut time) {
             return alpha_quant(b, context, lhs, rhs);
         }
     }
@@ -1288,10 +1331,33 @@ fn congruence(
         let (ws, _) = witnesses(b.pool, to_vars, &to_body_ctx);
         let (eps, skolemized) = epsilon_clause(b, context, to, to_vars, to_body, &ws)?;
 
+        // Which witness stands for which variable. A binder list may repeat a name — veriT
+        // writes `(∀ x y y x. φ)` for what binds each of them once — and then only the last
+        // occurrence is the live one, so the later entry wins, exactly as the binder does
+        let to_map = anchor_map(b.pool, to_vars, &ws);
+        let mut by_name: IndexMap<&str, Rc<Term>> = IndexMap::new();
+        for (var, w) in to_vars.iter().zip(to_map.values()) {
+            by_name.insert(var.0.as_str(), w.clone());
+        }
+
         // The instance `forall_inst` will state, which must be the literal one: the rule is
-        // context-insensitive and knows nothing of the replay's renamings
+        // context-insensitive and knows nothing of the replay's renamings. Its arguments follow
+        // `from`'s binder list, position by position, whatever names that list repeats
+        let from_args: Vec<Rc<Term>> = if from_vars.len() == to_vars.len() {
+            // The usual case: the two binder lists match position by position, and the anchor
+            // says how their names correspond
+            to_map.values().cloned().collect()
+        } else {
+            // Only a repeated binder can make the lists differ in length, and a list that
+            // repeats a name is one the anchor renames nothing in, so the names coincide
+            from_vars
+                .iter()
+                .map(|var| by_name.get(var.0.as_str()).cloned())
+                .collect::<Option<_>>()
+                .ok_or_else(|| explanation("the two sides bind different variables"))?
+        };
         let mut from_map = IndexMap::new();
-        for (var, w) in from_vars.iter().zip(&ws) {
+        for (var, w) in from_vars.iter().zip(&from_args) {
             let var_term = b.pool.add(Term::from(var.clone()));
             from_map.insert(var_term, w.clone());
         }
@@ -1299,9 +1365,10 @@ fn congruence(
 
         // The replay substitutes *both* binder families by the witnesses: the body mentions the
         // left variables directly and the right ones through the anchor's renaming
+        let values: Vec<Rc<Term>> = to_map.values().cloned().collect();
         let mut map = IndexMap::new();
-        for (vars, ws) in [(&x_vars, &ws), (&y_vars, &ws)] {
-            for (var, w) in vars.iter().zip(ws) {
+        for vars in [&x_vars, &y_vars] {
+            for (var, w) in vars.iter().zip(&values) {
                 map.insert(b.pool.add(Term::from(var.clone())), w.clone());
             }
         }
@@ -1339,6 +1406,7 @@ fn congruence(
             // substitution makes of it — and the left one is turned around by `symm`
             let mut premises = Vec::new();
             if have_left != want_left {
+                bridgeable(b, context, &have_left, &want_left)?;
                 let clause = vec![build_term!(
                     b.pool,
                     (= {have_left.clone()} {want_left.clone()})
@@ -1348,6 +1416,7 @@ fn congruence(
             }
             premises.push(replayed);
             if have_right != want_right {
+                bridgeable(b, context, &have_right, &want_right)?;
                 let clause = vec![build_term!(
                     b.pool,
                     (= {have_right.clone()} {want_right.clone()})
@@ -1366,8 +1435,6 @@ fn congruence(
         let (left_instance, right_instance) = match_term_err!((= l r) = equality)?;
         let (left_instance, right_instance) = (left_instance.clone(), right_instance.clone());
 
-        debug_assert_eq!(from_vars.len(), ws.len());
-        let from_args: Vec<_> = ws.clone();
         let instance = if forward {
             &left_instance
         } else {
@@ -1446,10 +1513,7 @@ fn closure(
     let (eps, skolemized) =
         epsilon_clause(b, context, &conclusion[index], &closure_vars, &body, &ws)?;
 
-    let mut map = IndexMap::new();
-    for (var, w) in closure_vars.iter().zip(&ws) {
-        map.insert(b.pool.add(Term::from(var.clone())), w.clone());
-    }
+    let map = anchor_map(b.pool, &closure_vars, &ws);
     let mut replacement = Replacement::new(b.pool, map.clone());
     let mut cache = ReplayCache::new();
     let mut assumes = ReplayCache::new();
@@ -1469,6 +1533,7 @@ fn closure(
     // implication by `equiv1`, carries the replayed literal to the one the ε-clause offers
     let written = substitute(b.pool, &body, map);
     if written != skolemized {
+        bridgeable(b, context, &written, &skolemized)?;
         let equality = build_term!(b.pool, (= {written.clone()} {skolemized.clone()}));
         let bridge = b.step(vec![equality], "refl", Vec::new(), Vec::new());
         let not_written = b.not(&written);

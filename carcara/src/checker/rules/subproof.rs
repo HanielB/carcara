@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{ast::*, checker::error::SubproofError};
 use indexmap::{IndexMap, IndexSet};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub fn subproof(
     RuleArgs {
@@ -468,7 +468,10 @@ fn generic_skolemization_rule(
     let context = context.last().unwrap();
     let args = context.as_ref().unwrap().args.iter();
 
-    let substitution: HashMap<Rc<Term>, Rc<Term>> = args
+    // The anchor's assignments are read in order, one per binding, rather than as a map from
+    // variable to witness: a binder list may repeat a name, and each of its positions is
+    // skolemized by a witness of its own
+    let assignments: Vec<(Rc<Term>, Rc<Term>)> = args
         .filter_map(AnchorArg::as_assign)
         .map(|(k, v)| {
             let var = Term::new_var(k, pool.sort(v));
@@ -478,9 +481,15 @@ fn generic_skolemization_rule(
 
     for (i, x) in bindings.iter().enumerate() {
         let x_term = pool.add(Term::from(x.clone()));
-        let t = substitution
-            .get(&x_term)
-            .ok_or_else(|| SubproofError::BindingIsNotInContext(x.0.clone()))?;
+        let t = if assignments.len() == bindings.len() && assignments[i].0 == x_term {
+            &assignments[i].1
+        } else {
+            &assignments
+                .iter()
+                .find(|(var, _)| *var == x_term)
+                .ok_or_else(|| SubproofError::BindingIsNotInContext(x.0.clone()))?
+                .1
+        };
 
         // To check that `t` is of the correct form, we construct the expected term and compare
         // them
