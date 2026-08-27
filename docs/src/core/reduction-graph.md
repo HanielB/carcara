@@ -2,12 +2,13 @@
 
 The current state of the classification as a graph: nodes are rules (families collapsed, with
 counts), grouped by concern category; an edge points from a rule to the rules its reduction
-targets. Border color and style encode the reducibility level — **core** (blue, bold),
-**reducible** (green), **expensive** (yellow, dashed), **aggressive** (violet, dotted),
-**removal** (red, double border) — and proposals (`la_mult_pos_pos`, `equiv_intro`, `or_intro`;
-the `bind` generalization is noted on the `bind` node) are marked by a dashed border or a
-"(proposed)" note. Edge styles mirror the levels: solid = a reduction meeting R1–R4, dashed = an
-expensive scheme, dotted = an aggressive scheme or a fallback route.
+targets. Border color and style encode the level, which is also the *elimination stage* the rule
+belongs to — **reducible** (green, removed first), **rare/simplify** (violet dotted, the rewrite
+vocabulary, removed second), **expensive** (yellow dashed, `poly_simp`/`aci_simp`, the clausal
+equality rules and `sko_ex`, removed last), and **core** (blue, bold, what is left). **Oracle**
+(red, double border) is the one rule no reduction reaches, `lia_generic`. Proposed-but-unadopted
+extensions (`equiv_intro`, `or_intro`; the `bind` generalization is noted on the `bind` node) are
+marked by a dashed border or a "(proposed)" note. Edge styles mirror the levels.
 
 Ubiquitous glue targets are omitted to keep the graph readable: nearly every reduction also uses
 `resolution`, `subproof`, and iff-introduction (`equiv_intro`, or its `equiv_neg1/2` derivation),

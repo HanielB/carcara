@@ -18,8 +18,8 @@ LEVELS = {
     "#2a78d6": "core",
     "#1baf7a": "reducible",
     "#eda100": "expensive",
-    "#4a3aa7": "aggressive",
-    "#e34948": "removal",
+    "#4a3aa7": "rare-simplify",
+    "#e34948": "oracle",
 }
 
 src = open(DOT).read()

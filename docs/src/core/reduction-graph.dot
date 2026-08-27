@@ -2,8 +2,8 @@
 // Nodes = rules (families collapsed); border color+style = ladder level;
 // edges = "reduces to" (ubiquitous glue targets — resolution/subproof/iff-intro — omitted
 // except where they are the distinctive target).
-// Levels: core #2a78d6 bold / reducible #1baf7a / expensive #eda100 dashed /
-//         aggressive #4a3aa7 dotted / removal #e34948 double. Proposed = dashed + "(proposed)".
+// Levels (the elimination stages, outermost first): reducible #1baf7a / rare-simplify #4a3aa7
+//         dotted / expensive #eda100 dashed / core #2a78d6 bold; oracle #e34948 double.
 digraph core_alethe {
   rankdir=LR;
   splines=true;
@@ -14,11 +14,11 @@ digraph core_alethe {
         arrowsize=0.6];
 
   // ---- level node classes (applied per node below) ----
-  // core:       color="#2a78d6", penwidth=2.4
-  // reducible:  color="#1baf7a", penwidth=1.6
-  // expensive:  color="#eda100", penwidth=1.8, style="rounded,filled,dashed"
-  // aggressive: color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"
-  // removal:    color="#e34948", penwidth=1.4, peripheries=2
+  // core:          color="#2a78d6", penwidth=2.4
+  // reducible:     color="#1baf7a", penwidth=1.6
+  // rare/simplify: color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"
+  // expensive:     color="#eda100", penwidth=1.8, style="rounded,filled,dashed"
+  // oracle:        color="#e34948", penwidth=1.4, peripheries=2
 
   subgraph cluster_structural {
     label="structural"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
@@ -74,19 +74,19 @@ digraph core_alethe {
     andor_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\naci-compatible instances are aci_simp renames;\nshort-circuits are constant-size CNF-axiom chains", label="and/or\nsimplify (2)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
     bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (6)", color="#4a3aa7", penwidth=1.8,
                style="rounded,filled,dotted"];
-    aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence\n(computational primitive)", color="#2a78d6", penwidth=2.4];
+    aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence\nreduces to the two clausal directions of the equivalence", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     distinct_elim [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ distinct(t1 … tn) ≈ pairwise disequalities\nBool, 2 args:  ≈ ¬(φ ≈ ψ);  Bool, ≥3 args:  ≈ ⊥", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
   }
 
   subgraph cluster_arith {
     label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
     la_generic [URL="classification.html#arithmetic", target="_self", tooltip="▷ φ1, …, φn   (linear (in)equalities)\nnegations refuted by a positive Farkas combination (:args coefficients)", color="#2a78d6", penwidth=2.4];
-    poly_simp  [URL="classification.html#arithmetic", target="_self", tooltip="(extra)  ▷ t ≈ u\nboth sides ring-normalize to the same polynomial", label="poly_simp (extra)", color="#2a78d6", penwidth=2.4];
-    la_mult_pos_pos [URL="classification.html#arithmetic", target="_self", tooltip="(proposed)  ▷ (x > 0 ∧ y > 0) → x·y > 0", label="la_mult_pos_pos\n(proposed)", color="#2a78d6", penwidth=2.4,
-                     style="rounded,filled,dashed"];
+    poly_simp  [URL="classification.html#arithmetic", target="_self", tooltip="(extra)  ▷ t ≈ u\nboth sides ring-normalize to the same polynomial\nlinear instances reduce to two Farkas bounds + la_disequality", label="poly_simp (extra)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    mult_sign [URL="classification.html#arithmetic", target="_self", tooltip="mult_pos:  ▷ ¬(x > 0), ¬(y > 0), (x·y > 0)\nmult_neg:  ▷ ¬(x < 0), ¬(y > 0), (x·y < 0)\n(adopted, implemented)", label="mult_pos/neg\n(extra)", color="#2a78d6", penwidth=2.4];
+    mult_distrib [URL="classification.html#arithmetic", target="_self", tooltip="(extra)  ▷ (x · (y − z)) ≈ (x·y − x·z)\nthe one ring law beyond la_generic's linear reasoning", label="mult_distrib\n(extra)", color="#2a78d6", penwidth=2.4];
     la_totality  [URL="classification.html#ex-la-totality", target="_self", tooltip="▷ (t1 ≤ t2 ∨ t2 ≤ t1)   (unit or-clause)", color="#1baf7a", penwidth=1.6];
     la_tautology [URL="classification.html#ex-la-totality", target="_self", tooltip="▷ φ, a trivial LA tautology\nor the unit or-clause of a bound pair  [1.0, 1.0]", color="#1baf7a", penwidth=1.6];
-    la_mult    [URL="classification.html#ex-la-mult-pos", target="_self", tooltip="la_mult_pos:  ▷ (t1 > 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3\nla_mult_neg:  ▷ (t1 < 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3", label="la_mult_pos/neg", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    la_mult    [URL="classification.html#ex-la-mult-pos", target="_self", tooltip="la_mult_pos:  ▷ (t1 > 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3\nla_mult_neg:  ▷ (t1 < 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3", label="la_mult_pos/neg", color="#1baf7a", penwidth=1.6];
     la_disequality [URL="classification.html#arithmetic", target="_self", tooltip="▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)\nthe [antisym] order-antisymmetry axiom", color="#2a78d6", penwidth=2.4];
     la_rw_eq   [URL="classification.html#ex-la-rw-eq", target="_self", tooltip="▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)", color="#1baf7a", penwidth=1.6];
     arith_simp [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −", label="arith simplify (4)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
@@ -132,12 +132,14 @@ digraph core_alethe {
   shuffle -> aci_simp;
   nary_elim -> aci_simp;
   nary_elim -> rare_rewrite [style=dotted, label="non-comm.\ncases"];
-  la_mult -> la_mult_pos_pos [style=dashed];
-  la_mult -> poly_simp [style=dashed]; la_mult -> la_generic [style=dashed];
+  la_mult -> mult_sign; la_mult -> mult_distrib; la_mult -> la_generic;
   la_rw_eq -> la_disequality;
   la_rw_eq -> la_generic;
   la_rw_eq -> rare_rewrite [style=dotted];
   arith_simp -> poly_simp [label="rename"];
+  poly_simp -> la_generic [style=dashed, label="bounds +\nla_disequality"];
+  poly_simp -> la_disequality [style=dashed];
+  aci_simp -> andor_ax [style=dashed, label="clausal\ndirections"];
   arith_simp -> rare_rewrite [style=dotted, label="alt: trace"];
   div_simplify -> poly_simp [style=dashed];
 
@@ -152,14 +154,14 @@ digraph core_alethe {
   // ---- legend ----
   subgraph cluster_legend {
     label="legend"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#ffffff";
-    l_core [label="core", color="#2a78d6", penwidth=2.4];
     l_red  [label="reducible", color="#1baf7a", penwidth=1.6];
+    l_agg  [label="rare/simplify", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
     l_exp  [label="expensive", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
-    l_agg  [label="aggressive", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
-    l_rem  [label="removal", color="#e34948", penwidth=1.4, peripheries=2];
-    l_core -> l_red  [label="reduces to (R1–R4)"];
-    l_red  -> l_exp  [style=dashed, label="expensive scheme"];
-    l_exp  -> l_agg  [style=dotted, label="aggressive scheme /\nfallback"];
-    l_agg -> l_rem [style=invis];
+    l_core [label="core", color="#2a78d6", penwidth=2.4];
+    l_rem  [label="oracle", color="#e34948", penwidth=1.4, peripheries=2];
+    l_red  -> l_agg [label="stage 1: the\nreducible tier"];
+    l_agg  -> l_exp [style=dotted, label="stage 2: the\nrewrite vocabulary"];
+    l_exp  -> l_core [style=dashed, label="stage 3: the\nexpensive tier"];
+    l_core -> l_rem [style=invis];
   }
 }

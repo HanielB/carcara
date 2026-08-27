@@ -43,6 +43,47 @@ pub fn mult_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_eq(y1, y2)
 }
 
+/// The negative-cone companion of [`mult_pos`]: `(cl ¬(< x 0) ¬(> y 0) (< (* x y) 0))` — a
+/// negative factor times a positive one is negative.
+///
+/// Stating it separately, rather than bridging `(< x 0)` to `(> (- x) 0)` and reusing `mult_pos`,
+/// is what lets the `la_mult_neg` reduction scale by the multiplier the step actually names: the
+/// bridge would make the ring identity underneath the reduction speak about `(- m)`, and then
+/// distributivity alone would no longer close it.
+pub fn mult_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 3)?;
+    let (x1, z1) = match_term_err!((not (< x zero)) = &conclusion[0])?;
+    let (y1, z2) = match_term_err!((not (> y zero)) = &conclusion[1])?;
+    let (product, z3) = match_term_err!((< p zero) = &conclusion[2])?;
+    let (x2, y2) = match_term_err!((* x y) = product)?;
+    for zero in [z1, z2, z3] {
+        rassert!(
+            zero.as_fraction().is_some_and(|f| f == 0),
+            CheckerError::ExpectedNumber(Rational::new(), zero.clone()),
+        );
+    }
+    assert_eq(x1, x2)?;
+    assert_eq(y1, y2)
+}
+
+/// Distributivity of multiplication over subtraction:
+/// `(cl (= (* x (- y z)) (- (* x y) (* x z))))`.
+///
+/// The one ring law the core needs beyond the linear reasoning of `la_generic`. Scaling a
+/// comparison relates the scaled sides' *difference* to the product of the multiplier with the
+/// original difference, and that identity is nonlinear whenever the multiplier is symbolic — no
+/// Farkas combination reaches it, and it is exactly the step the `la_mult_*` reductions used to
+/// delegate to `poly_simp`.
+pub fn mult_distrib(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (x1, y1, z1, x2, y2, x3, z2) =
+        match_term_err!((= (* x (- y z)) (- (* x y) (* x z))) = &conclusion[0])?;
+    assert_eq(x1, x2)?;
+    assert_eq(x2, x3)?;
+    assert_eq(y1, y2)?;
+    assert_eq(z1, z2)
+}
+
 /// The lower half of the floor characterization of `to_int`: `(cl (<= (to_real (to_int t)) t))`.
 ///
 /// Together with [`to_int_upper`] this pins `to_int` down completely — `to_int t` is the unique
@@ -248,8 +289,7 @@ impl LinearComb {
     /// term is recognized here as the integer term it is.
     fn is_integer_valued(&self, pool: &mut dyn TermPool) -> bool {
         self.0.iter().all(|(atom, coeff)| {
-            coeff.is_integer()
-                && matches!(pool.sort(atom).as_sort(), Some(Sort::Int))
+            coeff.is_integer() && matches!(pool.sort(atom).as_sort(), Some(Sort::Int))
         })
     }
 
@@ -285,12 +325,7 @@ impl LinearComb {
 /// of it is available over the reals: `x > 1` does not give `x >= 2`. Deciding that from the
 /// constant alone, as this used to, lets `la_generic` accept
 /// `(cl (not (>= x 0.5)) (>= x 1.0))` for a real `x`, which is false at `x = 0.7`.
-fn strengthen(
-    op: Operator,
-    disequality: &mut LinearComb,
-    a: &Rational,
-    int_row: bool,
-) -> Operator {
+fn strengthen(op: Operator, disequality: &mut LinearComb, a: &Rational, int_row: bool) -> Operator {
     if !int_row {
         return op;
     }

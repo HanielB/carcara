@@ -236,6 +236,7 @@ pub fn eq_congruent(
 /// it sits on the *last* literal, the assumed application is the last one and the derived one the
 /// second-to-last — which flips the subproof's conclusion order relative to the original clause,
 /// so a final `reordering` step (eliminated later by the reordering pass) restores it.
+#[allow(dead_code)] // the discharge-subproof route, superseded by the rename onto `eq_congruent`
 pub fn eq_congruent_pred(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -395,11 +396,8 @@ fn contraposition(
     }
     let refl = b.step(vec![refl_eq], "refl", Vec::new(), Vec::new());
     let cong = b.step(vec![equivalence.clone()], "cong", vec![refl], Vec::new());
-    let (not_equivalence, not_original, not_flipped) = (
-        b.not(&equivalence),
-        b.not(original),
-        b.not(flipped),
-    );
+    let (not_equivalence, not_original, not_flipped) =
+        (b.not(&equivalence), b.not(original), b.not(flipped));
     // `equiv_pos1`: `(cl ¬(= A B) A ¬B)` — with `A` discharged by the premise, `¬B` remains
     let pos1 = b.step(
         vec![not_equivalence, original.clone(), not_flipped],

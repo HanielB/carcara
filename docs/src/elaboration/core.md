@@ -168,6 +168,28 @@ Since the convenience rules `equiv_intro` and `or_intro` are proposals not yet c
 Carcara, the pass emits their *expansions* (`equiv_neg1/2` + resolutions, `or_neg` × n +
 resolutions + `contraction`) rather than the named rules.
 
+## The `core-expensive` pass
+
+The *expensive* tier is the last elimination stage: rules whose reduction is complete but buys no
+checking power, so the other regimes keep them. `--pipeline … core-expensive` applies them:
+
+| rule | becomes |
+|---|---|
+| `poly_simp` | two `la_generic` bounds closed by `la_disequality` (linear identities only — a nonlinear one keeps the step) |
+| `aci_simp` | the two clausal directions of the equivalence, over `and_pos`/`and_neg`/`or_pos`/`or_neg`, closed by the iff-introduction pattern |
+| `eq_transitive`, `eq_congruent`, `eq_symmetric` | their discharge-subproof derivations over `trans`/`cong`/`symm` |
+| `sko_ex` | the duality route through `sko_forall` and `qnt_duality` |
+
+It runs after the regime that handles the other tiers, e.g.
+
+```
+carcara elaborate example.smt2.alethe example.smt2 \
+    --pipeline hoist polyeq core-taut local core-taut core-expensive reordering prune
+```
+
+which leaves a proof over the core vocabulary alone. What each stage costs, in proof size and in
+checking time, is measured in the evaluation report.
+
 ## Behavior on uncovered shapes
 
 The pass is best-effort and never rejects a proof: a step whose shape a recipe does not cover

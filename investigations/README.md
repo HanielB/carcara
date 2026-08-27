@@ -29,6 +29,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-25 | [What each rewrite recipe costs](./2026-08-25-recipe-cost-per-rewrite.md) | `coreAlethe` | measurement; no rewrite earns a rule |
 | 2026-08-26 | [Per-rule elaboration growth over the corpus](./2026-08-26-per-rule-growth.md) | `coreAlethe` | measurement; drives the SMT-LIB run |
 | 2026-08-26 | [Splitting the rewrite-removal cost: `rare_rewrite` vs `evaluate`](./2026-08-26-rare-vs-evaluate.md) | `coreAlethe` | **merged** (new `core-no-rare` regime) |
+| 2026-08-27 | [Should `evaluate` be a core primitive?](./2026-08-27-evaluate-core-or-reducible.md) | `coreAlethe` | measurement; premise refuted, `aci_simp`-as-expensive supported |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by

@@ -187,7 +187,6 @@ fn la_generic_strengthening_is_integer_only() {
     }
 }
 
-
 #[test]
 fn to_int_lower() {
     test_cases! {
@@ -271,6 +270,61 @@ fn mult_pos() {
             "(step t1 (cl (not (>= x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": false,
             "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (>= (* x y) 0.0)) :rule mult_pos)": false,
             "(step t1 (cl (not (< x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_pos)": false,
+        }
+    }
+}
+
+#[test]
+fn mult_neg() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Real)
+            (declare-fun y () Real)
+            (declare-fun n () Int)
+            (declare-fun m () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (not (< x 0.0)) (not (> y 0.0)) (< (* x y) 0.0)) :rule mult_neg)": true,
+            "(step t1 (cl (not (< n 0)) (not (> m 0)) (< (* n m) 0)) :rule mult_neg)": true,
+        }
+        "The product must be of the two factors, in order" {
+            "(step t1 (cl (not (< x 0.0)) (not (> y 0.0)) (< (* y x) 0.0)) :rule mult_neg)": false,
+        }
+        "The negative factor comes first, and the conclusion is negative" {
+            "(step t1 (cl (not (> x 0.0)) (not (> y 0.0)) (< (* x y) 0.0)) :rule mult_neg)": false,
+            "(step t1 (cl (not (< x 0.0)) (not (< y 0.0)) (< (* x y) 0.0)) :rule mult_neg)": false,
+            "(step t1 (cl (not (< x 0.0)) (not (> y 0.0)) (> (* x y) 0.0)) :rule mult_neg)": false,
+        }
+        "The bounds must be against zero" {
+            "(step t1 (cl (not (< x -1.0)) (not (> y 0.0)) (< (* x y) 0.0)) :rule mult_neg)": false,
+        }
+    }
+}
+
+#[test]
+fn mult_distrib() {
+    test_cases! {
+        definitions = "
+            (declare-fun x () Real)
+            (declare-fun y () Real)
+            (declare-fun z () Real)
+            (declare-fun n () Int)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (= (* x (- y z)) (- (* x y) (* x z)))) :rule mult_distrib)": true,
+            "(step t1 (cl (= (* n (- n n)) (- (* n n) (* n n)))) :rule mult_distrib)": true,
+            "(step t1 (cl (= (* (- x) (- y z)) (- (* (- x) y) (* (- x) z)))) :rule mult_distrib)": true,
+        }
+        "The multiplier must be the same on both sides" {
+            "(step t1 (cl (= (* x (- y z)) (- (* y y) (* x z)))) :rule mult_distrib)": false,
+            "(step t1 (cl (= (* x (- y z)) (- (* x y) (* y z)))) :rule mult_distrib)": false,
+        }
+        "The summands must match, in order" {
+            "(step t1 (cl (= (* x (- y z)) (- (* x z) (* x y)))) :rule mult_distrib)": false,
+            "(step t1 (cl (= (* x (- y z)) (- (* x y) (* x y)))) :rule mult_distrib)": false,
+        }
+        "It is distributivity over subtraction, not addition" {
+            "(step t1 (cl (= (* x (+ y z)) (+ (* x y) (* x z)))) :rule mult_distrib)": false,
         }
     }
 }

@@ -404,7 +404,10 @@ fn zero_like(pool: &mut PrimitivePool, term: &Rc<Term>) -> Result<Rc<Term>, Elab
 /// The search is what covers equality rows: their coefficients are used *signed* (`la_generic`
 /// takes the absolute value only for inequality rows), so a bridge from an equality literal to a
 /// comparison needs `-1` on one side, and which side depends on the orientation of the equality.
-fn unit_farkas(b: &mut Builder, literals: Vec<Rc<Term>>) -> Result<Rc<ProofNode>, ElaborationError> {
+pub(super) fn unit_farkas(
+    b: &mut Builder,
+    literals: Vec<Rc<Term>>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
     let n = literals.len();
     let mut last_err = None;
     for pattern in 0u32..(1 << n) {
@@ -434,8 +437,9 @@ fn unit_farkas(b: &mut Builder, literals: Vec<Rc<Term>>) -> Result<Rc<ProofNode>
 /// by `la_generic`) and the comparison's positive difference `d`:
 ///
 /// - strict comparisons: `¬(op l r) ∨ (> d 0)` and `¬(> E 0) ∨ (op' ml mr)` are Farkas clauses
-///   (`E` the difference of the scaled sides), and `(* m' d) = E` is a ring identity that
-///   `poly_simp` states and `cong`/`equiv1` transport into the comparison;
+///   (`E` the difference of the scaled sides), and `(* m d) = (- (* m l) (* m r))` is one
+///   `mult_distrib` instance, which `cong`/`equiv1` transport into the comparison — the residual
+///   rearrangement between that and `E` is linear, so `la_generic` closes it;
 /// - non-strict comparisons additionally case-split on `la_disequality`: the strict branch is the
 ///   above (weakened at the final bridge), and the equality branch is `eq_congruent` — scaling an
 ///   equality needs no sign reasoning at all;
@@ -476,17 +480,10 @@ pub fn la_mult(
 
     let mut b = Builder::new(pool, step);
 
-    // The positive factor: `m` itself, or `(- m)` bridged from `(< m 0)`
-    let (m_pos, m_bridge) = if is_pos {
-        (m.clone(), None)
-    } else {
-        let neg_m = build_term!(b.pool, (- {m.clone()}));
-        let zero = zero_like(b.pool, &m)?;
-        let pos_lit = build_term!(b.pool, (> {neg_m.clone()} {zero}));
-        let not_m = b.not(&m_comparison);
-        let bridge = unit_farkas(&mut b, vec![not_m, pos_lit.clone()])?;
-        (neg_m, Some((bridge, pos_lit)))
-    };
+    // The scaling factor is the multiplier the step names, in both cases: `mult_pos` covers the
+    // positive one and `mult_neg` the negative one. Scaling by `(- m)` instead would take the ring
+    // identity below out of `mult_distrib`'s reach
+    let m_pos = m.clone();
 
     // The equality branch: scaling an equality is congruence. Used alone for `=`, and as the
     // second branch of the non-strict case split
@@ -511,66 +508,67 @@ pub fn la_mult(
     let strict_branch = |b: &mut Builder,
                          target: Rc<Term>|
      -> Result<(Rc<ProofNode>, Rc<Term>), ElaborationError> {
-        // The positive differences of the original and scaled comparisons: "big side first"
+        // The positive difference of the original comparison: "big side first"
         let flipped = matches!(op, Operator::LessThan | Operator::LessEq);
-        let d = if flipped {
-            build_term!(b.pool, (- {r.clone()} {l.clone()}))
+        let (dx, dy) = if flipped {
+            (r.clone(), l.clone())
         } else {
-            build_term!(b.pool, (- {l.clone()} {r.clone()}))
+            (l.clone(), r.clone())
         };
-        // `op'` flips for `la_mult_neg`, so the scaled difference flips with it
-        let scaled_flipped = flipped != !is_pos;
-        let e = if scaled_flipped {
-            build_term!(b.pool, (- {sr.clone()} {sl.clone()}))
-        } else {
-            build_term!(b.pool, (- {sl.clone()} {sr.clone()}))
-        };
+        let d = build_term!(b.pool, (- {dx.clone()} {dy.clone()}));
         let product = build_term!(b.pool, (* {m_pos.clone()} {d.clone()}));
-        crate::checker::poly_simp_equal(b.pool, &product, &e)?;
+        // What distributivity turns the product into
+        let mx = build_term!(b.pool, (* {m_pos.clone()} {dx.clone()}));
+        let my = build_term!(b.pool, (* {m_pos.clone()} {dy.clone()}));
+        let distributed = build_term!(b.pool, (- {mx} {my}));
 
         let zero_d = zero_like(b.pool, &d)?;
         let zero_p = zero_like(b.pool, &product)?;
         let d_pos = build_term!(b.pool, (> {d.clone()} {zero_d.clone()}));
-        let p_pos = build_term!(b.pool, (> {product.clone()} {zero_p.clone()}));
-        let e_pos = build_term!(b.pool, (> {e.clone()} {zero_p.clone()}));
-        let m_lit = build_term!(b.pool, (> {m_pos.clone()} {zero_d.clone()}));
+        // A positive multiplier keeps the product positive (`mult_pos`), a negative one makes it
+        // negative (`mult_neg`)
+        let (p_lit, distributed_lit) = if is_pos {
+            (
+                build_term!(b.pool, (> {product.clone()} {zero_p.clone()})),
+                build_term!(b.pool, (> {distributed.clone()} {zero_p.clone()})),
+            )
+        } else {
+            (
+                build_term!(b.pool, (< {product.clone()} {zero_p.clone()})),
+                build_term!(b.pool, (< {distributed.clone()} {zero_p.clone()})),
+            )
+        };
 
-        let (not_m_lit, not_d_pos, not_p_pos) = (
-            b.not(&m_lit),
-            b.not(&d_pos),
-            b.not(&p_pos),
-        );
+        let (not_m, not_d_pos, not_p_lit) = (b.not(&m_comparison), b.not(&d_pos), b.not(&p_lit));
         let axiom = b.step(
-            vec![not_m_lit, not_d_pos, p_pos.clone()],
-            "mult_pos",
+            vec![not_m, not_d_pos, p_lit.clone()],
+            if is_pos { "mult_pos" } else { "mult_neg" },
             Vec::new(),
             Vec::new(),
         );
-        // `(* m' d) = E`, transported into the comparison
-        let poly = {
-            let clause = vec![build_term!(b.pool, (= {product.clone()} {e.clone()}))];
-            b.step(clause, "poly_simp", Vec::new(), Vec::new())
+        // `(* m (- x y)) = (- (* m x) (* m y))`, transported into the comparison
+        let distrib = {
+            let clause = vec![build_term!(b.pool, (= {product.clone()} {distributed.clone()}))];
+            b.step(clause, "mult_distrib", Vec::new(), Vec::new())
         };
         let cong = {
-            let clause = vec![build_term!(b.pool, (= {p_pos.clone()} {e_pos.clone()}))];
-            b.step(clause, "cong", vec![poly], Vec::new())
+            let clause = vec![build_term!(b.pool, (= {p_lit.clone()} {distributed_lit.clone()}))];
+            b.step(clause, "cong", vec![distrib], Vec::new())
         };
         let equiv1 = b.step(
-            vec![not_p_pos, e_pos.clone()],
+            vec![not_p_lit, distributed_lit.clone()],
             "equiv1",
             vec![cong],
             Vec::new(),
         );
+        // The rearrangement between the distributed difference and the step's own scaled sides is
+        // linear in the products, so one Farkas step closes it
         let final_bridge = {
-            let ne = b.not(&e_pos);
-            unit_farkas(b, vec![ne, target])?
+            let nd = b.not(&distributed_lit);
+            unit_farkas(b, vec![nd, target])?
         };
-        let mut node = axiom;
-        if let Some((bridge, pos_lit)) = &m_bridge {
-            node = b.resolve(vec![node, bridge.clone()], vec![(pos_lit.clone(), false)])?;
-        }
-        node = b.resolve(vec![node, equiv1], vec![(p_pos, true)])?;
-        node = b.resolve(vec![node, final_bridge], vec![(e_pos, true)])?;
+        let mut node = b.resolve(vec![axiom, equiv1], vec![(p_lit, true)])?;
+        node = b.resolve(vec![node, final_bridge], vec![(distributed_lit, true)])?;
         Ok((node, d_pos))
     };
 
@@ -604,8 +602,7 @@ pub fn la_mult(
                 build_term!(b.pool, (<= {l.clone()} {r.clone()})),
                 build_term!(b.pool, (<= {r.clone()} {l.clone()})),
             );
-            let disj =
-                build_term!(b.pool, (or {eq_lr.clone()} (not {le_lr.clone()}) (not {le_rl.clone()})));
+            let disj = build_term!(b.pool, (or {eq_lr.clone()} (not {le_lr.clone()}) (not {le_rl.clone()})));
             let anti = b.step(vec![disj.clone()], "la_disequality", Vec::new(), Vec::new());
             let (not_le_lr, not_le_rl) = (b.not(&le_lr), b.not(&le_rl));
             let split = b.step(

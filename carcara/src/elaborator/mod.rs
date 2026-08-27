@@ -68,6 +68,10 @@ pub enum ElaborationPass {
     Polyeq,
     Hole,
     Core,
+    /// The reductions of the *expensive* tier — `poly_simp`, `aci_simp`, the clausal equality
+    /// rules and `sko_ex` — which the other regimes leave alone. Applied on top of one of them, it
+    /// takes the proof the rest of the way to the core vocabulary.
+    CoreExpensive,
     /// The `core` pass, additionally replaying the `*_simplify` rules as chains of
     /// `rare_rewrite`/`evaluate` lemmas (the rewrite vocabulary itself is kept).
     CoreSimpRare,
@@ -143,6 +147,7 @@ impl<'e> Elaborator<'e> {
                 ElaborationPass::CoreTaut => {
                     self.elaborate_core(current, core::rewrites::RewriteReduction::ToCore)?
                 }
+                ElaborationPass::CoreExpensive => self.elaborate_core_expensive(current)?,
                 ElaborationPass::Local => self.elaborate_local(current)?,
                 ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
                     ProofNode::Step(s)
@@ -320,6 +325,42 @@ impl<'e> Elaborator<'e> {
             Ok(node.clone())
         });
         log::info!("core elaboration: sharing saved {} steps", sharing.saved());
+        result
+    }
+
+    /// The `core-expensive` pass: applies the reductions of the *expensive* tier — `poly_simp`,
+    /// `aci_simp`, the clausal equality rules and `sko_ex` — which the other regimes deliberately
+    /// leave alone. It shares derivations exactly as the main pass does, and is likewise
+    /// best-effort: a shape a recipe does not cover keeps its step.
+    fn elaborate_core_expensive(
+        &mut self,
+        proof: ProofNodeForest,
+    ) -> Result<ProofNodeForest, Error> {
+        let mut sharing = core::share::Sharing::new(&proof);
+        let result = proof.mutate(|context, node, _| {
+            if let ProofNode::Step(s) = node.as_ref() {
+                if let Some(func) = core::get_expensive_elaboration_function(&s.rule) {
+                    match func(self.pool, context, s) {
+                        Ok(new_node) => {
+                            let shared = sharing.share(self.pool, context, s, new_node);
+                            growth::record(s, &shared);
+                            return Ok(shared);
+                        }
+                        Err(e) => log::warn!(
+                            "expensive elaboration of '{}' ({}) failed, keeping step: {}",
+                            s.id,
+                            s.rule,
+                            e
+                        ),
+                    }
+                }
+            }
+            Ok(node.clone())
+        });
+        log::info!(
+            "expensive elaboration: sharing saved {} steps",
+            sharing.saved()
+        );
         result
     }
 

@@ -238,6 +238,8 @@ pub fn get_rule(
         "la_totality" => linear_arithmetic::la_totality,
         "to_int_lower" => linear_arithmetic::to_int_lower,
         "mult_pos" => linear_arithmetic::mult_pos,
+        "mult_neg" => linear_arithmetic::mult_neg,
+        "mult_distrib" => linear_arithmetic::mult_distrib,
         "to_int_upper" => linear_arithmetic::to_int_upper,
         "la_tautology" => linear_arithmetic::la_tautology,
         "poly_simp" => polynomial::poly_simp,

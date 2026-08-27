@@ -257,3 +257,108 @@ fn eq_transitive_canonicalization_keeps_two_hypotheses() {
     let rules = run_pass(definitions, proof, elaborator::ElaborationPass::Local);
     assert!(rules.iter().any(|r| r == "eq_transitive"));
 }
+
+/// The `core-expensive` pass takes `poly_simp` to the antisymmetry pattern: two Farkas bounds and
+/// `la_disequality`, with no ring normalization left.
+#[test]
+fn poly_simp_to_farkas_bounds() {
+    let definitions = "
+        (declare-const x Int)
+        (declare-const y Int)
+    ";
+    let proof = "
+        (step t1 (cl (= (+ x (* 2 y)) (+ (* 2 y) x))) :rule poly_simp)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(
+        definitions,
+        proof,
+        elaborator::ElaborationPass::CoreExpensive,
+    );
+    assert_eq!(rules.iter().filter(|r| *r == "poly_simp").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "la_disequality").count(), 1);
+    assert_eq!(rules.iter().filter(|r| *r == "la_generic").count(), 2);
+}
+
+/// A nonlinear identity has no core route, so the step is kept.
+#[test]
+fn nonlinear_poly_simp_is_kept() {
+    let definitions = "
+        (declare-const x Int)
+        (declare-const y Int)
+    ";
+    let proof = "
+        (step t1 (cl (= (* x y) (* y x))) :rule poly_simp)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(
+        definitions,
+        proof,
+        elaborator::ElaborationPass::CoreExpensive,
+    );
+    assert_eq!(rules.iter().filter(|r| *r == "poly_simp").count(), 1);
+}
+
+/// `aci_simp` over a semilattice connective becomes the two clausal directions of the
+/// equivalence, so no ACI normalization is left.
+#[test]
+fn aci_simp_to_clausal_equivalence() {
+    let definitions = "
+        (declare-const p Bool)
+        (declare-const q Bool)
+        (declare-const r Bool)
+    ";
+    for (lhs, rhs) in [
+        ("(and p (and q r))", "(and r q p)"),
+        ("(or p (or q r))", "(or r q p)"),
+        ("(and p q true)", "(and q p)"),
+    ] {
+        let proof = format!(
+            "(step t1 (cl (= {lhs} {rhs})) :rule aci_simp)\n(step end (cl) :rule hole :premises (t1))"
+        );
+        let rules = run_pass(
+            definitions,
+            &proof,
+            elaborator::ElaborationPass::CoreExpensive,
+        );
+        assert_eq!(
+            rules.iter().filter(|r| *r == "aci_simp").count(),
+            0,
+            "aci_simp survived for {lhs} = {rhs}"
+        );
+        assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 2);
+    }
+}
+
+/// Scaling a comparison rests on `mult_pos`/`mult_neg` and the distributivity axiom, with no
+/// `poly_simp` in the derivation.
+#[test]
+fn la_mult_uses_the_distributivity_axiom() {
+    let definitions = "
+        (declare-const x Int)
+        (declare-const y Int)
+        (declare-const m Int)
+    ";
+    for (rule, proof) in [
+        (
+            "la_mult_pos",
+            "(step t1 (cl (=> (and (> m 0) (> x y)) (> (* m x) (* m y)))) :rule la_mult_pos)",
+        ),
+        (
+            "la_mult_neg",
+            "(step t1 (cl (=> (and (< m 0) (> x y)) (< (* m x) (* m y)))) :rule la_mult_neg)",
+        ),
+    ] {
+        let proof = format!("{proof}\n(step end (cl) :rule hole :premises (t1))");
+        let rules = run_core_pass(definitions, &proof);
+        assert_eq!(rules.iter().filter(|r| *r == rule).count(), 0);
+        assert_eq!(rules.iter().filter(|r| *r == "poly_simp").count(), 0);
+        assert_eq!(rules.iter().filter(|r| *r == "mult_distrib").count(), 1);
+        let axiom = if rule == "la_mult_pos" {
+            "mult_pos"
+        } else {
+            "mult_neg"
+        };
+        assert_eq!(rules.iter().filter(|r| *r == axiom).count(), 1);
+    }
+}

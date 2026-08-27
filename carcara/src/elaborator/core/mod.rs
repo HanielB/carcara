@@ -20,6 +20,7 @@ pub mod clausification;
 mod connective;
 #[allow(clippy::unnecessary_wraps)]
 pub mod equality;
+pub mod expensive;
 #[allow(clippy::unnecessary_wraps)]
 pub mod legacy;
 #[allow(clippy::unnecessary_wraps)]
@@ -576,6 +577,30 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "qnt_cnf" => legacy::qnt_cnf,
         "bfun_elim" => legacy::bfun_elim,
         "ite_intro" => legacy::ite_intro,
+
+        _ => return None,
+    })
+}
+
+/// The elaboration functions of the *expensive* tier: rules whose reduction is complete but adds
+/// no checking power, and whose steps the default regimes therefore keep.
+///
+/// Applying them takes a proof the rest of the way to the core vocabulary — the ring and ACI
+/// normalizers, the Skolemization dual and the clausal equality rules all leave the trusted base
+/// with them — at a price in steps that the `core-expensive` regime is there to measure.
+pub fn get_expensive_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
+    Some(match rule {
+        // Computational primitives
+        "poly_simp" => expensive::poly_simp,
+        "aci_simp" => expensive::aci_simp,
+
+        // Clausal equality: the discharge-subproof reductions
+        "eq_transitive" => equality::eq_transitive,
+        "eq_congruent" => equality::eq_congruent,
+        "eq_symmetric" => equality::eq_symmetric,
+
+        // The Skolemization dual
+        "sko_ex" => skolem::sko_ex,
 
         _ => return None,
     })
