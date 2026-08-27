@@ -6,13 +6,13 @@
   var PALETTES = {
     light: {
       core: "#2a78d6", reducible: "#1baf7a", expensive: "#eda100",
-      "rare-simplify": "#4a3aa7", oracle: "#e34948",
+      "rare-simplify": "#4a3aa7", oracle: "#e34948", variant: "#8a887f",
       nodeBg: "#ffffff", text: "#0b0b0b", clusterBg: "#f7f6f3",
       clusterBorder: "#d8d6cf", edge: "#8a887f", edgeText: "#52514e"
     },
     dark: {
       core: "#3987e5", reducible: "#199e70", expensive: "#c98500",
-      "rare-simplify": "#9085e9", oracle: "#e66767",
+      "rare-simplify": "#9085e9", oracle: "#e66767", variant: "#a8a69d",
       nodeBg: "#1f1f1e", text: "#f0f0ef", clusterBg: "#232322",
       clusterBorder: "#3c3b39", edge: "#8a887f", edgeText: "#a5a49b"
     }
@@ -71,6 +71,7 @@
         { selector: "node[level='expensive']",  style: { "border-color": p.expensive } },
         { selector: "node[level='rare-simplify']", style: { "border-color": p["rare-simplify"] } },
         { selector: "node[level='oracle']",     style: { "border-color": p.oracle } },
+        { selector: "node[level='variant']",    style: { "border-color": p.variant } },
         { selector: "node[borderStyle='dashed']", style: { "border-style": "dashed" } },
         { selector: "node[borderStyle='dotted']", style: { "border-style": "dotted" } },
         { selector: "node[borderStyle='double']", style: { "border-style": "double", "border-width": 4 } },

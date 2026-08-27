@@ -39,8 +39,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#structural",
    "tooltip": "▷ φ\nφ an input assertion (up to orientation of equalities)",
-   "x": 811.0,
-   "y": 195.0,
+   "x": 65.5,
+   "y": 924.0,
    "w": 63.0,
    "h": 36.0
   },
@@ -52,8 +52,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#structural",
    "tooltip": "subproof with assumptions φ1 … φk, last step ψ\n⟹  ▷ ¬φ1, …, ¬φk, ψ",
-   "x": 811.0,
-   "y": 249.0,
+   "x": 65.5,
+   "y": 978.0,
    "w": 69.0,
    "h": 36.0
   },
@@ -65,8 +65,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#structural",
    "tooltip": "▷ any clause — unverified; taints validity",
-   "x": 811.0,
-   "y": 303.0,
+   "x": 65.5,
+   "y": 1032.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -79,7 +79,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i1 ▷ C1;  …;  in ▷ Cn\n⟹  ▷ C, a chain of binary resolutions over the premises\nRUP reading: ¬C unit-propagates to a conflict",
    "x": 273.5,
-   "y": 482.0,
+   "y": 494.0,
    "w": 98.0,
    "h": 36.0
   },
@@ -92,7 +92,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ⊤",
    "x": 273.5,
-   "y": 189.9,
+   "y": 190.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -105,7 +105,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ¬⊥",
    "x": 65.5,
-   "y": 81.9,
+   "y": 82.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -118,7 +118,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "▷ ¬(¬¬φ), φ",
    "x": 65.5,
-   "y": 135.9,
+   "y": 136.0,
    "w": 62.0,
    "h": 36.0
   },
@@ -131,7 +131,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "and_pos:  ▷ ¬(φ0 ∧ … ∧ φn), φk\nand_neg:  ▷ (φ1 ∧ … ∧ φn), ¬φ1, …, ¬φn\nor_pos:   ▷ ¬(φ1 ∨ … ∨ φn), φ1, …, φn\nor_neg:   ▷ (φ0 ∨ … ∨ φn), ¬φk",
    "x": 273.5,
-   "y": 351.9,
+   "y": 352.0,
    "w": 119.0,
    "h": 36.0
   },
@@ -144,7 +144,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "equiv_pos1:  ▷ ¬(φ1 ≈ φ2), φ1, ¬φ2\nequiv_pos2:  ▷ ¬(φ1 ≈ φ2), ¬φ1, φ2\nequiv_neg1:  ▷ (φ1 ≈ φ2), ¬φ1, ¬φ2\nequiv_neg2:  ▷ (φ1 ≈ φ2), φ1, φ2",
    "x": 273.5,
-   "y": 243.9,
+   "y": 244.0,
    "w": 114.0,
    "h": 36.0
   },
@@ -157,7 +157,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "the same rule as resolution\n(the name marks a theory-solver origin)",
    "x": 65.5,
-   "y": 513.9,
+   "y": 514.0,
    "w": 92.0,
    "h": 36.0
   },
@@ -170,7 +170,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ l1, …, ln  with lk = ¬^o φ, lm = ¬^p φ, o/p of opposite parity\n⟹  ▷ ⊤",
    "x": 65.5,
-   "y": 189.9,
+   "y": 190.0,
    "w": 73.0,
    "h": 36.0
   },
@@ -183,7 +183,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ a permutation of C",
    "x": 65.5,
-   "y": 405.9,
+   "y": 406.0,
    "w": 78.0,
    "h": 36.0
   },
@@ -196,7 +196,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-clausification",
    "tooltip": "e.g.  and:  i ▷ φ0 ∧ … ∧ φn  ⟹  ▷ φk\nor:  i ▷ φ1 ∨ … ∨ φn  ⟹  ▷ φ1, …, φn\nimplies:  i ▷ φ1 → φ2  ⟹  ▷ ¬φ1, φ2\n(19 rules deconstructing a premise connective)",
    "x": 65.5,
-   "y": 297.9,
+   "y": 298.0,
    "w": 93.0,
    "h": 36.0
   },
@@ -209,7 +209,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "xor_pos1:  ▷ ¬(xor φ1 φ2), φ1, φ2\nxor_neg1:  ▷ (xor φ1 φ2), φ1, ¬φ2\nite_pos1:  ▷ ¬(ite φ1 φ2 φ3), φ1, φ3\nite_neg1:  ▷ (ite φ1 φ2 φ3), φ1, ¬φ3\n(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)",
    "x": 273.5,
-   "y": 297.9,
+   "y": 298.0,
    "w": 119.0,
    "h": 36.0
   },
@@ -235,7 +235,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-equiv-or-intro",
    "tooltip": "(proposed)  i ▷ ¬A, B;   j ▷ A, ¬B\n⟹  ▷ A ≈ B",
    "x": 65.5,
-   "y": 243.9,
+   "y": 244.0,
    "w": 81.0,
    "h": 36.0
   },
@@ -248,7 +248,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-equiv-or-intro",
    "tooltip": "(proposed)  i ▷ l1, …, ln\n⟹  ▷ (l1 ∨ … ∨ ln)",
    "x": 65.5,
-   "y": 351.9,
+   "y": 352.0,
    "w": 81.0,
    "h": 36.0
   },
@@ -261,7 +261,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)\n(rename to resolution under its RUP reading)",
    "x": 65.5,
-   "y": 459.9,
+   "y": 460.0,
    "w": 79.0,
    "h": 36.0
   },
@@ -274,7 +274,7 @@ window.REDGRAPH = {
    "url": "classification.html#clausal",
    "tooltip": "i ▷ C\n⟹  ▷ C with duplicate literals removed\n(rename to resolution under its RUP reading)",
    "x": 65.5,
-   "y": 567.9,
+   "y": 568.0,
    "w": 83.0,
    "h": 36.0
   },
@@ -287,7 +287,7 @@ window.REDGRAPH = {
    "url": "classification.html#binder",
    "tooltip": "Γ, ȳ, x̄↦ȳ ▷ φ ≈ ψ\n⟹  Γ ▷ Qx̄.φ ≈ Qȳ.ψ   (Q ∈ {∀,∃})\ndivergence 8 generalizes the anchor and adds a ∀-closure conclusion",
    "x": 553.5,
-   "y": 1341.0,
+   "y": 1001.0,
    "w": 195.0,
    "h": 48.0
   },
@@ -300,7 +300,7 @@ window.REDGRAPH = {
    "url": "classification.html#binder",
    "tooltip": "premises ▷ sᵢ ≈ tᵢ;   Γ, x̄↦t̄ ▷ u ≈ u′\n⟹  Γ ▷ (let x̄ = s̄ in u) ≈ u′",
    "x": 273.5,
-   "y": 1131.0,
+   "y": 791.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -313,7 +313,7 @@ window.REDGRAPH = {
    "url": "classification.html#binder",
    "tooltip": "bind for let bindings (extra rule):\nΓ, ȳ, x̄↦ȳ ▷ … ≈ …  over let-bound variables",
    "x": 273.5,
-   "y": 1185.0,
+   "y": 845.0,
    "w": 63.0,
    "h": 36.0
   },
@@ -326,7 +326,7 @@ window.REDGRAPH = {
    "url": "classification.html#binder",
    "tooltip": "Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.¬(∀xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∀x̄.φ ≈ ψ\n(sequential witness form; the spec text is fixed by divergence 4)",
    "x": 553.5,
-   "y": 1227.0,
+   "y": 887.0,
    "w": 72.0,
    "h": 36.0
   },
@@ -339,7 +339,7 @@ window.REDGRAPH = {
    "url": "classification.html#binder",
    "tooltip": "▷ ¬(∀x̄.φ) ∨ φ[x̄↦t̄]\n(unit or-clause; instance terms in :args)",
    "x": 553.5,
-   "y": 1281.0,
+   "y": 941.0,
    "w": 74.0,
    "h": 36.0
   },
@@ -352,7 +352,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-sko-ex",
    "tooltip": "Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.(∃xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∃x̄.φ ≈ ψ",
    "x": 273.5,
-   "y": 1239.0,
+   "y": 899.0,
    "w": 58.0,
    "h": 36.0
   },
@@ -365,7 +365,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-onepoint",
    "tooltip": "Γ, x̄ₖ, x̄ⱼ↦t̄ⱼ ▷ φ ≈ φ′\n⟹  Γ ▷ Qx̄.φ ≈ Qx̄ₖ.φ′\n(points t̄ⱼ from guarded equalities xⱼ ≈ tⱼ in φ)",
    "x": 273.5,
-   "y": 1347.0,
+   "y": 1007.0,
    "w": 69.0,
    "h": 36.0
   },
@@ -378,7 +378,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-qnt-simplify",
    "tooltip": "qnt_simplify:  ▷ ∀x̄.⊤ ≈ ⊤  (⊥ likewise)\nqnt_rm_unused:  ▷ Qx̄.φ ≈ Qx̄′.φ,  dropped variables unused\nqnt_join:  ▷ Qx̄.Qȳ.φ ≈ Qz̄.φ\nminiscope_*:  Q distributed over ∧ / ∨ / ite",
    "x": 273.5,
-   "y": 1293.0,
+   "y": 953.0,
    "w": 85.0,
    "h": 36.0
   },
@@ -390,8 +390,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ t1 ≈ t2  where t1·σΓ = t2\n(the only rule applying the context substitution)",
-   "x": 553.5,
-   "y": 385.0,
+   "x": 811.0,
+   "y": 471.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -403,8 +403,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ t1 ≈ t2;  Γ ▷ t2 ≈ t3;  …;  Γ ▷ tn ≈ tn+1\n⟹  Γ ▷ t1 ≈ tn+1",
-   "x": 811.0,
-   "y": 493.0,
+   "x": 1016.0,
+   "y": 411.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -416,8 +416,8 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ t1 ≈ u1;  …;  Γ ▷ tm ≈ um\n⟹  Γ ▷ f(s̄, t̄) ≈ f(s̄, ū)   (equal prefix s̄ may be skipped)",
-   "x": 811.0,
-   "y": 439.0,
+   "x": 1016.0,
+   "y": 483.0,
    "w": 54.0,
    "h": 36.0
   },
@@ -429,7 +429,7 @@ window.REDGRAPH = {
    "borderStyle": "solid",
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "i ▷ φ ≈ ψ\n⟹  ▷ ψ ≈ φ",
-   "x": 811.0,
+   "x": 553.5,
    "y": 385.0,
    "w": 54.0,
    "h": 36.0
@@ -456,22 +456,35 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ t ≈ u\nan instance of a declared RARE rule (:args name + substitution)",
    "x": 1016.0,
-   "y": 711.0,
+   "y": 709.0,
    "w": 87.0,
    "h": 36.0
   },
   {
    "id": "eq_clausal",
    "parent": "cat_eqrw",
-   "label": "clausal eq_* (6)",
+   "label": "clausal eq_* (4)",
    "level": "reducible",
    "borderStyle": "solid",
    "url": "classification.html#ex-eq-transitive",
-   "tooltip": "eq_reflexive:  ▷ t ≈ t\neq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\neq_congruent_pred:  likewise for Bool codomain\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)",
+   "tooltip": "eq_reflexive:  ▷ t ≈ t  (→ refl)\neq_congruent_pred:  → eq_congruent + equiv_pos\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)  (→ refl + cong)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)",
    "x": 553.5,
    "y": 493.0,
    "w": 106.0,
    "h": 36.0
+  },
+  {
+   "id": "eq_variant",
+   "parent": "cat_eqrw",
+   "label": "eq_transitive,\neq_congruent\n(variants)",
+   "level": "variant",
+   "borderStyle": "dashed",
+   "url": "classification.html#variants-2",
+   "tooltip": "eq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\nclausal variants of trans/cong — same checker functions,\nso neither counted towards the core nor eliminated",
+   "x": 811.0,
+   "y": 411.0,
+   "w": 96.0,
+   "h": 48.0
   },
   {
    "id": "multi_rare_rewrite",
@@ -482,7 +495,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-multi-rare-rewrite",
    "tooltip": "Γ ▷ t ≈ u\nby several RARE rules applied at given positions",
    "x": 811.0,
-   "y": 547.0,
+   "y": 599.0,
    "w": 120.0,
    "h": 36.0
   },
@@ -495,7 +508,7 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}",
    "x": 553.5,
-   "y": 657.0,
+   "y": 601.0,
    "w": 57.0,
    "h": 36.0
   },
@@ -508,7 +521,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-nary-elim",
    "tooltip": "Γ ▷ ∘(t1 … tn) ≈ its binary nesting",
    "x": 553.5,
-   "y": 549.0,
+   "y": 655.0,
    "w": 74.0,
    "h": 36.0
   },
@@ -521,7 +534,7 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ φ ≈ ψ\naci-compatible instances are aci_simp renames;\nshort-circuits are constant-size CNF-axiom chains",
    "x": 553.5,
-   "y": 603.0,
+   "y": 547.0,
    "w": 83.0,
    "h": 36.0
   },
@@ -534,7 +547,7 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(not/implies/equiv/bool/ite/eq_simplify)",
    "x": 811.0,
-   "y": 711.0,
+   "y": 545.0,
    "w": 100.0,
    "h": 36.0
   },
@@ -547,7 +560,7 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence\nreduces to the two clausal directions of the equivalence",
    "x": 811.0,
-   "y": 657.0,
+   "y": 653.0,
    "w": 68.0,
    "h": 36.0
   },
@@ -560,7 +573,7 @@ window.REDGRAPH = {
    "url": "classification.html#equality-and-rewriting",
    "tooltip": "▷ distinct(t1 … tn) ≈ pairwise disequalities\nBool, 2 args:  ≈ ¬(φ ≈ ψ);  Bool, ≥3 args:  ≈ ⊥",
    "x": 553.5,
-   "y": 711.0,
+   "y": 709.0,
    "w": 90.0,
    "h": 36.0
   },
@@ -573,7 +586,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "▷ φ1, …, φn   (linear (in)equalities)\nnegations refuted by a positive Farkas combination (:args coefficients)",
    "x": 1016.0,
-   "y": 1537.0,
+   "y": 1197.0,
    "w": 76.0,
    "h": 36.0
   },
@@ -586,7 +599,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "(extra)  ▷ t ≈ u\nboth sides ring-normalize to the same polynomial\nlinear instances reduce to two Farkas bounds + la_disequality",
    "x": 811.0,
-   "y": 1591.0,
+   "y": 1089.0,
    "w": 117.0,
    "h": 36.0
   },
@@ -599,7 +612,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "mult_pos:  ▷ ¬(x > 0), ¬(y > 0), (x·y > 0)\nmult_neg:  ▷ ¬(x < 0), ¬(y > 0), (x·y < 0)\n(adopted, implemented)",
    "x": 1016.0,
-   "y": 1483.0,
+   "y": 1251.0,
    "w": 94.0,
    "h": 36.0
   },
@@ -612,7 +625,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "(extra)  ▷ (x · (y − z)) ≈ (x·y − x·z)\nthe one ring law beyond la_generic's linear reasoning",
    "x": 1016.0,
-   "y": 1429.0,
+   "y": 1305.0,
    "w": 85.0,
    "h": 36.0
   },
@@ -625,7 +638,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-la-totality",
    "tooltip": "▷ (t1 ≤ t2 ∨ t2 ≤ t1)   (unit or-clause)",
    "x": 811.0,
-   "y": 1645.0,
+   "y": 1197.0,
    "w": 75.0,
    "h": 36.0
   },
@@ -638,7 +651,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-la-totality",
    "tooltip": "▷ φ, a trivial LA tautology\nor the unit or-clause of a bound pair  [1.0, 1.0]",
    "x": 811.0,
-   "y": 1483.0,
+   "y": 1251.0,
    "w": 88.0,
    "h": 36.0
   },
@@ -651,7 +664,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-la-mult-pos",
    "tooltip": "la_mult_pos:  ▷ (t1 > 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3\nla_mult_neg:  ▷ (t1 < 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3",
    "x": 811.0,
-   "y": 1429.0,
+   "y": 1305.0,
    "w": 109.0,
    "h": 36.0
   },
@@ -664,7 +677,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)\nthe [antisym] order-antisymmetry axiom",
    "x": 1016.0,
-   "y": 1592.0,
+   "y": 1116.0,
    "w": 96.0,
    "h": 36.0
   },
@@ -677,7 +690,7 @@ window.REDGRAPH = {
    "url": "classification.html#ex-la-rw-eq",
    "tooltip": "▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)",
    "x": 811.0,
-   "y": 1537.0,
+   "y": 1143.0,
    "w": 68.0,
    "h": 36.0
   },
@@ -690,7 +703,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −",
    "x": 553.5,
-   "y": 1510.0,
+   "y": 1143.0,
    "w": 112.0,
    "h": 36.0
   },
@@ -703,7 +716,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "Γ ▷ t/t ≈ 1;  t/1 ≈ t;  constant division evaluated",
    "x": 553.5,
-   "y": 1591.0,
+   "y": 1197.0,
    "w": 85.0,
    "h": 36.0
   },
@@ -716,7 +729,7 @@ window.REDGRAPH = {
    "url": "classification.html#arithmetic",
    "tooltip": "Γ ▷ (t1 ⋈ t2) ≈ ψ\nfixpoint of the comparison rewrites (⋈ ∈ {<, >, ≤, ≥})",
    "x": 553.5,
-   "y": 1429.0,
+   "y": 1089.0,
    "w": 99.0,
    "h": 36.0
   },
@@ -742,7 +755,7 @@ window.REDGRAPH = {
    "url": "classification.html#legacy",
    "tooltip": "▷ φ1, …, φn   (linear integer (in)equalities)\nno certificate — not checkable without an oracle",
    "x": 553.5,
-   "y": 797.0,
+   "y": 23.0,
    "w": 87.0,
    "h": 44.0
   },
@@ -755,7 +768,7 @@ window.REDGRAPH = {
    "url": "classification.html#legacy",
    "tooltip": "▷ ¬(∀x̄.φ) ∨ ∀x̄ₖ.φ′\nclausification placeholder (no precise semantics)",
    "x": 553.5,
-   "y": 859.0,
+   "y": 85.0,
    "w": 68.0,
    "h": 44.0
   },
@@ -768,7 +781,7 @@ window.REDGRAPH = {
    "url": "classification.html#legacy",
    "tooltip": "▷ t ≈ (t′ ∧ ite-definitions)\nartifact of veriT's internal ite constants",
    "x": 553.5,
-   "y": 921.0,
+   "y": 147.0,
    "w": 74.0,
    "h": 44.0
   },
@@ -781,7 +794,7 @@ window.REDGRAPH = {
    "url": "classification.html#legacy",
    "tooltip": "i ▷ ψ\n⟹  ▷ ψ′ with Boolean arguments case-expanded",
    "x": 553.5,
-   "y": 983.0,
+   "y": 209.0,
    "w": 81.0,
    "h": 44.0
   },
@@ -794,7 +807,7 @@ window.REDGRAPH = {
    "url": "classification.html#legacy",
    "tooltip": "Γ ▷ ψ ≈ φ1 ∘ … ∘ φn\nflattening of nested ∘ ∈ {∧, ∨} with duplicates removed",
    "x": 553.5,
-   "y": 1045.0,
+   "y": 271.0,
    "w": 73.0,
    "h": 44.0
   }
@@ -910,7 +923,7 @@ window.REDGRAPH = {
   },
   {
    "source": "eq_clausal",
-   "target": "trans",
+   "target": "refl",
    "style": "solid",
    "label": ""
   },
@@ -922,14 +935,20 @@ window.REDGRAPH = {
   },
   {
    "source": "eq_clausal",
-   "target": "symm",
+   "target": "eq_variant",
    "style": "solid",
    "label": ""
   },
   {
-   "source": "eq_clausal",
-   "target": "subproof",
-   "style": "solid",
+   "source": "eq_variant",
+   "target": "trans",
+   "style": "dotted",
+   "label": "same checker"
+  },
+  {
+   "source": "eq_variant",
+   "target": "cong",
+   "style": "dotted",
    "label": ""
   },
   {

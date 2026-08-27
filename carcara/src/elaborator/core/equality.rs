@@ -34,6 +34,7 @@ pub fn eq_reflexive(
 /// Finds the order in which the given premise equalities chain from `conclusion.0` to
 /// `conclusion.1`, returning the indices of the used premises in chain order, paired with whether
 /// each needs to be flipped.
+#[allow(dead_code)] // the chain search the `eq_transitive` recipe below needs
 fn find_chain(
     conclusion: (&Rc<Term>, &Rc<Term>),
     equalities: &[(&Rc<Term>, &Rc<Term>)],
@@ -69,6 +70,7 @@ fn find_chain(
 /// `eq_transitive` becomes a discharge subproof: each negated equality is assumed, the chain is
 /// derived by `trans` (with `symm` for flipped links), and the closing `subproof` step discharges
 /// the assumptions. Unneeded literals become discharged-but-unused assumptions.
+#[allow(dead_code)] // kept for reference: `eq_transitive` is a *variant* of `trans`, not reduced
 pub fn eq_transitive(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -137,6 +139,7 @@ pub fn eq_transitive(
 /// `cong` checker: each premise is consumed in order by the first argument pair it can justify,
 /// and identical pairs may skip a premise. Returns, for each argument pair, the index of the
 /// premise justifying it (with a flip marker), or `None` if the pair is directly equal.
+#[allow(dead_code)] // used by the unregistered `eq_congruent` recipe
 fn match_cong_premises(
     premises: &[(&Rc<Term>, &Rc<Term>)],
     f_args: &[Rc<Term>],
@@ -164,6 +167,7 @@ fn match_cong_premises(
     Ok(result)
 }
 
+#[allow(dead_code)] // used by the unregistered `eq_congruent` recipe
 fn assume_equalities(b: &mut Builder, equalities: &[(&Rc<Term>, &Rc<Term>)]) -> Vec<Rc<ProofNode>> {
     equalities
         .iter()
@@ -174,6 +178,7 @@ fn assume_equalities(b: &mut Builder, equalities: &[(&Rc<Term>, &Rc<Term>)]) -> 
         .collect()
 }
 
+#[allow(dead_code)] // used by the unregistered `eq_congruent` recipe
 fn cong_from_assumptions(
     b: &mut Builder,
     assumptions: &[Rc<ProofNode>],
@@ -197,6 +202,7 @@ fn cong_from_assumptions(
 
 /// `eq_congruent` becomes a discharge subproof assuming the argument equalities and closing with
 /// one `cong` step (plus `symm` steps for flipped equalities).
+#[allow(dead_code)] // kept for reference: `eq_congruent` is a *variant* of `cong`, not reduced
 pub fn eq_congruent(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -310,8 +316,16 @@ pub fn eq_congruent_pred(
     }
 }
 
-/// `eq_symmetric` concludes an *equivalence*, so both directions are derived, each by a `symm`
-/// step under a discharge subproof, and the `equiv_intro` pattern closes.
+/// `eq_symmetric` states the equivalence `(= (= a b) (= b a))` — which is exactly what `cong`
+/// proves, by the same orientation search `not_symm`'s reduction uses: with the argument lists
+/// flipped, every argument pair of the two equalities is already syntactically equal, and the
+/// rule's one-premise minimum is met by a `refl`. **Two steps.**
+///
+/// The rule concluding an equivalence rather than the clause `(cl ¬(= a b) (= b a))` is what used
+/// to make this expensive: the clause form would need one resolution, the equivalence form needed
+/// two discharge subproofs and an iff-introduction. The `cong` route sidesteps both. Where the
+/// orientation search does not apply — a non-equality argument, or an anchor that moves the terms
+/// — the subproof route is built instead, and the smaller of the two is kept.
 pub fn eq_symmetric(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
@@ -319,9 +333,22 @@ pub fn eq_symmetric(
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     let (lhs, rhs) = match_term_err!((= l r) = &step.clause[0])?;
     let (lhs, rhs) = (lhs.clone(), rhs.clone());
+    let (a, _) = match_term_err!((= a b) = &lhs)?;
+    let a = a.clone();
 
     let mut b = Builder::new(pool, step);
 
+    // The `cong` route: one `refl` for the premise minimum, one `cong` for the equivalence
+    let refl_eq = build_term!(b.pool, (= {a.clone()} {a.clone()}));
+    let equivalence = build_term!(b.pool, (= {lhs.clone()} {rhs.clone()}));
+    let clausal = if crate::checker::cong_equal(b.pool, &[refl_eq.clone()], &equivalence).is_ok() {
+        let refl = b.step(vec![refl_eq], "refl", Vec::new(), Vec::new());
+        Some(b.step(vec![equivalence], "cong", vec![refl], Vec::new()))
+    } else {
+        None
+    };
+
+    // The subproof route: each direction by a `symm` step under a discharge subproof
     let direction = |b: &mut Builder, from: &Rc<Term>| {
         b.open();
         let assumption = b.assume(from.clone());
@@ -330,8 +357,12 @@ pub fn eq_symmetric(
     };
     let forward = direction(&mut b, &lhs);
     let backward = direction(&mut b, &rhs);
+    let discharged = b.equiv_intro(lhs, rhs, forward, backward)?;
 
-    let node = b.equiv_intro(lhs, rhs, forward, backward)?;
+    let node = match clausal {
+        Some(clausal) => super::smaller_of(clausal, discharged),
+        None => discharged,
+    };
     Ok(b.relabel(step, node))
 }
 

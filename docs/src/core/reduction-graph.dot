@@ -67,7 +67,8 @@ digraph core_alethe {
     symm  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="i ▷ φ ≈ ψ\n⟹  ▷ ψ ≈ φ", color="#2a78d6", penwidth=2.4];
     connective_def [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ (xor φ1 φ2) ≈ (¬φ1∧φ2) ∨ (φ1∧¬φ2)\n▷ (φ1 ≈ φ2) ≈ (φ1→φ2) ∧ (φ2→φ1)\n▷ (ite φ1 φ2 φ3) ≈ (φ1→φ2) ∧ (¬φ1→φ3)\n▷ ∀x̄.φ ≈ ¬∃x̄.¬φ   (and dually)\nproposed (div. 6):  ▷ (φ1 → φ2) ≈ ¬φ1 ∨ φ2", color="#2a78d6", penwidth=2.4];
     rare_rewrite   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t ≈ u\nan instance of a declared RARE rule (:args name + substitution)", color="#2a78d6", penwidth=2.4];
-    eq_clausal [URL="classification.html#ex-eq-transitive", target="_self", tooltip="eq_reflexive:  ▷ t ≈ t\neq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\neq_congruent_pred:  likewise for Bool codomain\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)", label="clausal eq_* (6)", color="#1baf7a", penwidth=1.6];
+    eq_clausal [URL="classification.html#ex-eq-transitive", target="_self", tooltip="eq_reflexive:  ▷ t ≈ t  (→ refl)\neq_congruent_pred:  → eq_congruent + equiv_pos\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)  (→ refl + cong)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)", label="clausal eq_* (4)", color="#1baf7a", penwidth=1.6];
+    eq_variant [URL="classification.html#variants-2", target="_self", tooltip="eq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\nclausal variants of trans/cong — same checker functions,\nso neither counted towards the core nor eliminated", label="eq_transitive,\neq_congruent\n(variants)", color="#8a887f", penwidth=1.6, style="rounded,filled,dashed"];
     multi_rare_rewrite [URL="classification.html#ex-multi-rare-rewrite", target="_self", tooltip="Γ ▷ t ≈ u\nby several RARE rules applied at given positions", color="#1baf7a", penwidth=1.6];
     shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}", color="#1baf7a", penwidth=1.6];
     nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#1baf7a", penwidth=1.6];
@@ -122,7 +123,8 @@ digraph core_alethe {
   onepoint -> forall_inst; onepoint -> bind;
   qnt_rw -> bind [label="closure"]; qnt_rw -> forall_inst;
   qnt_rw -> sko_forall [style=dotted, label="fallback"];
-  eq_clausal -> trans; eq_clausal -> cong; eq_clausal -> symm; eq_clausal -> subproof;
+  eq_clausal -> refl; eq_clausal -> cong; eq_clausal -> eq_variant;
+  eq_variant -> trans [style=dotted, label="same\nchecker"]; eq_variant -> cong [style=dotted];
   multi_rare_rewrite -> rare_rewrite;
   la_totality -> la_generic; la_tautology -> la_generic;
 
@@ -158,10 +160,12 @@ digraph core_alethe {
     l_agg  [label="rare/simplify", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
     l_exp  [label="expensive", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     l_core [label="core", color="#2a78d6", penwidth=2.4];
+    l_var  [label="variant", color="#8a887f", penwidth=1.6, style="rounded,filled,dashed"];
     l_rem  [label="oracle", color="#e34948", penwidth=1.4, peripheries=2];
     l_red  -> l_agg [label="stage 1: the\nreducible tier"];
     l_agg  -> l_exp [style=dotted, label="stage 2: the\nrewrite vocabulary"];
     l_exp  -> l_core [style=dashed, label="stage 3: the\nexpensive tier"];
-    l_core -> l_rem [style=invis];
+    l_core -> l_var [style=invis];
+    l_var -> l_rem [style=invis];
   }
 }

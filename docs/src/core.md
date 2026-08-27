@@ -26,9 +26,12 @@ core:
   rather than a rule.
 - **Expensive**: rules whose reduction is complete and implemented (the `core-expensive` pass)
   but buys no checking power and costs a discharge subproof or a handful of steps per instance:
-  the computational primitives `poly_simp` and `aci_simp`, the clausal equality rules, and
-  `sko_ex`. These are the rules a consumer keeps if it implements their checks, and drops if it
-  does not.
+  the computational primitives `poly_simp` and `aci_simp`, and `sko_ex`. These are the rules a
+  consumer keeps if it implements their checks, and drops if it does not.
+- **Variant**: `eq_transitive` and `eq_congruent`, the premise-free clausal forms of `trans` and
+  `cong`. Carcara checks them with the very functions those rules call, so they add nothing to
+  the trusted base and eliminating them would trade steps for nothing: they are neither counted
+  towards the core nor eliminated.
 
 The three non-core levels are *nested elimination stages*: reading a proof from the solver's
 output toward the core, elaboration removes the reducible tier first, the rewrite vocabulary
@@ -46,18 +49,19 @@ the long-term recommendation remains *removal* — solvers should stop emitting 
 specification should replace them with principled counterparts — but four of the five are
 meanwhile reducible (only `lia_generic` is not).
 
-Of the 120 specification rules, this classification yields **53 core**, **53 reducible**,
-**7 rare/simplify**, **6 expensive**, and **1 oracle** rule, distributed as follows:
+Of the 120 specification rules, this classification yields **53 core**, **52 reducible**,
+**7 rare/simplify**, **5 expensive**, **2 variants**, and **1 oracle** rule, distributed as
+follows:
 
-| category | total | core | reducible | rare/simplify | expensive | oracle |
-|---|---|---|---|---|---|---|
-| structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 23 | 24 | 0 | 0 | 0 |
-| binder | 13 | 5 | 7 | 0 | 1 | 0 |
-| equality & rewriting | 25 | 6 | 9 | 6 | 4 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
-| bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
-| legacy | 5 | 0 | 4 | 0 | 0 | 1 |
+| category | total | core | reducible | rare/simplify | expensive | variant | oracle |
+|---|---|---|---|---|---|---|---|
+| structural | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
+| clausal | 47 | 23 | 22 | 0 | 0 | 2 | 0 |
+| binder | 13 | 5 | 7 | 0 | 1 | 0 | 0 |
+| equality & rewriting | 25 | 6 | 10 | 6 | 3 | 0 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 | 0 |
+| bitvector | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
+| legacy | 5 | 0 | 4 | 0 | 0 | 0 | 1 |
 
 The extra rule `evaluate` (constant evaluation of interpreted operators) is part of the core as a
 computational primitive: each interpreted SMT-LIB operator gives it a concise definitional
@@ -1125,16 +1129,20 @@ proposal-free, the Skolemization route (the derived ∀-ε-clause template; see 
 quantifier rewrites from Skolemization"), so no binder-aware RARE extension is a prerequisite
 for any rule.
 
-The **expensive** level is the last stage, and since 2026-08-27 every rule on it has an
-implemented reduction, applied by the `core-expensive` pass: `poly_simp` (linear identities →
-two Farkas bounds + `la_disequality`), `aci_simp` (→ the two clausal directions of the
-equivalence), the clausal equality rules `eq_transitive`/`eq_congruent`/`eq_symmetric` (→ their
-discharge subproofs), and `sko_ex` (→ the duality route). What defines the level is no longer a
-missing prerequisite but a measured price: these reductions buy no checking power — the clausal
-equality checkers *are* `trans`/`cong`'s, `aci_simp` is where 46% of veriT's post-elaboration
-checking time went when the pass created 300k of them, and `poly_simp`'s six-steps-per-identity
-is pure growth — so the default regimes keep the rules, and the stage exists for consumers who
-want the smaller vocabulary badly enough to pay for it. The purely arithmetic simplifications —
+The **expensive** level is the last stage, and every rule on it has an implemented reduction,
+applied by the `core-expensive` pass: `poly_simp` (linear identities → two Farkas bounds +
+`la_disequality`), `aci_simp` (→ the two clausal directions of the equivalence), and `sko_ex`
+(→ the duality route). What defines the level is not a missing prerequisite but a measured
+price: `aci_simp` is where 46% of veriT's post-elaboration checking time went when the pass
+created 300 000 of them, `poly_simp`'s six-steps-per-identity is pure growth, and `sko_ex`'s
+recipe costs an ~8× local blowup — so the default regimes keep the rules, and the stage exists
+for consumers who want the smaller vocabulary badly enough to pay for it.
+
+The clausal equality rules are deliberately *not* on it. `eq_transitive` and `eq_congruent` are
+**variants** of `trans` and `cong`, checked by the same functions, so eliminating them trades
+steps for nothing — they are kept, uncounted, and the `deep-hoist` replay in fact targets them.
+`eq_symmetric` went the other way: it states the equivalence `(= (= a b) (= b a))`, which `cong`
+proves outright with one `refl` for its premise minimum, so it is *reducible* in two steps. The purely arithmetic simplifications —
 `prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` — are *reducible* as
 `poly_simp` renames (the check coarsens from per-schema folding to ring normalization, 12× per
 step measured, the same trade as `shuffle` → `aci_simp`), and under `core-expensive` they end at

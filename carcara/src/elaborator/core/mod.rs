@@ -538,14 +538,17 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "and_intro" => clausification::and_intro,
         "eq_mp" => super::local::eq_mp::eq_mp,
 
-        // Equality and rewriting. `eq_transitive`, `eq_congruent`, `eq_symmetric` and `not_symm`
-        // are *expensive* — like `sko_ex`, their reductions are complete (see `equality.rs`) but
-        // cost a discharge subproof per instance and buy no checking power, so the pass leaves the
-        // steps alone and the recipes stay unregistered. The two that remain reducible are renames
-        // onto them: `eq_reflexive` onto `refl`, and `eq_congruent_pred` onto `eq_congruent`
-        // through one `equiv_pos` axiom
+        // Equality and rewriting. `eq_transitive` and `eq_congruent` are *variants* of `trans` and
+        // `cong`: they state the same judgment as a premise-free clause, and Carcara checks them
+        // with the very functions those rules call (`find_chain`, `generic_congruent_rule`), so
+        // keeping them costs no trusted code and eliminating them buys none — the pass leaves them
+        // alone, and they do not count towards the core. What *is* reduced here are the rules with
+        // a genuinely cheaper form: `eq_reflexive` renames onto `refl`, `eq_congruent_pred` onto
+        // `eq_congruent` through one `equiv_pos` axiom, and `eq_symmetric`/`not_symm` onto the
+        // `cong` orientation search
         "connective_def" => connective::connective_def,
         "eq_reflexive" => equality::eq_reflexive,
+        "eq_symmetric" => equality::eq_symmetric,
         "not_symm" => equality::not_symm,
         "eq_congruent_pred" => equality::eq_congruent_pred_to_eq_congruent,
 
@@ -586,18 +589,15 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
 /// no checking power, and whose steps the default regimes therefore keep.
 ///
 /// Applying them takes a proof the rest of the way to the core vocabulary — the ring and ACI
-/// normalizers, the Skolemization dual and the clausal equality rules all leave the trusted base
-/// with them — at a price in steps that the `core-expensive` regime is there to measure.
+/// normalizers and the Skolemization dual leave the trusted base with them — at a price in steps
+/// that the `core-expensive` regime is there to measure. The clausal equality rules are *not*
+/// here: `eq_transitive` and `eq_congruent` are variants of `trans`/`cong` checked by the same
+/// functions, so removing them would trade steps for nothing.
 pub fn get_expensive_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
     Some(match rule {
         // Computational primitives
         "poly_simp" => expensive::poly_simp,
         "aci_simp" => expensive::aci_simp,
-
-        // Clausal equality: the discharge-subproof reductions
-        "eq_transitive" => equality::eq_transitive,
-        "eq_congruent" => equality::eq_congruent,
-        "eq_symmetric" => equality::eq_symmetric,
 
         // The Skolemization dual
         "sko_ex" => skolem::sko_ex,

@@ -15,8 +15,14 @@ category's core rules — followed by its rules grouped by *reducibility level*:
   rather than a rule;
 - **expensive** — the reduction is complete and implemented, but buys no checking power and
   costs a discharge subproof or a handful of steps per instance: the computational primitives
-  `poly_simp` and `aci_simp`, the clausal equality rules, and `sko_ex`. These are the rules a
-  consumer keeps if it is willing to implement their checks, and drops if it is not.
+  `poly_simp` and `aci_simp`, and `sko_ex`. These are the rules a consumer keeps if it is willing
+  to implement their checks, and drops if it is not;
+- **variant** — `eq_transitive` and `eq_congruent`, which state `trans`'s and `cong`'s judgments
+  as premise-free clauses and which Carcara checks *with the very functions those rules call*
+  (`find_chain`, `generic_congruent_rule`). A consumer implementing the core already has their
+  checks, so they add nothing to the trusted base and eliminating them would trade steps for
+  nothing. They are neither counted towards the core nor eliminated; the reduction exists in the
+  tree (`core/equality.rs`, unregistered) should a consumer want the smaller vocabulary anyway.
 
 The three non-core levels are *nested elimination stages*, and the evaluation measures them in
 that order: a proof loses its reducible rules first, then the rewrite vocabulary, then the
@@ -39,16 +45,16 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 
 ## Summary
 
-| category | total | core | reducible | rare/simplify | expensive | oracle |
-|---|---|---|---|---|---|---|
-| structural | 3 | 3 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 23 | 24 | 0 | 0 | 0 |
-| binder | 13 | 5 | 7 | 0 | 1 | 0 |
-| equality & rewriting | 25 | 6 | 9 | 6 | 4 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
-| bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
-| legacy | 5 | 0 | 4 | 0 | 0 | 1 |
-| **total** | **120** | **53** | **53** | **7** | **6** | **1** |
+| category | total | core | reducible | rare/simplify | expensive | variant | oracle |
+|---|---|---|---|---|---|---|---|
+| structural | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
+| clausal | 47 | 23 | 22 | 0 | 0 | 2 | 0 |
+| binder | 13 | 5 | 7 | 0 | 1 | 0 | 0 |
+| equality & rewriting | 25 | 6 | 10 | 6 | 3 | 0 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 | 0 |
+| bitvector | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
+| legacy | 5 | 0 | 4 | 0 | 0 | 0 | 1 |
+| **total** | **120** | **53** | **52** | **7** | **5** | **2** | **1** |
 
 Totals count *specification* rules only. The core additionally contains eight rules beyond the
 specification, all of them listed in the category tables below rather than only in the extras
@@ -840,7 +846,7 @@ the context mechanism — `refl` is the one rule that applies the context substi
 system. The clausal `eq_*` forms are the same system repackaged as premise-free clauses through
 `subproof` discharge.
 
-25 rules: 6 core, 9 reducible, 6 rare/simplify, 4 expensive.
+25 rules: 6 core, 10 reducible, 6 rare/simplify, 3 expensive; `eq_transitive` and `eq_congruent` are *variants* (see below).
 
 ### Core (6 + 2 extra)
 
@@ -854,10 +860,11 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
 | `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously in the rewrite tier): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
-### Reducible (9)
+### Reducible (10)
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
+| `eq_symmetric` | `refl` + `cong`: the equivalence between an equality and its flip is a congruence instance, since `cong`'s checker tries all four orientations of a two-argument equality pair | 2 | syntactic | **done** (`core` pass, 2026-08-27). Previously *expensive* on the ~9-step two-subproof route; the `cong` route makes it one of the cheapest reductions in the tier. The subproof route is still built where the orientation search does not apply, and the smaller kept |
 | `connective_def` | quantifier duality: rename to `qnt_duality`. The three propositional instances: pure resolution over the CNF axioms of the two sides, glued by the iff-introduction pattern — no anchor | 1 for the duality, ~32 for a propositional instance | syntactic | **done** (`core` pass, 2026-08-25). It was *core* because of the duality; splitting that off as its own axiom leaves the rest derivable, which is what the "agreement lemma" note always claimed. The three propositional templates are `(= (xor a b) …)`, `(= (= a b) …)` and `(= (ite c x y) …)`; each derives `(cl ¬lhs rhs)` and `(cl lhs ¬rhs)` from the `xor`/`equiv`/`ite` and `and`/`or`/`implies` axiom families, with `not_not` discharging the `¬¬` literals that `and_neg` on a negated conjunct produces |
 | `not_symm` | `refl` + `cong` + `equiv_pos1` + 2 resolutions — no anchor | 4 | syntactic | **done** (`core` pass, 2026-08-25). Contraposition needs the equivalence `(= (= a b) (= b a))`, and `cong` proves it directly: its checker tries all four orientations of a two-argument equality pair, so with the arguments flipped every pair is syntactically equal, and one `refl` satisfies its one-premise minimum. Both this and the discharge-subproof route are built and the smaller kept |
 | `eq_reflexive` | `refl` (empty context) | 1 | syntactic | **done** (`core` pass); the rename is unconditional (guarded only against assigning anchors), so `eq_reflexive` never survives elaboration |
@@ -1091,13 +1098,24 @@ becomes
 <details id="ex-eq-symmetric">
 <summary>Example: <code>eq_symmetric</code> and <code>not_symm</code></summary>
 
-`eq_symmetric` concludes an *equivalence*, so both directions are needed:
+`eq_symmetric` concludes the *equivalence* `(= (= a b) (= b a))`, which is exactly what `cong`
+proves — with the argument lists flipped, every argument pair of the two equalities is already
+syntactically equal, and the rule's one-premise minimum is met by a `refl`. Two steps:
 
 ```
 (step t (cl (= (= a b) (= b a))) :rule eq_symmetric)
 ```
 
 becomes
+
+```
+(step t.c1 (cl (= a a)) :rule refl)
+(step t (cl (= (= a b) (= b a))) :rule cong :premises (t.c1))
+```
+
+Where `cong`'s orientation search does not apply, the subproof route is used instead — one `symm`
+subproof per direction, glued by the iff-introduction pattern (~9 steps and two anchors) — and the
+pass keeps whichever came out smaller:
 
 ```
 (anchor :step t.p1)
@@ -1159,40 +1177,43 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Expensive (4)
+### Expensive (3)
 
-`aci_simp` is the first of them, and the only computational primitive in this category:
+`aci_simp` is the one in this category (`poly_simp` and `sko_ex` are the other two, under
+arithmetic and binder):
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
 | `aci_simp` | the two clausal directions of the equivalence: each side taken apart with `and_pos`/`or_pos` and the other put together with `and_neg`/`or_neg`, closed by the iff-introduction pattern | ~4 per leaf | syntactic | **done** (`core-expensive` pass). Linear in the number of leaves for a flat term, leaves × depth for a nested one. The reduction covers the semilattice connectives — the only headers the corpus exercises — and the identity element (`true` for `and`, `false` for `or`) through the corresponding axiom; an arithmetic or bitvector head keeps the step. Being *expensive* rather than core is a measured call, not a stylistic one: on veriT's proofs `aci_simp` is 5% of the elaborated steps but **46% of the checking time**, and the reductions that target it (`ac_simp`, `and_simplify`/`or_simplify`, `shuffle`, `nary_elim`) take 2.6 s of original checking into 7.2 s of it |
 
-The other three are the clausal equality rules: `eq_transitive`, `eq_congruent` and `eq_symmetric`. They are
-the clausal variants of `trans`, `cong` and `symm` — same reasoning, stated as a premise-free clause
-instead of consumed from premises. Their reductions are
-*complete and implemented* (`core/equality.rs`, every corpus instance reduces and re-checks) and
-every step they emit is a cheap core rule; they are expensive on **cost**, exactly as `sko_ex` is.
+### Variants (2)
 
-| rule | reduction scheme | cost | what makes it expensive |
-|---|---|---|---|
-| `eq_transitive` | discharge subproof assuming the negated equalities, closed by `trans` (+ `symm` per flipped link) | ≤ 2n steps + an anchor | one subproof per instance |
-| `eq_congruent` | ditto, closed by `cong` | ≤ 2n+2 + an anchor | ditto |
-| `eq_symmetric` | two `symm` subproofs, one per direction, glued by the iff-introduction pattern | ~9 steps + 2 anchors | ditto |
+`eq_transitive` and `eq_congruent` state `trans`'s and `cong`'s judgments as premise-free clauses.
+Carcara checks them **with the very functions those rules call** — `eq_transitive`'s checker is
+`find_chain`, which `trans` calls, and `eq_congruent`'s is `generic_congruent_rule`, which `cong`'s
+shares — so a consumer that implements the core already has their checks. They add nothing to the
+trusted base, and eliminating them would trade steps for nothing: they are neither counted towards
+the core nor reduced.
 
-**Why the cost is worth naming.** These four reductions were, measured, roughly three quarters of
-the `core` pass's growth on veriT proofs — the per-pass table put the first `core` application at
-1.15 → 2.43 with them and 1.15 → 1.39 without. The checking power gained is *nil*: `eq_transitive`'s
-checker is `find_chain`, the same function `trans` calls, and `eq_congruent` shares
-`generic_congruent_rule` with `eq_congruent_pred`. So the tier says what it should: the reduction is
-available, the vocabulary is one rule smaller with it, and the default is to keep the rules because
-the derivation costs an anchor per instance and buys nothing a checker would notice.
+That is not a statement about difficulty. Both reductions are written and complete
+(`core/equality.rs`, unregistered): a discharge subproof assuming the negated equalities, closed by
+`trans` (≤ 2n steps and an anchor, plus a `symm` per flipped link) or by `cong` (≤ 2n+2 and an
+anchor). Applying them was measured at roughly three quarters of the `core` pass's growth on veriT
+proofs, which is what the tier used to be *called* expensive for; the sharper statement is that the
+growth buys nothing, since the checkers are shared.
 
-**A second reason to keep them, discovered 2026-08-25.** They are the target vocabulary of the
-`deep-hoist` pass's clausal replay, which turns a lemma scope inside out: assumptions become
-hypothesis literals and the body's `cong`/`trans`/`symm` steps become `eq_congruent`/`eq_transitive`
-instances. Reducing those back into discharge subproofs undoes exactly what the replay achieved —
-with them reduced, `deep-hoist` + `core` produced *more* scopes than the input; with them kept, the
-same pipeline gives 21% fewer commands than the input and eliminates 95% of cvc5's anchors.
+The reverse direction is available too, and cheaper: `trans` becomes `eq_transitive` + one
+resolution and `cong` becomes `eq_congruent` + one resolution — **two steps each**, except that
+`eq_congruent` requires one literal per argument pair where `cong` lets identical arguments skip a
+premise, so each skipped argument adds a `refl`. Which side a consumer prefers is conventional
+(R4); the classification keeps both and reduces neither.
+
+**A second reason to keep them.** They are the target vocabulary of the `deep-hoist` pass's
+clausal replay, which turns a lemma scope inside out: assumptions become hypothesis literals and
+the body's `cong`/`trans`/`symm` steps become `eq_congruent`/`eq_transitive` instances. Reducing
+those back into discharge subproofs undoes exactly what the replay achieved — with them reduced,
+`deep-hoist` + `core` produced *more* scopes than the input; with them kept, the same pipeline
+gives 21% fewer commands than the input and eliminates 95% of cvc5's anchors.
 
 ### Rare/simplify (6)
 

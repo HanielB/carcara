@@ -4,9 +4,11 @@ The current state of the classification as a graph: nodes are rules (families co
 counts), grouped by concern category; an edge points from a rule to the rules its reduction
 targets. Border color and style encode the level, which is also the *elimination stage* the rule
 belongs to — **reducible** (green, removed first), **rare/simplify** (violet dotted, the rewrite
-vocabulary, removed second), **expensive** (yellow dashed, `poly_simp`/`aci_simp`, the clausal
-equality rules and `sko_ex`, removed last), and **core** (blue, bold, what is left). **Oracle**
-(red, double border) is the one rule no reduction reaches, `lia_generic`. Proposed-but-unadopted
+vocabulary, removed second), **expensive** (yellow dashed, `poly_simp`, `aci_simp` and `sko_ex`,
+removed last), and **core** (blue, bold, what is left). Two further markers sit outside the
+stages: **variant** (grey dashed) for `eq_transitive`/`eq_congruent`, which Carcara checks with
+the same functions as `trans`/`cong` and therefore neither counts nor eliminates, and **oracle**
+(red, double border) for the one rule no reduction reaches, `lia_generic`. Proposed-but-unadopted
 extensions (`equiv_intro`, `or_intro`; the `bind` generalization is noted on the `bind` node) are
 marked by a dashed border or a "(proposed)" note. Edge styles mirror the levels.
 
