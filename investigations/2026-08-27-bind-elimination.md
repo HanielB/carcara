@@ -60,28 +60,52 @@ substitution may and may not appear.
 Composing the substitutions everywhere instead (the first attempt) is what breaks the
 outside-premise match; the residual bind count went *up*, from 46 to 78 on the sample.
 
-## What blocks the last 11%
+## What it took to get from 89% to all of them
 
-Both remaining categories are mechanical consequences of capture-avoiding substitution, not gaps
-in the core:
+The residue at 89% was two clusters, and both came down to the same thing: a term built during a
+reduction is written against the substitution in force where it is built, and everything that
+moves it afterwards has to agree about what that substitution was.
 
-| residue | count (sample) | why |
-| --- | --- | --- |
-| nested scope closed by `let` | 10 | replaying it means substituting into the anchor *and* keeping the contextual steps under it in step with the new assignment; the two drift |
-| body rebinds a substituted variable | 9 | Carcara renames a binder that shadows a substituted variable **whether or not anything is replaced under it** (`compute_should_be_renamed` renames `y` when `y = x` or `y` is free in `t`), and the renamed term no longer matches the same term reached from outside |
+**Substitution renaming.** Carcara renames a bound variable when it is one of the substituted
+variables or occurs free in what they are replaced by. The second is capture-avoidance; the first
+is not — under a binder that binds `x`, the substitution does not reach the occurrences it binds,
+and renaming `x` gives an α-variant of the right answer. Harmless for a checker comparing terms
+it built itself, fatal for a replay, whose terms must keep matching the ones nothing renamed.
+Carcara already did the right thing for single-mapping substitutions, with a comment saying that
+removing the mapping is what the renaming stands in for; the general case needed a child
+substitution with its own cache. A term with nothing free to substitute is now returned as it
+stands, for the same reason — the substitution tests said as much in a comment, and now say it as
+an assertion.
 
-Two routes out were tried and rejected:
+**Order.** A `bind` inside another `bind` waits for a later round: reducing the enclosing one
+afterwards would carry the inner reduction's terms out of the anchor they were written against.
+The nesting is read off the proof rather than the context stack, which cannot tell a `bind_let`
+anchor from a ∀-closure `bind` — and keyed by the closing step's *id*, since a pass is handed a
+rebuilt node whenever one of its premises moved.
 
-- **α-renaming the shadowing binders before the replay** (`freshen`). Coverage jumps to 5
-  residual, but the freshened terms no longer match the unfreshened ones at every seam, and 7 of
-  12 proofs stop checking. Normalizing the seams with α-`refl` steps requires `strict_refl` to
-  identify α-variants, and even then a resolution against an outside premise fails.
-- **`--expand-let-bindings`**, which would remove the `let` terms at parse time. It breaks these
-  veriT proofs on its own, before the core passes run at all (611 steps out of 10 781 survive
-  elaboration), so it is not a route for veriT output.
+**Reading the context rather than reconstructing it.** The ε-clause takes its Skolemized body
+from the context stack with its own anchor pushed, instead of composing the enclosing
+substitution with the witnesses by hand. A scope's cumulative substitution puts each anchor value
+through the enclosing one, and that composition is not idempotent — a `let` whose values name an
+outer `let`'s variables is enough — so the hand-composed term was not what the `refl` inside the
+scope gets checked against. Where the replay and the ε-clause still differ, a contextual `refl`
+joins them, in the vanilla form through the equivalence and in the ∀-closure form as an
+implication (`equiv1`) resolved against the clause; the bridge is emitted only when it will
+check.
 
-Leaving the terms with nothing to substitute *verbatim* — the fix that did land — removes the
-gratuitous renaming, but the genuinely-substituted shadowing terms still rename.
+**Nested `let` scopes are dissolved, not replayed.** Their bindings join the witness substitution
+and the `let` step becomes the definitional expansion it always was, so there is no second
+composition to keep in step.
+
+**A checker fix.** `sko_forall` read its anchor's assignments as a map from variable to witness,
+which cannot hold a binder list that repeats a name — and veriT writes `(∀ x y y x. φ)` for what
+binds each of them once. Read in order, one assignment per binding, each position is skolemized
+by a witness of its own.
+
+Also: assumptions are placed at the depth of their own scope and shared across the scopes of one
+replay (the scope that discharges one and the scope that uses it are different scopes), and
+`proof_nodes_to_list` emits a subproof's assumptions before its steps, which a premise-following
+traversal does not.
 
 ## Choice congruence is not the blocker
 
@@ -105,3 +129,8 @@ being refutational and clausal, RESOLUTE has no binder-equivalence judgment at a
 A corollary measured here: with `sko_ex` core, nothing in the corpus asks `strict_refl` to
 identify α-variants. The relaxation was implemented (`cf18ba59`) and reverted (`6b342b52`) when an
 A/B left the residual count unchanged at 80 either way.
+
+**The final measurement.** Of 1053 `bind` steps in the `bind`-heavy sample, 1052 reduce with the
+`sko_ex` reduction enabled — the one that does not is the `choice` bind that reduction emits —
+and **all 1053 reduce with `sko_ex` kept core**. Every proof re-checks at elaborated granularity.
+So the answer to "is `bind` admissible?" is not "in principle": it is, in this corpus, entirely.

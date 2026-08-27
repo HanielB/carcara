@@ -1403,7 +1403,8 @@ extending it, all worth raising with the Alethe specification maintainers:
    **The divergence is conditional on that reduction, and only on it.** Choice congruence is
    never needed to *check* a solver's proof: no corpus `bind` step is over a `choice` binder
    (0 of 12,893), and the only construction that emits one is the `sko_ex` reduction's own
-   witness bridge. Keeping `sko_ex` in the core instead — which is exactly what having both
+   witness bridge. It is also the only thing standing between the `bind` reduction and complete
+   coverage — with `sko_ex` core, every `bind` step the corpus contains reduces. Keeping `sko_ex` in the core instead — which is exactly what having both
    `∃`-introduction and `∃`-elimination primitive means, and what RESOLUTE does with its four
    quantifier axioms — leaves every witness in the shape the solver wrote it, and the choice
    binder then needs no rule at all. So the trade is: *derive `sko_ex` from `sko_forall` and pay
