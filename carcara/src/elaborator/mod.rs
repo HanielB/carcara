@@ -338,22 +338,45 @@ impl<'e> Elaborator<'e> {
     ) -> Result<ProofNodeForest, Error> {
         let mut sharing = core::share::Sharing::new(&proof);
         let result = proof.mutate(|context, node, _| {
-            if let ProofNode::Step(s) = node.as_ref() {
-                if let Some(func) = core::get_expensive_elaboration_function(&s.rule) {
-                    match func(self.pool, context, s) {
-                        Ok(new_node) => {
-                            let shared = sharing.share(self.pool, context, s, new_node);
-                            growth::record(s, &shared);
-                            return Ok(shared);
+            match node.as_ref() {
+                ProofNode::Step(s) => {
+                    if let Some(func) = core::get_expensive_elaboration_function(&s.rule) {
+                        match func(self.pool, context, s) {
+                            Ok(new_node) => {
+                                let shared = sharing.share(self.pool, context, s, new_node);
+                                growth::record(s, &shared);
+                                return Ok(shared);
+                            }
+                            Err(e) => log::warn!(
+                                "expensive elaboration of '{}' ({}) failed, keeping step: {}",
+                                s.id,
+                                s.rule,
+                                e
+                            ),
                         }
-                        Err(e) => log::warn!(
-                            "expensive elaboration of '{}' ({}) failed, keeping step: {}",
-                            s.id,
-                            s.rule,
-                            e
-                        ),
                     }
                 }
+                // `bind` closes a subproof, and its reduction replaces the *whole* scope: the
+                // derivation that takes its place lives outside the anchor, since the anchor's
+                // substitution is exactly what it eliminates
+                ProofNode::Subproof(sub) => {
+                    let last = sub.last_step.as_step();
+                    if last.is_some_and(|s| s.rule == "bind") {
+                        let s = last.unwrap();
+                        match core::bind::bind(self.pool, context, node) {
+                            Ok(new_node) => {
+                                growth::record(s, &new_node);
+                                return Ok(new_node);
+                            }
+                            Err(e) => log::warn!(
+                                "expensive elaboration of '{}' (bind) failed, keeping step: {}",
+                                s.id,
+                                e
+                            ),
+                        }
+                    }
+                }
+                ProofNode::Assume { .. } => (),
             }
             Ok(node.clone())
         });

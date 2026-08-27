@@ -362,3 +362,80 @@ fn la_mult_uses_the_distributivity_axiom() {
         assert_eq!(rules.iter().filter(|r| *r == axiom).count(), 1);
     }
 }
+
+/// `bind` reduces to the ∀-ε-clause plus a replay of its body at the witnesses, so the elaborated
+/// proof carries no binder congruence — only `sko_forall`, `forall_inst` and clausal glue.
+#[test]
+fn bind_to_skolemization() {
+    let definitions = "
+        (declare-sort S 0)
+        (declare-fun P (S) Bool)
+    ";
+    let proof = "
+        (assume h1 (forall ((x S)) (P x)))
+        (anchor :step t1 :args ((y S) (:= (x S) y)))
+        (step t1.t1 (cl (= x y)) :rule refl)
+        (step t1.t2 (cl (= (P x) (P y))) :rule cong :premises (t1.t1))
+        (step t1 (cl (= (forall ((x S)) (P x)) (forall ((y S)) (P y)))) :rule bind)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(
+        definitions,
+        proof,
+        elaborator::ElaborationPass::CoreExpensive,
+    );
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "sko_forall").count(), 2);
+    assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 2);
+}
+
+/// The generalized (∀-closure) form needs one direction only: the closure literal is Skolemized
+/// and the body replayed there, with the other literals passing through.
+#[test]
+fn generalized_bind_to_skolemization() {
+    let definitions = "
+        (declare-sort S 0)
+        (declare-fun P (S) Bool)
+        (declare-fun q () Bool)
+    ";
+    let proof = "
+        (assume h1 q)
+        (anchor :step t1 :args ((x S)))
+        (step t1.t1 (cl (P x) (not q)) :rule hole)
+        (step t1 (cl (forall ((x S)) (P x)) (not q)) :rule bind)
+        (step t2 (cl (forall ((x S)) (P x))) :rule resolution :premises (t1 h1) :args (q false))
+        (step end (cl) :rule hole :premises (t2))
+    ";
+    let rules = run_pass(
+        definitions,
+        proof,
+        elaborator::ElaborationPass::CoreExpensive,
+    );
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "sko_forall").count(), 1);
+}
+
+/// A `bind` under an enclosing anchor is kept: the cumulative substitution would also reach the
+/// terms the reduction builds.
+#[test]
+fn nested_bind_is_kept() {
+    let definitions = "
+        (declare-sort S 0)
+        (declare-fun P (S S) Bool)
+    ";
+    let proof = "
+        (anchor :step t1 :args ((v S) (:= (u S) v)))
+        (anchor :step t1.t1 :args ((y S) (:= (x S) y)))
+        (step t1.t1.t1 (cl (= (P x u) (P y v))) :rule hole)
+        (step t1.t1 (cl (= (forall ((x S)) (P x u)) (forall ((y S)) (P y v)))) :rule bind)
+        (step t1 (cl (= (forall ((u S)) (forall ((x S)) (P x u)))
+                        (forall ((v S)) (forall ((y S)) (P y v))))) :rule bind)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_pass(
+        definitions,
+        proof,
+        elaborator::ElaborationPass::CoreExpensive,
+    );
+    assert!(rules.iter().any(|r| r == "bind"));
+}

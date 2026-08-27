@@ -14,6 +14,7 @@
 #[allow(clippy::unnecessary_wraps)]
 pub mod arithmetic;
 #[allow(clippy::unnecessary_wraps)]
+pub mod bind;
 pub mod binder;
 #[allow(clippy::unnecessary_wraps)]
 pub mod clausification;
@@ -241,6 +242,18 @@ impl<'a> Builder<'a> {
     pub fn open(&mut self) {
         self.ids.push();
         self.depth += 1;
+    }
+
+    /// The depth new steps are added at.
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Moves the builder one level *out*, for a reduction that replaces a whole subproof: it is
+    /// constructed from the subproof's closing step, which lives one level deeper than the
+    /// derivation that takes its place.
+    pub fn leave(&mut self) {
+        self.depth -= 1;
     }
 
     /// Closes a subproof opened by [`Builder::open`] with a `subproof` step discharging the given

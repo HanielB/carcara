@@ -49,7 +49,7 @@ digraph core_alethe {
 
   subgraph cluster_binder {
     label="binder"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
-    bind        [URL="classification.html#binder", target="_self", tooltip="Γ, ȳ, x̄↦ȳ ▷ φ ≈ ψ\n⟹  Γ ▷ Qx̄.φ ≈ Qȳ.ψ   (Q ∈ {∀,∃})\ndivergence 8 generalizes the anchor and adds a ∀-closure conclusion", label="bind\n(binder congruence;\ngeneralization proposed, div. 8)", color="#2a78d6", penwidth=2.4];
+    bind        [URL="classification.html#binder", target="_self", tooltip="Γ, ȳ, x̄↦ȳ ▷ φ ≈ ψ\n⟹  Γ ▷ Qx̄.φ ≈ Qȳ.ψ   (Q ∈ {∀,∃})\nreduces via the ∀-ε-clause + a replay of the body at the witnesses\ndivergence 8 generalizes the anchor and adds a ∀-closure conclusion", label="bind\n(binder congruence;\ngeneralization proposed, div. 8)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
     let_r       [URL="classification.html#binder", target="_self", tooltip="premises ▷ sᵢ ≈ tᵢ;   Γ, x̄↦t̄ ▷ u ≈ u′\n⟹  Γ ▷ (let x̄ = s̄ in u) ≈ u′", label="let", color="#2a78d6", penwidth=2.4];
     bind_let    [URL="classification.html#binder", target="_self", tooltip="bind for let bindings (extra rule):\nΓ, ȳ, x̄↦ȳ ▷ … ≈ …  over let-bound variables", color="#2a78d6", penwidth=2.4];
     sko_forall  [URL="classification.html#binder", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.¬(∀xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∀x̄.φ ≈ ψ\n(sequential witness form; the spec text is fixed by divergence 4)", color="#2a78d6", penwidth=2.4];
@@ -118,6 +118,7 @@ digraph core_alethe {
   clausif -> andor_ax; clausif -> equiv_ax; clausif -> xorite_ax; clausif -> implies_ax;
   xorite_ax -> connective_def [style=dotted, label="agreement\nlemma"];
   implies_ax -> connective_def [style=dotted, label="lemma, &rarr; ext\n(div. 6)"];
+  bind -> sko_forall [style=dashed, label="ε-clause +\nreplay"]; bind -> forall_inst [style=dashed];
   sko_ex -> sko_forall;
   sko_ex -> connective_def [label="duality"];
   onepoint -> forall_inst; onepoint -> bind;

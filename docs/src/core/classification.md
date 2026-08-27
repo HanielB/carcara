@@ -15,8 +15,8 @@ category's core rules — followed by its rules grouped by *reducibility level*:
   rather than a rule;
 - **expensive** — the reduction is complete and implemented, but buys no checking power and
   costs a discharge subproof or a handful of steps per instance: the computational primitives
-  `poly_simp` and `aci_simp`, and `sko_ex`. These are the rules a consumer keeps if it is willing
-  to implement their checks, and drops if it is not;
+  `poly_simp` and `aci_simp`, `bind`, and `sko_ex`. These are the rules a consumer keeps if it is
+  willing to implement their checks, and drops if it is not;
 - **variant** — `eq_transitive` and `eq_congruent`, which state `trans`'s and `cong`'s judgments
   as premise-free clauses and which Carcara checks *with the very functions those rules call*
   (`find_chain`, `generic_congruent_rule`). A consumer implementing the core already has their
@@ -49,12 +49,12 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 |---|---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 22 | 0 | 0 | 2 | 0 |
-| binder | 13 | 5 | 7 | 0 | 1 | 0 | 0 |
+| binder | 13 | 4 | 7 | 0 | 2 | 0 | 0 |
 | equality & rewriting | 25 | 6 | 10 | 6 | 3 | 0 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 4 | 0 | 0 | 0 | 1 |
-| **total** | **120** | **53** | **52** | **7** | **5** | **2** | **1** |
+| **total** | **120** | **52** | **52** | **7** | **6** | **2** | **1** |
 
 Totals count *specification* rules only. The core additionally contains eight rules beyond the
 specification, all of them listed in the category tables below rather than only in the extras
@@ -372,13 +372,12 @@ needed. Under the proposed generalization of `bind` (divergence 8) the same deri
 witness-free and linear: quantifiers are eliminated by `forall_inst` at a variables-only anchor's
 own variable and reintroduced by generalization.
 
-13 rules: 5 core, 8 reducible.
+13 rules: 4 core, 7 reducible, 2 expensive.
 
-### Core (5 + 1 extra)
+### Core (4 + 1 extra)
 
 | rule | notes |
 |---|---|
-| `bind` | binder congruence; divergence 8 proposes generalizing it so that anchors carry fresh variables and substitutions, and the closing step additionally concludes a single ∀-closure literal (unit in practice; miniscoping only on binder *sets*, clause structure untouched) — ∀-introduction becomes the no-substitutions instance, vanilla `bind` an instance with zero extra steps, `sko_*`/`onepoint` the same closing scheme under their substitution disciplines, and `qnt_rm_unused` is absorbed. Checking stays free-variable-free: declared binder subsets verified positionally, scoping enforced by the parser (see parent chapter). The `choice` instance (formerly divergence 5) is folded in: `bind` is read as *binder-generic* — Carcara's checker already implements it that way — which is what bridges the `sko_ex`/`sko_forall` witness shapes. Together with `rare_rewrite` it covers rewriting *below* a binder |
 | `let` | |
 | `bind_let` | emitted by the polyeq elaboration itself |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
@@ -821,10 +820,11 @@ corresponding quantifier with `ite2`/`ite1`, instantiate at the anchor variable,
 | `la_mult_pos` | `mult_pos` + `poly_simp` + `la_generic` glue (`eq_congruent` for the `=` form, one `la_disequality` case split for `≤`/`≥`) | O(1) template (~15–25 steps) | pos-cone + ring + Farkas | **done** (`core` pass, 2026-08-25). Promoted from *expensive* when the proposed axiom was adopted as `mult_pos`: the recipe validates every `la_generic` certificate and the `poly_simp` ring identity before emission, so an unanticipated shape keeps the step |
 | `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
 
-### Expensive (1)
+### Expensive (2)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
+| `bind` | the ∀-ε-clause of one side (`refl` under the witness anchor + `sko_forall` + `equiv2`), `forall_inst` of the other at the same witnesses, and a **replay of the subproof's body with the witnesses substituted for the anchor's variables** — every core rule is schematic, so its instances survive a uniform substitution of closed terms. Two directions for the congruence form, closed by iff-introduction; one for the generalized ∀-closure | 2·\|body\| + ~10 steps + 2 anchors (congruence); \|body\| + 4 (closure) | **done** (`core-expensive` pass, 2026-08-27) — the admissibility argument of the "what the generalization buys" section, made executable. It buys no checking power and copies the body once per direction, so the default regimes keep the rule. Covers `forall` congruence and the ∀-closure at the top level; a `bind` under an *enclosing* anchor is kept (the cumulative substitution would also reach the terms the reduction builds), as are bodies containing a `let` (substitution renames its bindings independently of their surroundings) or rebinding one of the substituted variables. 57% of the corpus's `bind` steps reduce |
 | `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans`; existing steps additionally bridge the ∃-shaped witnesses to the ¬∀¬-shaped ones by a `bind` over the `choice` binder (choice congruence — `bind` is binder-generic, see its row) plus deep-`cong` transport | ~35 steps per binding (Δsteps ≈ 6.5 + 34.6·n measured, R² = 0.77); an ~8× local blowup — a ~10-command step region becomes ~84 steps plus ~6 anchors | The reduction is *complete and implemented* (`core/skolem.rs`, all corpus instances reduce and re-check) and every emitted step is a cheap core rule; it is classified expensive on **cost**, not feasibility. Each binding costs a witness-bridge `bind` subproof, a `connective_def` duality, an α-renaming `bind` of the quantified tail, a deep-`cong` transport, and a re-materialized copy of the double-negation helper. The `core` pass therefore leaves `sko_ex` steps alone by default; re-enabling the recipe is one map entry. Full measurements: `investigations/2026-08-18-sko-ex-cost.md` |
 
 ## Equality and rewriting

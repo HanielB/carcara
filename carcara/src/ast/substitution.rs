@@ -302,8 +302,21 @@ impl Substitution {
                 self.apply_to_binder(pool, term, *binder, binding_list.as_ref(), inner)
             }
             Term::Let(binding_list, inner) => {
+                // Renaming reads `should_be_renamed`, which only `apply_to_binder` computed
+                if self.avoid_capture {
+                    self.compute_should_be_renamed(pool);
+                }
                 let (new_bindings, mut renaming) =
                     self.rename_binding_list(pool, binding_list, true);
+                // A `let`'s bound values live in the *enclosing* scope, so the substitution
+                // applies to them as it does to any other subterm
+                let new_bindings = BindingList(
+                    new_bindings
+                        .0
+                        .iter()
+                        .map(|(var, value)| (var.clone(), self.apply(pool, value)))
+                        .collect(),
+                );
                 let new_term = if renaming.is_empty() {
                     self.apply(pool, inner)
                 } else {
@@ -319,6 +332,9 @@ impl Substitution {
                 let new_patterns = patterns
                     .iter()
                     .map(|(binding_list, pattern, res)| {
+                        if self.avoid_capture {
+                            self.compute_should_be_renamed(pool);
+                        }
                         let (new_bindings, mut renaming) =
                             self.rename_binding_list(pool, binding_list, true);
                         let new_pattern = if renaming.is_empty() {
@@ -566,6 +582,9 @@ mod tests {
                 (declare-fun r () Bool)
             ",
             "x" [x -> x] => "x",
+            // A `let`'s bound values live in the enclosing scope, so they are substituted too
+            "(let ((z (+ x 1))) (> z x))" [x -> y] => "(let ((z (+ y 1))) (> z y))",
+            "(let ((z (+ x 1))) (> z 0))" [x -> y] => "(let ((z (+ y 1))) (> z 0))",
             "(+ 2 x)" [x -> y] => "(+ 2 y)",
             "(+ 2 x)" [x -> (+ 3 4 5)] => "(+ 2 (+ 3 4 5))",
             "(forall ((p Bool)) (and p q))" [q -> r] => "(forall ((p Bool)) (and p r))",

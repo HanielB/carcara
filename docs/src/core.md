@@ -26,8 +26,9 @@ core:
   rather than a rule.
 - **Expensive**: rules whose reduction is complete and implemented (the `core-expensive` pass)
   but buys no checking power and costs a discharge subproof or a handful of steps per instance:
-  the computational primitives `poly_simp` and `aci_simp`, and `sko_ex`. These are the rules a
-  consumer keeps if it implements their checks, and drops if it does not.
+  the computational primitives `poly_simp` and `aci_simp`, binder congruence `bind`, and
+  `sko_ex`. These are the rules a consumer keeps if it implements their checks, and drops if it
+  does not.
 - **Variant**: `eq_transitive` and `eq_congruent`, the premise-free clausal forms of `trans` and
   `cong`. Carcara checks them with the very functions those rules call, so they add nothing to
   the trusted base and eliminating them would trade steps for nothing: they are neither counted
@@ -49,15 +50,15 @@ the long-term recommendation remains *removal* — solvers should stop emitting 
 specification should replace them with principled counterparts — but four of the five are
 meanwhile reducible (only `lia_generic` is not).
 
-Of the 120 specification rules, this classification yields **53 core**, **52 reducible**,
-**7 rare/simplify**, **5 expensive**, **2 variants**, and **1 oracle** rule, distributed as
+Of the 120 specification rules, this classification yields **52 core**, **52 reducible**,
+**7 rare/simplify**, **6 expensive**, **2 variants**, and **1 oracle** rule, distributed as
 follows:
 
 | category | total | core | reducible | rare/simplify | expensive | variant | oracle |
 |---|---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 22 | 0 | 0 | 2 | 0 |
-| binder | 13 | 5 | 7 | 0 | 1 | 0 | 0 |
+| binder | 13 | 4 | 7 | 0 | 2 | 0 | 0 |
 | equality & rewriting | 25 | 6 | 10 | 6 | 3 | 0 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
@@ -1102,9 +1103,14 @@ Two caveats initially kept `onepoint` in the core; both are resolved:
 - **`la_generic`** and **`rare_rewrite`** — the designated computational and rewrite primitives, as
   discussed above.
 - **The binder rules** `let` and `bind_let` — primitives with no reduction candidates.
-- **`bind`** — core, with the divergence-8 generalization proposed on top of it: anchors carry
-  fresh variables and substitutions, the closing step additionally concludes a single ∀-closure
-  literal, and vanilla `bind` is an instance with zero extra steps (see "Generalizing `bind`").
+- **`bind`** — *expensive*, not core: the admissibility argument of "what the generalization
+  buys" is now implemented (`core-expensive`), so a consumer can have a proof without binder
+  congruence — the ∀-ε-clause Skolemizes one side, `forall_inst` instantiates the other at the
+  same witnesses, and the subproof's body is replayed there. What it costs is a copy of the body
+  per direction, which is why the default regimes keep the rule. The divergence-8 generalization
+  still sits on top of it: anchors carry fresh variables and substitutions, the closing step
+  additionally concludes a single ∀-closure literal, and vanilla `bind` is an instance with zero
+  extra steps (see "Generalizing `bind`").
 - **`sko_forall`** — the designated Skolemization primitive. Its dual `sko_ex` is reducible
   through the quantifier duality (see the Skolemization section above); by R4 exactly one of the
   pair is kept, and the choice is conventional.
@@ -1131,8 +1137,9 @@ for any rule.
 
 The **expensive** level is the last stage, and every rule on it has an implemented reduction,
 applied by the `core-expensive` pass: `poly_simp` (linear identities → two Farkas bounds +
-`la_disequality`), `aci_simp` (→ the two clausal directions of the equivalence), and `sko_ex`
-(→ the duality route). What defines the level is not a missing prerequisite but a measured
+`la_disequality`), `aci_simp` (→ the two clausal directions of the equivalence), `bind` (→ the
+∀-ε-clause plus a replay of its body at the witnesses — the admissibility argument of
+"what the generalization buys", made executable), and `sko_ex` (→ the duality route). What defines the level is not a missing prerequisite but a measured
 price: `aci_simp` is where 46% of veriT's post-elaboration checking time went when the pass
 created 300 000 of them, `poly_simp`'s six-steps-per-identity is pure growth, and `sko_ex`'s
 recipe costs an ~8× local blowup — so the default regimes keep the rules, and the stage exists
