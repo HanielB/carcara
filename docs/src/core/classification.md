@@ -22,7 +22,8 @@ The three non-core levels are *nested elimination stages*, and the evaluation me
 that order: a proof loses its reducible rules first, then the rewrite vocabulary, then the
 expensive tier — each stage paying in proof size and checking time for a smaller trusted base.
 
-Legacy rules sit outside the ladder: their level is **removal** (solvers should stop emitting
+**Oracle** names the one rule outside every stage, `lia_generic`, which carries no certificate.
+Legacy rules keep their *recommendation* of removal (solvers should stop emitting
 them, or the specification should replace them). See the [parent chapter](../core.md) for the
 criteria and the worked-out recipes; the RARE rules required by the rewrite-based schemes are
 catalogued in [RARE rules for the rewrite routes](./rare-rules.md).
@@ -851,7 +852,7 @@ system. The clausal `eq_*` forms are the same system repackaged as premise-free 
 | `symm` | kept against the spec's "superfluous" note: explicit symmetry for elaborated output |
 | `ite_then_intro`, `ite_else_intro` (extra) | **proposed core axioms, implemented** — the term-`ite` selection pair `▷ ¬c, (ite c t s) ≈ t` and `▷ c, (ite c t s) ≈ s`. Premise-free clauses in `la_disequality`'s style, the definitional characterization of `ite` at arbitrary sorts; no other core rule provides one, since `ite_pos`/`ite_neg` are formula-level. Required by the `core-taut` recipes for the term-`ite` RARE rules and by `evaluate`'s `ite` case |
 | `rare_rewrite` | the designated rewrite primitive; oracle-checkable today |
-| `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously *aggressive*): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
+| `distinct_elim` | the definitional computational schema for `distinct` (adopted 2026-08-25, previously in the rewrite tier): its check computes the pairwise-disequality expansion, arity-dependent output included, exactly as `bitblast_*` compute theirs. The blocker that kept it out was never the rule but its *RARE replacement* — an n-ary `distinct` rule needs a recursive Eunoia program — and waiting on that machinery bought nothing: the rule is a fixed 40-line schema, and with it core the `distinct-binary-elim`/`distinct-false` RARE rules become lemmas (one `distinct_elim` step plus Boolean glue / plus `refl` on the repeated element) |
 
 ### Reducible (9)
 
@@ -1222,7 +1223,7 @@ they are linear.
 
 13 specification rules (2 core, 9 reducible, 1 rare/simplify, 1 expensive) plus four extra rules
 in the core. See the
-[arithmetic section](../core.md#arithmetic-la_generic-and-poly_simp-as-the-computational-core) of
+[arithmetic section](../core.md#arithmetic-la_generic-as-the-computational-core) of
 the parent chapter for the recipes.
 
 ### Core (2 + 6 extra)
@@ -1477,8 +1478,9 @@ width and compares — so they extend the computational core rather than the syn
 ## Legacy
 
 No proof system — placeholders and solver-implementation artifacts. Unlike the other categories,
-the long-term goal here is not reduction but *removal*: solvers should stop emitting them, or the
-specification should replace them with principled counterparts. 5 rules, all at level "removal".
+the long-term recommendation stays *removal*: solvers should stop emitting them, or the
+specification should replace them with principled counterparts. Meanwhile four of the five have
+implemented reductions and count as *reducible*; only `lia_generic` is *oracle*.
 
 | rule | fallback scheme | notes |
 |---|---|---|
@@ -1509,10 +1511,10 @@ way, with their concern category noted:
 | `la_mult_sign` (`alethe-toolkit` branch) | arithmetic | expensive | O(n) fold of `mult_pos` + `poly_simp` + `la_generic` |
 | `to_int_lower`, `to_int_upper` | arithmetic | proposed core axioms (**implemented**) | the floor characterization of `to_int`, as the pair `▷ (to_real (to_int t)) ≤ t` and `▷ t < (to_real (to_int t)) + 1`. They pin `to_int t` to the unique integer in `(t − 1, t]`, which is what lets the core evaluate a ground `to_int` without an evaluator: `la_generic`'s (correctly gated) integer strengthening turns each bound into the corresponding bound on the value, and `la_disequality` closes the two into an equality. Required to bring the `core-taut` regime's `evaluate` residue to zero; see the parent chapter |
 | `div_intro`, `log2_intro`, `to_int_intro` (`alethe-toolkit` branch) | arithmetic | core (definitional) | characterization axioms of interpreted operators (division bound pair, `pow2` bounds, floor bounds) — the natural home for an `abs_intro`, which would make the `abs` RARE rule a lemma. The `to_int` half is the `to_int_lower`/`to_int_upper` pair above |
-| `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
+| `la_mult_abs_comparison` (`alethe-toolkit` branch) | arithmetic | blocked | reducible to the same base once an `abs` definitional rewrite exists |
 | `evaluate` | equality & rewriting | **core** (computational) | constant evaluation of interpreted operators — a computational primitive on the same footing as `aci_simp` and `poly_simp`: the check *is* the (terminating, deterministic) evaluation function, and no rule-based reduction could be cheaper than re-evaluating |
-| `mod_simplify`, `all_simplify` | equality & rewriting | aggressive | `all_simplify` already oracle-reducible via the hole pass |
-| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | aggressive | `sat_refutation` oracle-reducible via its dedicated pass |
+| `mod_simplify`, `all_simplify` | equality & rewriting | rewrite tier | `all_simplify` already oracle-reducible via the hole pass |
+| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions | out of scope | `sat_refutation` oracle-reducible via its dedicated pass |
 
 ### Outside this classification's scope
 
@@ -1525,7 +1527,7 @@ cover:
 |---|---|---|
 | `bitblast_ashr`, `bitblast_comp`, `bitblast_const`, `bitblast_lshr`, `bitblast_shl`, `bitblast_udiv`, `bitblast_urem`, `bitblast_var` | eight bitblasting schemas Carcara checks beyond the specification's 14 | unclassified; presumably core alongside the other `bitblast_*` (same definitional character), but not analysed |
 | `bitblast_equal`, `bitblast_sign_extend` | cvc5's names for the specification's `bitblast_eq` and `bitblast_sext` | naming divergence worth raising with the spec, not a semantic gap |
-| 20 string rules (`concat_*`, `re_*`, `string_*`), 15 `pbblast_*`, 6 `cp_*`, 4 `arrays_*`, `drat`/`drup` | the theory-extension families of the row above | covered *collectively* as aggressive; no rule-by-rule reduction scheme is recorded |
+| 20 string rules (`concat_*`, `re_*`, `string_*`), 15 `pbblast_*`, 6 `cp_*`, 4 `arrays_*`, `drat`/`drup` | the theory-extension families of the row above | covered *collectively* as out of scope; no rule-by-rule reduction scheme is recorded |
 | `ho_cong` | higher-order congruence: like `cong`, but the function position is itself equated by a premise | unclassified. It is not derivable from `cong`, which requires identical heads, so it is a genuine primitive candidate for a higher-order core |
 | `strict_refl` | the strict, post-elaboration variant of `refl` (syntactic equality after applying the context) | core variant, like `strict_resolution` above |
 

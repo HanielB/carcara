@@ -18,20 +18,23 @@ Every rule sits on a four-level ladder, ordered by how costly it is to push the 
 core:
 
 - **Core**: logical primitives that elaboration targets. Elaborated proofs may freely use them.
-- **Reducible**: rules with a reduction meeting the cost criterion R1–R4 below. Elaboration should
-  eventually eliminate all of them from its output.
-- **Expensive**: rules with a concrete, small-step-count scheme that however *upgrades the checking
-  power* the step requires — a fixed syntactic schema becomes a `poly_simp` ring check (e.g. the
-  `la_mult_*` family, the arithmetic `*_simplify` renames) — or that depends on a
-  proposed-but-not-yet-adopted rule.
-- **Aggressive**: rules whose scheme is trace-replay or program-like, needs missing infrastructure
-  (evaluation operators, checker instrumentation), or has severe worst-case size. The exemplar is
-  elaborating `poly_simp` *itself* into `rare_rewrite` chains — at this level one is no longer
-  just reducing a rule but shrinking the trust base.
+- **Reducible**: rules with a reduction meeting the cost criterion R1–R4 below, applied by
+  default. Elaboration eliminates all of them from its output.
+- **Rare/simplify**: the rewrite vocabulary — the `*_simplify` rules and `rare_rewrite`, whose
+  reduction replays a rewrite chain the checker itself computes. Complete and implemented,
+  applied only in the regimes that ask for it, since what it removes is a *rewrite interface*
+  rather than a rule.
+- **Expensive**: rules whose reduction is complete and implemented (the `core-expensive` pass)
+  but buys no checking power and costs a discharge subproof or a handful of steps per instance:
+  the computational primitives `poly_simp` and `aci_simp`, the clausal equality rules, and
+  `sko_ex`. These are the rules a consumer keeps if it implements their checks, and drops if it
+  does not.
 
-The last two levels are accepted in elaborated output today; the ladder records, per rule, exactly
-what it would cost to go further. Legacy rules (below) sit outside the ladder at a fifth level,
-**removal**.
+The three non-core levels are *nested elimination stages*: reading a proof from the solver's
+output toward the core, elaboration removes the reducible tier first, the rewrite vocabulary
+second, and the expensive tier last — each stage paying in proof size and checking time for a
+smaller vocabulary and trusted base, and the evaluation prices the stages separately. The one
+rule outside every stage is `lia_generic`, which carries no certificate at all: **oracle**.
 
 Orthogonally to the tiers, the classification organizes the rules into *concern categories*:
 **structural** (proof structure: `assume`, `subproof`, `hole`), **clausal** (resolution and the
@@ -39,36 +42,41 @@ CNF layer), **binder** (quantifiers and binders), **equality & rewriting** (cong
 term rewriting), **arithmetic**, **bitvector**, and **legacy**. The legacy category collects rules that are
 placeholders, solver-implementation artifacts, or superseded by more general rules (`lia_generic`,
 `qnt_cnf`, `ite_intro`, `bfun_elim`, and `ac_simp`, which is superseded by `aci_simp`); for these
-the long-term goal is not reduction but *removal* — solvers should stop emitting them, or the
-specification should replace them with principled counterparts.
+the long-term recommendation remains *removal* — solvers should stop emitting them, or the
+specification should replace them with principled counterparts — but four of the five are
+meanwhile reducible (only `lia_generic` is not).
 
-Of the 120 specification rules, this classification yields **54 core**, **48 reducible**,
-**4 expensive**, **7 aggressive**, and **5 removal** rules, distributed as follows:
+Of the 120 specification rules, this classification yields **53 core**, **53 reducible**,
+**7 rare/simplify**, **6 expensive**, and **1 oracle** rule, distributed as follows:
 
-| category | total | core | reducible | expensive | aggressive | removal |
+| category | total | core | reducible | rare/simplify | expensive | oracle |
 |---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 |
 | clausal | 47 | 23 | 24 | 0 | 0 | 0 |
-| binder | 13 | 5 | 7 | 1 | 0 | 0 |
-| equality & rewriting | 25 | 7 | 11 | 0 | 7 | 0 |
-| arithmetic | 13 (+1) | 2 (+1) | 7 | 3 | 1 | 0 |
+| binder | 13 | 5 | 7 | 0 | 1 | 0 |
+| equality & rewriting | 25 | 6 | 9 | 6 | 4 | 0 |
+| arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 |
-| legacy | 5 | 0 | 0 | 0 | 0 | 5 |
+| legacy | 5 | 0 | 4 | 0 | 0 | 1 |
 
-The "+1" is the extra rule `poly_simp`, promoted into the core as a computational primitive; one
-new axiom (`mult_pos`) is also proposed — see the arithmetic section below. The extra
-rule `evaluate` (constant evaluation of interpreted operators) is likewise part of the core as
-a computational primitive, on the same footing as `aci_simp` and `poly_simp` (extras are not
-counted in the spec-rule tally above). For every
-expensive and aggressive rule, the [classification](./core/classification.md) records its
-concrete *reduction scheme* — what the reduction would be, at what cost, and which prerequisite is
-missing — so the distance of each rule from the core is visible. The classification also opens
-each category with the *proof system* it embodies, first abstractly and then as concretized by
-that category's core rules.
+The extra rule `evaluate` (constant evaluation of interpreted operators) is part of the core as a
+computational primitive: each interpreted SMT-LIB operator gives it a concise definitional
+statement, the same justification the core accepts for `bitblast_*` and `distinct_elim`, and it
+is the cheapest of the computational checks. The other two computational primitives sit at
+*expensive* instead: `poly_simp` reduces (for the linear identities, which is every instance
+solvers emit) to two Farkas bounds closed by `la_disequality`, and `aci_simp` to the two clausal
+directions of its equivalence. What made this split possible is the adopted axiom triple
+`mult_pos`/`mult_neg`/`mult_distrib` — the product sign rules and distributivity over
+subtraction — which carries the `la_mult_*` reductions that used to be `poly_simp`'s
+load-bearing use (see the arithmetic section below). For every rare/simplify and expensive rule
+the [classification](./core/classification.md) records the concrete *reduction scheme* and its
+measured cost, so the distance of each rule from the core is visible. The classification also
+opens each category with the *proof system* it embodies, first abstractly and then as
+concretized by that category's core rules.
 
 The core property is defined *post-pipeline*: intermediate passes may emit non-core rules (e.g.
 `reordering` steps, which the final pass of the default pipeline removes); only the output of the
-full pipeline must be within core ∪ (unapplied expensive/aggressive rules). Proofs containing
+full pipeline must be within core ∪ (whatever elimination stages were not applied). Proofs containing
 `hole` or `lia_generic` (without an external solver) can only ever be "core modulo holes".
 (`qnt_cnf` was in this class as long as only its spec-side reading — which has no semantics —
 was considered; the `core` pass now reduces it against Carcara's implemented semantics.)
@@ -85,12 +93,12 @@ A rule is classified as reducible only if it has a reduction satisfying all of:
 - **R4 (non-circular)**: for each pair of interderivable rules, exactly one side is kept as the
   axiom.
 
-A rule that fails any of R1–R4 stays in the core (if it is a logical primitive) or lands on the
-*expensive* or *aggressive* level, depending on how it fails: a check-power upgrade or a
-missing proposed rule is expensive; trace-replay, missing infrastructure, or bad worst-case size
-is aggressive. The point of R1–R2 is that reducing a rule must not make proofs meaningfully larger
-or harder to check — a reduction that needs many steps, or steps whose checking requires search,
-defeats the purpose.
+A rule that fails any of R1–R4 stays in the core (if it is a logical primitive) or lands on a
+later elimination stage: the *rare/simplify* level if its reduction is a rewrite-chain replay,
+the *expensive* level if the reduction is per-instance costly without buying checking power. The
+point of R1–R2 is that reducing a rule by default must not make proofs meaningfully larger or
+harder to check; the later stages are exactly the reductions that do, priced rather than
+forbidden.
 
 ## The subproof-discharge vehicle
 
@@ -282,27 +290,30 @@ So an elaboration targeting the chain core keeps both rules in its output (as Ca
 as its elaborated granularity requires, since `resolution` is checked there with explicit
 pivots); one targeting the RUP core renames them away.
 
-## Arithmetic: `la_generic` and `poly_simp` as the computational core
+## Arithmetic: `la_generic` as the computational core
 
-The core has two designated *computational* primitives for arithmetic, i.e. rules whose checking is
-not syntactic matching but a decision procedure with a fixed, well-understood algorithm:
+The core's designated *computational* primitive for arithmetic — a rule whose checking is not
+syntactic matching but a decision procedure with a fixed, well-understood algorithm — is
+`la_generic`: linear consequence, checked by verifying a Farkas certificate. Expanding it into
+rewrite chains would blow up unboundedly.
 
-- `la_generic`: linear consequence, checked by verifying a Farkas certificate. Expanding it into
-  rewrite chains would blow up unboundedly.
-- `poly_simp` (an extra rule, not among the 120 specification rules): a unit equality between
-  polynomial terms, checked by ring-normalizing both sides. This is the *nonlinear normalization*
-  primitive: it justifies distribution, flattening, and constant folding of products — steps that
-  `la_generic` cannot express, since it treats distinct monomials as unrelated atoms.
+The *ring* axis has two realizations, on opposite sides of the core boundary. Inside the core sits
+the `mult_distrib` axiom, distributivity over subtraction — the one ring *law* any reduction
+needs, since scaling a comparison relates the scaled difference to the product of multiplier and
+original difference. Outside it, at the *expensive* level, sits `poly_simp` (an extra rule, not
+among the 120 specification rules): a unit equality between polynomial terms, checked by
+ring-normalizing both sides. Nothing in the core depends on it any more — the `la_mult_*`
+reductions go through `mult_distrib` — and its own instances reduce (`core-expensive`) to two
+Farkas bounds closed by `la_disequality` whenever the identity is linear, which is every instance
+the corpus contains. What keeps a consumer implementing its 149-line check is proof size, not
+reach: six steps per identity, plus the loss of the genuinely nonlinear instances (a commuted
+product, a binomial expansion), which no core rule states.
 
-For consumers that do not want to trust the ring check, `poly_simp` itself admits an elaboration
-into rewrites: replay the normalization of both sides as chains of elementary RARE arithmetic
-rewrites (distributivity, associativity/commutativity, constant folding, cancellation) glued by
-`trans`/`cong`, meeting in the shared normal form. This makes `rare_rewrite` the sole rewrite
-trust anchor, at a cost: the proof grows with the size of the *distributed* normal form, which is
-worst-case exponential in the step (a product of k binomials expands to 2^k monomials), though
-benign for the polynomials solvers typically emit. The classification therefore keeps `poly_simp`
-core, with the rewrite elaboration recorded as an optional trust-reduction path rather than the
-default. The elementary ring rules this route needs are listed in
+For consumers that want `rare_rewrite` as the sole rewrite trust anchor, `poly_simp` also admits
+an elaboration into rewrite chains (distributivity, associativity/commutativity, constant
+folding, cancellation glued by `trans`/`cong`, meeting in the shared normal form) — worst-case
+exponential (a product of k binomials expands to 2^k monomials), though benign for the
+polynomials solvers emit; the elementary ring rules it needs are listed in
 [RARE rules for the rewrite routes](./core/rare-rules.md).
 
 Two LA rules reduce to `la_generic` alone:
@@ -330,41 +341,46 @@ by an external solver.
 
 ### Nonlinear multiplication: reducing the `la_mult_*` family
 
-With `poly_simp` in the core, the nonlinear multiplication rules leave the aggressive tier — and
-with the base axiom now adopted (as **`mult_pos`**, implemented 2026-08-25, stated as the
-premise-free clause `▷ ¬(> x 0), ¬(> y 0), (> (* x y) 0)` in `la_disequality`'s style), they are
-*reducible* and reduced by the `core` pass. The common base is the ordered-ring fact that the
-positive cone is closed under multiplication:
+The nonlinear multiplication rules are *reducible*, on an adopted axiom triple stated as
+premise-free clauses in `la_disequality`'s style (`mult_pos` first implemented 2026-08-25, the
+other two 2026-08-27):
 
 ```
-(cl (=> (and (> x 0) (> y 0)) (> (* x y) 0)))     ; mult_pos
+(cl ¬(> x 0) ¬(> y 0) (> (* x y) 0))              ; mult_pos  — the positive cone
+(cl ¬(< x 0) ¬(> y 0) (< (* x y) 0))              ; mult_neg  — its negative companion
+(cl (= (* x (- y z)) (- (* x y) (* x z))))        ; mult_distrib — distributivity over −
 ```
 
-Its check is O(1) syntactic matching. It is exactly the overlap of the existing schemas: the binary
-all-positive instance of `la_mult_sign` (see the extras table below), and the (`⋈` = `>`,
-`t3` = `0`) instance of `la_mult_pos` modulo one `poly_simp` step (`(* t1 0) ≈ 0`). No negative
-variant is needed: mixed- and negative-sign cases route through `la_generic` sign-flips
-(`t < 0 → -t > 0`) plus `poly_simp` (`(* (- x) (- y)) ≈ (* x y)`).
+Each check is O(1) syntactic matching. `mult_pos` is exactly the overlap of the existing
+schemas: the binary all-positive instance of `la_mult_sign` (see the extras table below), and
+the (`⋈` = `>`, `t3` = `0`) instance of `la_mult_pos`. `mult_neg` exists so that the reduction
+scales by the multiplier the step *names*: bridging `(< m 0)` to `(> (- m) 0)` and reusing
+`mult_pos` would make the ring identity underneath speak about `(- m)`, which `mult_distrib`
+alone no longer closes. And `mult_distrib` is the one ring law the core needs beyond
+`la_generic`'s linear reasoning — the identity relating the scaled sides' difference to the
+product of multiplier and original difference is nonlinear whenever the multiplier is symbolic.
+This triple is what freed `poly_simp` to leave the core: no reduction delegates to ring
+normalization any more.
 
 The reductions, all using subproof-discharge plus the implication-term repackaging
 (`implies_neg1/2` + two resolutions + `contraction`, the dual of the `la_totality` or-packaging):
 
 - **`la_mult_pos`/`la_mult_neg`, strict forms** — constant template: `la_generic` turns
-  `t2 ⋈ t3` into a sign fact about the difference (`(- t2 t3) > 0`), the axiom applies to
-  `(* t1 (- t2 t3))`, and `poly_simp` justifies the distribution
-  `(* t1 (- t2 t3)) ≈ (- (* t1 t2) (* t1 t3))` — the step that previously blocked this reduction —
-  before `la_generic` converts back to `(* t1 t2) ⋈ (* t1 t3)`.
+  `t2 ⋈ t3` into a sign fact about the difference (`(- t2 t3) > 0`), the sign axiom applies to
+  `(* t1 (- t2 t3))`, `mult_distrib` distributes it — the step that previously went to
+  `poly_simp` — and `la_generic` converts back to `(* t1 t2) ⋈' (* t1 t3)`, the residual
+  rearrangement being linear in the products.
 - **`≈` form** — no axiom needed at all: `cong` on the multiplication.
 - **`≤`/`≥` and disequality forms** — one bounded case split each (`t2 - t3 < 0 ∨ t2 - t3 = 0`
   via `la_generic`/`la_disequality`-style totality), combining the strict and `cong` branches.
-- **`la_mult_sign`** (extra rule, `alethe-toolkit` branch) — O(n) fold over the monomial: one axiom
-  instance plus one `poly_simp` normalization per factor, negative factors pre-flipped through
-  `la_generic`, even-exponent factors (`v ≠ 0`) costing one bounded case split each.
+- **`la_mult_sign`** (extra rule, `alethe-toolkit` branch) — O(n) fold over the monomial: one
+  sign-axiom instance plus one `mult_distrib` distribution per factor, even-exponent factors
+  (`v ≠ 0`) costing one bounded case split each.
 - **`la_mult_abs_comparison`** (extra rule, `alethe-toolkit` branch) — reduces to the same base
   only once `abs` is handled by a definitional rewrite (`(abs t) ≈ (ite (>= t 0) t (- t))`, e.g. as
   a RARE rule): then each factor costs a bounded case split and the product comparisons chain
-  through the axiom. O(n) with a larger constant; contingent on the `abs` rewrite, so it stays at
-  the aggressive level until that primitive is chosen.
+  through the axiom. O(n) with a larger constant; contingent on the `abs` rewrite, so it stays
+  outside the implemented stages until that primitive is chosen.
 
 The trade is the usual one: elaborated proofs get O(n) scaffolding where solvers emitted one macro
 step, and the checker must trust ring normalization (`poly_simp`) as a second computational
@@ -1089,35 +1105,40 @@ Two caveats initially kept `onepoint` in the core; both are resolved:
   through the quantifier duality (see the Skolemization section above); by R4 exactly one of the
   pair is kept, and the choice is conventional.
 
-## The expensive and aggressive levels, and their trajectory
+## The rare/simplify and expensive levels: the later elimination stages
 
-The aggressive level is dominated by the **rewrite equalities**: the Boolean/ite/equality
-`*_simplify` rules. Each is a composition of elementary rewrites glued by
-`refl`/`trans`/`cong` — exactly what `rare_rewrite` chains express — and the trace replay is now
-implemented (the `core-simp-rare` and `core-taut` regimes), with the traces read off the
-checkers' own labeled step functions rather than recovered by instrumentation. Two of the eight
-have since left this tier entirely: `and_simplify` and `or_simplify` are *reducible*, because
-their non-short-circuiting instances are `aci_simp` **renames** — the ACI normalization is
-precisely what those rules do — and the short-circuiting ones constant-size CNF-axiom chains.
-The same rename criterion (a one-step move onto a computational primitive already in the core,
-with the check coarsening accepted) is what earlier promoted `shuffle` and `nary_elim`, and it
-also gives the constant-folding instances of the remaining six an `evaluate` route.
+The **rare/simplify** level is the rewrite vocabulary: the Boolean/ite/equality/comparison
+`*_simplify` rules and `rare_rewrite` itself. Each `*_simplify` is a composition of elementary
+rewrites glued by `refl`/`trans`/`cong` — exactly what `rare_rewrite` chains express — and the
+trace replay is implemented (the `core-simp-rare` and `core-taut` regimes), with the traces read
+off the checkers' own labeled step functions rather than recovered by instrumentation. Two of
+the eight left this level for *reducible*: `and_simplify` and `or_simplify`, whose
+non-short-circuiting instances are `aci_simp` **renames** — the ACI normalization is precisely
+what those rules do — and whose short-circuiting ones are constant-size CNF-axiom chains. The
+same rename criterion promoted `shuffle` and `nary_elim`, and it gives the constant-folding
+instances of the remaining six an `evaluate` route.
 
 The quantifier-level rewrites (`qnt_simplify`, `qnt_join`, `qnt_rm_unused`, the miniscoping
-rules) are *not* in this tier: although they rewrite the binder itself — which `bind` +
-`rare_rewrite` cannot express — they reduce through the generalized `bind` (divergence 8) or, proposal-free, the Skolemization
-route (the derived ∀-ε-clause template; see "Deriving the quantifier rewrites from
-Skolemization"), so no binder-aware RARE extension is a prerequisite for any rule.
+rules) are *not* in this level: although they rewrite the binder itself — which `bind` +
+`rare_rewrite` cannot express — they reduce through the generalized `bind` (divergence 8) or,
+proposal-free, the Skolemization route (the derived ∀-ε-clause template; see "Deriving the
+quantifier rewrites from Skolemization"), so no binder-aware RARE extension is a prerequisite
+for any rule.
 
-The expensive level has thinned to three rules: the `la_mult_*` family, which needs the proposed
-`mult_pos` axiom, and `div_simplify`, whose two cases take different primitives. The
-purely arithmetic simplifications — `prod_simplify`, `sum_simplify`, `minus_simplify`,
-`unary_minus_simplify` — moved to *reducible* as `poly_simp` renames: the check does coarsen
-from per-schema folding to ring normalization (12× per step, measured), but that is the same
-trade the tier accepted for `shuffle` → `aci_simp`, at ~4 000 corpus steps.
-`shuffle` and `nary_elim` are *reducible*, both by renames to `aci_simp` (see "Other
-reductions"); `nary_elim`'s chainable and non-commutative cases keep the binary-associativity
-`rare_rewrite` chain.
+The **expensive** level is the last stage, and since 2026-08-27 every rule on it has an
+implemented reduction, applied by the `core-expensive` pass: `poly_simp` (linear identities →
+two Farkas bounds + `la_disequality`), `aci_simp` (→ the two clausal directions of the
+equivalence), the clausal equality rules `eq_transitive`/`eq_congruent`/`eq_symmetric` (→ their
+discharge subproofs), and `sko_ex` (→ the duality route). What defines the level is no longer a
+missing prerequisite but a measured price: these reductions buy no checking power — the clausal
+equality checkers *are* `trans`/`cong`'s, `aci_simp` is where 46% of veriT's post-elaboration
+checking time went when the pass created 300k of them, and `poly_simp`'s six-steps-per-identity
+is pure growth — so the default regimes keep the rules, and the stage exists for consumers who
+want the smaller vocabulary badly enough to pay for it. The purely arithmetic simplifications —
+`prod_simplify`, `sum_simplify`, `minus_simplify`, `unary_minus_simplify` — are *reducible* as
+`poly_simp` renames (the check coarsens from per-schema folding to ring normalization, 12× per
+step measured, the same trade as `shuffle` → `aci_simp`), and under `core-expensive` they end at
+the Farkas bounds that `poly_simp`'s own reduction produces.
 
 ## The trusted computing base, measured
 
@@ -1152,13 +1173,14 @@ the resolution family and the computational primitives.
 | `la_disequality` | 11 |
 | **syntactic subtotal** | **≈ 1 600** |
 | `la_generic` (incl. `LinearComb`, strengthening, disequality splitting) | 267 |
-| `poly_simp` (incl. the `Polynomial` ring normalization) | 149 |
-| `aci_simp` | 144 |
+| `mult_pos`/`mult_neg`/`mult_distrib` + `to_int_lower`/`to_int_upper` + `ite_*_intro` + `qnt_duality` (axiom checkers) | ≈ 110 |
 | `evaluate` (5-line rule + `ast/evaluate.rs`) | 585 |
 | `rare_rewrite` (`rules/rare.rs` + `src/rare/` matcher + RARE parser + `ast/rare_rules.rs`) | 1 233 |
-| **computational subtotal** | **≈ 2 400** |
+| **computational subtotal** | **≈ 2 200** |
+| *`poly_simp` (149) and `aci_simp` (144) — now* expensive*: kept by the default regimes, discharged by `core-expensive`* | *(293)* |
 
-**Total: ≈ 12 800 lines** — about 8 800 of them the parser/AST skeleton any checker needs, and
+**Total: ≈ 12 600 lines** (12 900 while `poly_simp`/`aci_simp` are kept) — about 8 800 of them
+the parser/AST skeleton any checker needs, and
 about 4 000 rule-specific. For comparison, Carcara's *full* rule vocabulary is ≈ 11 100 lines of
 rule code (the 8 510-line `checker/rules/` directory plus the resolution, RARE and evaluation
 modules) before counting the out-of-fragment theories (strings, pseudo-Boolean and cutting-planes
@@ -1322,13 +1344,13 @@ way:
 | `bounded_farkas` | reducible (**done**) | `la_generic` with inferred coefficients (local elaboration) |
 | `and_intro` | reducible | `and_neg` + one `resolution` with explicit pivots |
 | `strict_resolution` | core variant | strict form of `resolution` used after elaboration |
-| `poly_simp` | **core** (computational) | ring-normalization primitive; see the arithmetic section |
-| `mult_pos` | proposed core axiom | `(> x 0) ∧ (> y 0) → (> (* x y) 0)`; base of the `la_mult_*` reductions |
-| `la_mult_sign` (`alethe-toolkit` branch) | expensive | O(n) fold of `mult_pos` + `poly_simp` + `la_generic` |
-| `la_mult_abs_comparison` (`alethe-toolkit` branch) | aggressive | reducible to the same base once an `abs` definitional rewrite exists |
-| `evaluate` | **core** (computational) | constant evaluation of interpreted operators, on the same footing as `aci_simp` and `poly_simp`: the check *is* the evaluation function |
-| `mod_simplify`, `all_simplify` | aggressive (rewrite tier) | `all_simplify` already oracle-reducible via the hole pass |
-| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | aggressive (theory extensions) | `sat_refutation` oracle-reducible via its dedicated pass |
+| `poly_simp` | **expensive** (computational) | ring-normalization primitive; linear instances reduce to Farkas bounds + `la_disequality` (`core-expensive`); see the arithmetic section |
+| `mult_pos`, `mult_neg`, `mult_distrib` | adopted core axioms | the product sign rules and distributivity over subtraction; base of the `la_mult_*` reductions |
+| `la_mult_sign` (`alethe-toolkit` branch) | reducible in principle | O(n) fold of `mult_pos`/`mult_neg` + `mult_distrib` + `la_generic`; not implemented (branch not merged) |
+| `la_mult_abs_comparison` (`alethe-toolkit` branch) | blocked | reducible to the same base once an `abs` definitional rewrite exists |
+| `evaluate` | **core** (computational) | constant evaluation of interpreted operators: each interpreted operator gives it a concise definitional statement (the `bitblast_*`/`distinct_elim` justification), and it is the cheapest computational check |
+| `mod_simplify`, `all_simplify` | rewrite tier | `all_simplify` already oracle-reducible via the hole pass |
+| strings, PB, cutting-planes, arrays, DRUP, `sat_refutation` | theory extensions (out of scope) | `sat_refutation` oracle-reducible via its dedicated pass |
 
 ## Divergences from the specification
 
