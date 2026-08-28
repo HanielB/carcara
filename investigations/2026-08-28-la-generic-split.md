@@ -290,3 +290,32 @@ it. That is the concrete reason, missing when the naming section was written, to
   rule built for many.
 - **For cuts, the argument inverts.** Fusing buys no cut strength; both cvc5 and veriT fall back
   to holes there. The rule that would buy it is the split axiom.
+
+### Addendum: `lia_generic` is not a totality axiom, and cannot be la_generic in disguise
+
+A natural follow-up: if the missing rule is a case split, is veriT's `lia_generic` perhaps just
+that split — or, weaker, could some of its instances be converted to `la_generic`
+heuristically? No, structurally, and the measurement agrees.
+
+`LA_mp_solve_z_aux` is a recursive branch-and-bound; `LA_mp_conflict_proof_z` emits the
+accumulated conflict literals of the *whole search tree*, dropping the internal branch bounds
+(`LIT_BRANCH_Z` is a sentinel with no term). A `lia_generic` step is the root of a branch tree
+with its interior discarded — not one split, and not one combination.
+
+And the conversion cannot work: veriT enters branch-and-bound only when its rational simplex is
+SAT over the *already-tightened* bounds (`LA_constraint_push2` rounds every integer atom's bound
+at registration). Rationally feasible over tightened rows means, by Farkas, that no
+per-row-tightened combination refutes them — and that is exactly the certificate shape
+`la_generic` checks. `la_generic` rounds each row *before* summing; a cut rounds a combination
+*after*. Branching is veriT's own signal that it is on the wrong side of that gap.
+
+Measured: all 2 993 `lia_generic` instances in the corpus dumped as SMT problems (the negated
+clause as assertions, via the `--smt-solver` hook), then asked for refutability under each
+budget. Over the rationals — the plain-Farkas budget — **0 of 1 677** tested instances are
+refutable (all SAT, none timed out; the untested rest are size-sampled duplicates of the same
+proofs). With `la_generic`'s per-row tightening applied first (integer rows strengthened
+`t > b` to `t ≥ ⌊b⌋+1` before dropping to the rationals): **2 of 1 677** (0.12%) — both
+instances whose arithmetic sits under uninterpreted functions (`x_count`, `s_count`), where
+veriT's slack variables are plausibly not marked integer and it branched where a tightened
+refutation existed. So the heuristic is real but worth one step in a thousand; the other 99.9%
+genuinely need the case split, which is to say they need `la_int_totality`.
