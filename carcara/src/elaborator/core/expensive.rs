@@ -244,11 +244,13 @@ fn aci_direction(b: &mut Builder, op: Operator, from: &Rc<Term>, to: &Rc<Term>) 
                     fresh
                 });
             }
-            // A `false` leaf is discharged by the `false` axiom — unless it is the target
-            // itself, as in `(or false false) ≈ false`, where discharging it would throw away
-            // what the direction is meant to derive
+            // An identity leaf is discharged by the `false` axiom — unless the target still has
+            // it as a leaf, as in `(or false false) ≈ false` read the other way round, where it
+            // has to be packed instead of thrown away
+            let mut to_leaves = Vec::new();
+            flatten(Operator::Or, to, &mut to_leaves);
             for lit in current.clone() {
-                if is_identity(Operator::Or, &lit) && lit != *to {
+                if is_identity(Operator::Or, &lit) && !to_leaves.contains(&lit) {
                     let f = b.pool.bool_false();
                     let not_false = b.not(&f);
                     let axiom = b.step(vec![not_false], "false", Vec::new(), Vec::new());
@@ -256,7 +258,8 @@ fn aci_direction(b: &mut Builder, op: Operator, from: &Rc<Term>, to: &Rc<Term>) 
                 }
             }
             for lit in current {
-                if is_identity(Operator::Or, &lit) || !node.clause().contains(&lit) {
+                let discharged = is_identity(Operator::Or, &lit) && !to_leaves.contains(&lit);
+                if discharged || !node.clause().contains(&lit) {
                     continue;
                 }
                 let packing = if *to == lit {
