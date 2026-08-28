@@ -31,7 +31,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-26 | [Splitting the rewrite-removal cost: `rare_rewrite` vs `evaluate`](./2026-08-26-rare-vs-evaluate.md) | `coreAlethe` | **merged** (new `core-no-rare` regime) |
 | 2026-08-27 | [Should `evaluate` be a core primitive?](./2026-08-27-evaluate-core-or-reducible.md) | `coreAlethe` | measurement; premise refuted, `aci_simp`-as-expensive supported |
 | 2026-08-27 | [Eliminating `bind`](./2026-08-27-bind-elimination.md) | `coreAlethe` | every corpus `bind` step reduces; the last residue is the `choice` bind the `sko_ex` reduction itself emits |
-| 2026-08-28 | [Splitting `la_generic` into Farkas + tightening](./2026-08-28-la-generic-split.md) | `coreAlethe` | exploration: +3.5% steps, +3.4% checking, in exchange for removing all integrality reasoning from the arithmetic checker |
+| 2026-08-28 | [Splitting `la_generic` into Farkas + tightening](./2026-08-28-la-generic-split.md) | `coreAlethe` | exploration: +1.8–3.5% steps (directed rule vs split), in exchange for removing all integrality reasoning from the arithmetic checker; proposed name `la_tightening` |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
