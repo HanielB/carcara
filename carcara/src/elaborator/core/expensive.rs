@@ -68,6 +68,12 @@ pub fn poly_simp(pool: &mut PrimitivePool, _: &mut ContextStack, step: &StepNode
     }
 
     let mut b = Builder::new(pool, step);
+    // The two sides are often the same term: `poly_simp` is emitted wherever a normalization
+    // *could* have applied, and the identity is then reflexivity, which needs no arithmetic
+    if t == u {
+        let node = b.step(vec![conclusion.clone()], "refl", Vec::new(), Vec::new());
+        return Ok(b.relabel(step, node));
+    }
     let node = linear_equality(&mut b, &t, &u)?;
     Ok(b.relabel(step, node))
 }
@@ -162,10 +168,19 @@ fn and_build(
     let mut premises = Vec::new();
     let mut clause = vec![tree.clone()];
     let mut pivots = Vec::new();
+    let mut resolved: Vec<Rc<Term>> = Vec::new();
     for arg in &args {
-        premises.push(and_build(b, arg, leaf)?);
         let negated = b.not(arg);
         clause.push(negated);
+        // A conjunction may repeat a conjunct — `(and true true φ ψ)` is what an `aci_simp` step
+        // looks like when it drops identity elements. The `and_neg` clause holds one literal for
+        // it however often it occurs, and resolution at elaborated granularity is set-wise, so
+        // the conjunct is discharged once
+        if resolved.contains(arg) {
+            continue;
+        }
+        resolved.push(arg.clone());
+        premises.push(and_build(b, arg, leaf)?);
         pivots.push((arg.clone(), false));
     }
     let and_neg = b.step(clause, "and_neg", Vec::new(), Vec::new());

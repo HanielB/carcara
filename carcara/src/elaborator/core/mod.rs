@@ -637,12 +637,11 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
 /// functions, so removing them would trade steps for nothing.
 pub fn get_expensive_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
     Some(match rule {
-        // Computational primitives
+        // Computational primitives. `sko_ex` is *not* here: it is core, since deriving it from
+        // `sko_forall` through the duality is what would make `bind` over the `choice` binder
+        // necessary — see the classification's divergence 5
         "poly_simp" => expensive::poly_simp,
         "aci_simp" => expensive::aci_simp,
-
-        // The Skolemization dual
-        "sko_ex" => skolem::sko_ex,
 
         _ => return None,
     })

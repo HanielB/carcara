@@ -358,13 +358,19 @@ fn epsilon_clause(
         refl,
     );
 
+    // `(cl (∀v̄.χ) ¬χ[ε̄])` from the equivalence — what `equiv2` states, in the core: the CNF
+    // axiom `equiv_pos1` resolved against it. The reduction emits only core rules, since nothing
+    // runs after the expensive pass to reduce what it leaves
     let not_skolemized = b.not(skolemized);
-    let clause = b.step(
-        vec![quant.clone(), not_skolemized],
-        "equiv2",
-        vec![sko],
+    let equivalence = closing;
+    let not_equivalence = b.not(&equivalence);
+    let axiom = b.step(
+        vec![not_equivalence, quant.clone(), not_skolemized.clone()],
+        "equiv_pos1",
+        Vec::new(),
         Vec::new(),
     );
+    let clause = b.resolve(vec![axiom, sko], vec![(equivalence, false)])?;
     Ok((clause, skolemized.clone()))
 }
 
@@ -417,9 +423,12 @@ fn transport(
     replacement.apply(b.pool, term)
 }
 
-/// `shift` is how many scope levels the replay has removed by the time it reaches this node: one
-/// for the `bind` anchor it is eliminating, and one more for every nested `let` scope dissolved
-/// along the way. A node at original depth `d` therefore belongs at builder depth `d - shift`.
+/// `levels` maps a scope's depth in the original proof to the depth the replay has put it at.
+/// The two differ by the `bind` anchor being eliminated, by every nested `let` scope dissolved
+/// along the way, and by nothing else — but not uniformly, so the correspondence is recorded as
+/// the replay descends rather than computed from a difference. It is what places an assumption:
+/// a step in a deeper scope is often the first to reach one, and the node's depth is what decides
+/// which subproof prints it.
 #[allow(clippy::too_many_arguments)]
 fn replay(
     b: &mut Builder,
@@ -427,7 +436,7 @@ fn replay(
     node: &Rc<ProofNode>,
     replacement: &mut Replacement,
     inner_depth: usize,
-    shift: usize,
+    levels: &mut Vec<(usize, usize)>,
     cache: &mut ReplayCache,
     assumes: &mut ReplayCache,
 ) -> Res {
@@ -447,8 +456,10 @@ fn replay(
             // so an assumption belongs at the depth its own scope has landed at, which is not
             // necessarily the one being built: a step in a deeper scope can be the first to need
             // it. The node's depth is what decides which subproof prints it
-            let Some(at) = depth.checked_sub(shift) else {
-                return Err(explanation("an assumption from outside the subproof"));
+            let Some(&(_, at)) = levels.iter().rev().find(|(orig, _)| orig == depth) else {
+                return Err(explanation(
+                    "an assumption of a scope the replay has not entered",
+                ));
             };
             // Assumptions are shared across the scopes of one replay, not cached per scope like
             // everything else: the scope that discharges an assumption and the one that uses it
@@ -485,7 +496,7 @@ fn replay(
                     &inner,
                     replacement,
                     inner_depth,
-                    shift,
+                    levels,
                     cache,
                     assumes,
                 );
@@ -528,6 +539,7 @@ fn replay(
             // expansion read off the context stack, a contextual `refl` — is written against the
             // same cumulative substitution the checker will apply there
             context.push(&args);
+            levels.push((last.depth, b.depth()));
             let mut inner_cache = ReplayCache::new();
             type Scoped =
                 Result<(Rc<ProofNode>, Vec<Rc<ProofNode>>, Vec<Rc<ProofNode>>), ElaborationError>;
@@ -543,7 +555,7 @@ fn replay(
                         a,
                         replacement,
                         inner_depth,
-                        shift,
+                        levels,
                         &mut inner_cache,
                         assumes,
                     )?);
@@ -554,7 +566,7 @@ fn replay(
                     previous,
                     replacement,
                     inner_depth,
-                    shift,
+                    levels,
                     &mut inner_cache,
                     assumes,
                 )?;
@@ -566,7 +578,7 @@ fn replay(
                         p,
                         replacement,
                         inner_depth,
-                        shift,
+                        levels,
                         &mut inner_cache,
                         assumes,
                     )?);
@@ -575,6 +587,7 @@ fn replay(
             };
             let scoped = scoped(b, context);
             context.pop();
+            levels.pop();
             let (inner, discharge, premises) = scoped?;
             let clause: Vec<_> = last
                 .clause
@@ -592,7 +605,7 @@ fn replay(
                     p,
                     replacement,
                     inner_depth,
-                    shift,
+                    levels,
                     cache,
                     assumes,
                 )?);
@@ -631,7 +644,7 @@ fn replay_let(
     previous: &Rc<ProofNode>,
     replacement: &mut Replacement,
     inner_depth: usize,
-    shift: usize,
+    levels: &mut Vec<(usize, usize)>,
     _cache: &mut ReplayCache,
     assumes: &mut ReplayCache,
 ) -> Res {
@@ -682,16 +695,20 @@ fn replay_let(
     // scope's context, it now proves about the expansion
     let mut extended = replacement.extended(b.pool, &bindings, &new_bindings);
     let mut cache = ReplayCache::new();
+    // The scope is dissolved: its contents land at the depth the replay is already at
+    levels.push((last.depth, b.depth()));
     let body = replay(
         b,
         context,
         previous,
         &mut extended,
         inner_depth,
-        shift + 1,
+        levels,
         &mut cache,
         assumes,
-    )?;
+    );
+    levels.pop();
+    let body = body?;
     let [equality] = body.clause() else {
         return Err(explanation(
             "the body of a `let` scope is not a unit equality",
@@ -1375,13 +1392,14 @@ fn congruence(
         let mut replacement = Replacement::new(b.pool, map);
         let mut cache = ReplayCache::new();
         let mut assumes = ReplayCache::new();
+        let mut levels = vec![(inner_depth, b.depth())];
         let mut replayed = replay(
             b,
             context,
             previous,
             &mut replacement,
             inner_depth,
-            1,
+            &mut levels,
             &mut cache,
             &mut assumes,
         )?;
@@ -1517,13 +1535,14 @@ fn closure(
     let mut replacement = Replacement::new(b.pool, map.clone());
     let mut cache = ReplayCache::new();
     let mut assumes = ReplayCache::new();
+    let mut levels = vec![(inner_depth, b.depth())];
     let mut replayed = replay(
         b,
         context,
         previous,
         &mut replacement,
         inner_depth,
-        1,
+        &mut levels,
         &mut cache,
         &mut assumes,
     )?;
@@ -1535,14 +1554,16 @@ fn closure(
     if written != skolemized {
         bridgeable(b, context, &written, &skolemized)?;
         let equality = build_term!(b.pool, (= {written.clone()} {skolemized.clone()}));
-        let bridge = b.step(vec![equality], "refl", Vec::new(), Vec::new());
+        let bridge = b.step(vec![equality.clone()], "refl", Vec::new(), Vec::new());
         let not_written = b.not(&written);
-        let implied = b.step(
-            vec![not_written, skolemized.clone()],
-            "equiv1",
-            vec![bridge],
+        let not_equality = b.not(&equality);
+        let axiom = b.step(
+            vec![not_equality, not_written, skolemized.clone()],
+            "equiv_pos2",
+            Vec::new(),
             Vec::new(),
         );
+        let implied = b.resolve(vec![axiom, bridge], vec![(equality, false)])?;
         replayed = b.resolve(vec![replayed, implied], vec![(written, true)])?;
     }
 

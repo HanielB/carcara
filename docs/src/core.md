@@ -26,9 +26,9 @@ core:
   rather than a rule.
 - **Expensive**: rules whose reduction is complete and implemented (the `core-expensive` pass)
   but buys no checking power and costs a discharge subproof or a handful of steps per instance:
-  the computational primitives `poly_simp` and `aci_simp`, binder congruence `bind`, and
-  `sko_ex`. These are the rules a consumer keeps if it implements their checks, and drops if it
-  does not.
+  the computational primitives `poly_simp` and `aci_simp`, and binder congruence `bind`. These
+  are the rules a consumer keeps if it implements their checks, and drops if it does not.
+  `sko_ex` used to be here; it is core now, for the reason the next section gives.
 - **Variant**: `eq_transitive` and `eq_congruent`, the premise-free clausal forms of `trans` and
   `cong`. Carcara checks them with the very functions those rules call, so they add nothing to
   the trusted base and eliminating them would trade steps for nothing: they are neither counted
@@ -598,12 +598,13 @@ vocabulary only as compact abbreviations, never the trust base:
 Both sit at the reducible level: an elaboration may emit them freely (consumers reduce them on
 demand by the recipes above), or expand them inline when targeting the strict core.
 
-## Skolemization: one rule suffices
+## Skolemization: one rule suffices, and both are kept anyway
 
 `sko_ex` and `sko_forall` are duals through the quantifier duality that `connective_def` already
-provides (`∃x̄.φ ≈ ¬∀x̄.¬φ` and vice versa), so only one needs to be primitive. The
-classification keeps `sko_forall` and reduces `sko_ex` by a constant template, independent of the
-number of variables:
+provides (`∃x̄.φ ≈ ¬∀x̄.¬φ` and vice versa), so only one *needs* to be primitive. The reduction
+below is complete and implemented (`core/skolem.rs`), and the classification nevertheless keeps
+both — the reason is at the end of this section, and it is about the `choice` binder rather than
+about cost. The template is constant in the number of variables:
 
 1. from `sko_ex`'s premise `Γ, ctx ▷ φ ≈ ψ`, derive `¬φ ≈ ¬ψ` by `cong`;
 2. apply `sko_forall` to `∀x̄.¬φ`, concluding `∀x̄.¬φ ≈ ¬ψ`;
@@ -612,6 +613,16 @@ number of variables:
 
 Six steps for any n. The direction is conventional — the symmetric template reduces `sko_forall`
 to `sko_ex` — and R4 just requires picking one.
+
+**Why both are kept.** Applying this to a proof a solver already wrote means relating the
+witnesses it chose, `εx.ψ`, to the ones the duality route produces, `εx.¬(∀tail.¬ψ)`. They differ
+by a rewrite *under* `ε`, and nothing in the core relates two `choice` terms — ε has no
+introduction or elimination rules of its own. So the reduction has to bridge them with a `bind`
+over the `choice` binder, and that is the *only* thing in the whole corpus that asks for binder
+congruence there: no solver writes such a step, and with `sko_ex` primitive the `bind` reduction
+removes every `bind` step a solver does write. Deriving `sko_ex` costs the core a rule it would
+otherwise not need; keeping it costs a rule whose check is the same shape as `sko_forall`'s. The
+second is the better trade, and it is also how RESOLUTE arranges its four quantifier axioms.
 
 Two prerequisites make this exact, both worth raising with the specification:
 

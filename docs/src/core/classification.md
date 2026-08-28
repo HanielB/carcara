@@ -15,8 +15,10 @@ category's core rules — followed by its rules grouped by *reducibility level*:
   rather than a rule;
 - **expensive** — the reduction is complete and implemented, but buys no checking power and
   costs a discharge subproof or a handful of steps per instance: the computational primitives
-  `poly_simp` and `aci_simp`, `bind`, and `sko_ex`. These are the rules a consumer keeps if it is
-  willing to implement their checks, and drops if it is not;
+  `poly_simp` and `aci_simp`, and `bind`. These are the rules a consumer keeps if it is willing to
+  implement their checks, and drops if it is not. `sko_ex` was here and is now core: its reduction
+  is what would oblige the core to prove congruence under `choice`, and keeping the rule costs
+  less than that;
 - **variant** — `eq_transitive` and `eq_congruent`, which state `trans`'s and `cong`'s judgments
   as premise-free clauses and which Carcara checks *with the very functions those rules call*
   (`find_chain`, `generic_congruent_rule`). A consumer implementing the core already has their
@@ -48,13 +50,13 @@ Carcara's elaboration: *done*, *planned*, or *—* (core, nothing to reduce).
 | category | total | core | reducible | rare/simplify | expensive | variant | oracle |
 |---|---|---|---|---|---|---|---|
 | structural | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
-| clausal | 47 | 23 | 22 | 0 | 0 | 2 | 0 |
-| binder | 13 | 4 | 7 | 0 | 2 | 0 | 0 |
-| equality & rewriting | 25 | 6 | 10 | 6 | 3 | 0 | 0 |
+| clausal | 47 | 23 | 24 | 0 | 0 | 0 | 0 |
+| binder | 13 | 5 | 7 | 0 | 1 | 0 | 0 |
+| equality & rewriting | 25 | 6 | 10 | 6 | 1 | 2 | 0 |
 | arithmetic | 13 (+1) | 2 (+1) | 9 | 1 | 1 | 0 | 0 |
 | bitvector | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | legacy | 5 | 0 | 4 | 0 | 0 | 0 | 1 |
-| **total** | **120** | **52** | **52** | **7** | **6** | **2** | **1** |
+| **total** | **120** | **53** | **54** | **7** | **3** | **2** | **1** |
 
 Totals count *specification* rules only. The core additionally contains eight rules beyond the
 specification, all of them listed in the category tables below rather than only in the extras
@@ -133,7 +135,7 @@ admit `connective_def` derivations (the `implies` case via the proposed extensio
 `(φ₁→φ₂) ≈ (¬φ₁ ∨ φ₂)`, divergence item 6), recorded as agreement lemmas in the parent chapter
 — the axioms stay primitive.
 
-47 rules: 23 core, 22 reducible, 2 expensive.
+47 rules: 23 core, 24 reducible.
 
 ### Core (23)
 
@@ -360,8 +362,9 @@ realizes [gen] — recasting [α/congr-bind], [ε], and [qe-point] as one anchor
 under three substitution disciplines, with binder congruence for `choice` folded into
 [α/congr-bind] itself (`bind` is binder-generic; needed to reason under ε-witnesses);
 `forall_inst` is [inst], independent
-of [ε] (see parent chapter); `sko_forall` is the designated [ε] axiom, with `sko_ex` derived
-through the quantifier duality; `let`/`bind_let` are [unfold]; and `onepoint` is [qe-point] —
+of [ε] (see parent chapter); both `sko_forall` and `sko_ex` are [ε] axioms — `sko_ex` *is* derivable from `sko_forall` through
+the quantifier duality, and is kept because deriving it is what would make [α/congr-bind] over
+`choice` necessary; `let`/`bind_let` are [unfold]; and `onepoint` is [qe-point] —
 derived, see below.
 
 The quantifier rewrites reduce through the **Skolemization route** (RESOLUTE-inspired, documented
@@ -372,15 +375,16 @@ needed. Under the proposed generalization of `bind` (divergence 8) the same deri
 witness-free and linear: quantifiers are eliminated by `forall_inst` at a variables-only anchor's
 own variable and reintroduced by generalization.
 
-13 rules: 4 core, 7 reducible, 2 expensive.
+13 rules: 5 core, 7 reducible, 1 expensive.
 
-### Core (4 + 1 extra)
+### Core (5 + 1 extra)
 
 | rule | notes |
 |---|---|
 | `let` | |
 | `bind_let` | emitted by the polyeq elaboration itself |
 | `sko_forall` | the designated Skolemization primitive; the spec's n-ary statement is erroneous (divergence 4) and must be fixed to the sequential choice-term form implementations already use |
+| `sko_ex` | the other Skolemization primitive. It *is* derivable — through `qnt_duality` and `sko_forall`, in ~35 steps per binding (`core/skolem.rs`, implemented and validated; measurements in `investigations/2026-08-18-sko-ex-cost.md`) — but deriving it is what would make the core need congruence under the `choice` binder, since the duality route's witnesses `εx.¬(∀tail.¬ψ)` have to be bridged to the `∃`-shaped `εx.ψ` a solver writes, and ε has no introduction or elimination rules of its own ([divergence 5](#divergences)). Keeping both Skolemization rules primitive — which is what having `∃`-introduction and `∃`-elimination means, and how RESOLUTE's four quantifier axioms are arranged — costs nothing, asks nothing of `choice`, and is what lets `bind` reduce completely |
 | `forall_inst` | polyeq elaboration already normalizes it; independent of Skolemization — some arbitrary-term principle must be primitive (see parent chapter) |
 | `qnt_duality` (extra) | **proposed core axiom, implemented** — `▷ (= (forall X φ) (not (exists X (not φ))))` and its dual. Carved out of `connective_def` (2026-08-25): the propositional instances of that rule derive from the CNF axioms, but nothing else in the core relates `∀` and `∃`, so *this* instance has to be primitive. Naming it separately is what lets `connective_def` become reducible |
 
@@ -820,12 +824,11 @@ corresponding quantifier with `ite2`/`ite1`, instantiate at the anchor variable,
 | `la_mult_pos` | `mult_pos` + `poly_simp` + `la_generic` glue (`eq_congruent` for the `=` form, one `la_disequality` case split for `≤`/`≥`) | O(1) template (~15–25 steps) | pos-cone + ring + Farkas | **done** (`core` pass, 2026-08-25). Promoted from *expensive* when the proposed axiom was adopted as `mult_pos`: the recipe validates every `la_generic` certificate and the `poly_simp` ring identity before emission, so an unanticipated shape keeps the step |
 | `la_mult_neg` | same, prepending the `la_generic` sign bridge `(cl ¬(< m 0) (> (- m) 0))` and scaling by `(- m)` | O(1) template | ditto | **done** (`core` pass) |
 
-### Expensive (2)
+### Expensive (1)
 
 | rule | reduction scheme | cost | what makes it expensive |
 |---|---|---|---|
 | `bind` | Three routes, tried in order. **Exact renaming**: Skolemize *both* sides at the *same* witnesses and join by `symm`/`trans` — 4 steps, the body never inspected. **General α-equivalence** (nested bound names differ, equalities reoriented, bodies shadow): instantiate both sides at the target's ε-witnesses, so the two instances differ only *under nested binders* and at variables the enclosing anchor renames, and bridge those recursively — nested quantifier pairs recurse through the same construction (`∃` through `qnt_duality`), renamed free variables are contextual `refl`s, reoriented equalities go through `cong`'s four-orientation search, and two α-variant `let` terms are expanded and rejoined (`bind_let` cannot do it — its checker requires both binding lists to carry the *same* names — but a `let` is a definition, and two definitions differing only in the defined name have the same expansion). **Rewriting bodies**: the ∀-ε-clause of one side, `forall_inst` of the other at the same witnesses, and a replay of the body with the witnesses substituted (core rules are schematic, so their instances survive a uniform substitution of closed terms), in two directions closed by iff-introduction; a nested `let` scope in the body is *dissolved* — its bindings join the witness substitution and its `let` step becomes the definitional expansion it always was | 4 steps + 2 anchors (renaming); O(α-difference) (α route); 2·\|body\| + ~10 (rewriting) | **done** (`core-expensive` pass, 2026-08-27) — the admissibility argument of the "what the generalization buys" section, made executable; it buys no checking power, so the default regimes keep the rule. **Every one of the corpus's `bind` steps reduces** — 6\,592 of veriT's 6\,592 and 8\,447 of cvc5's 8\,447, over six logics — with every proof re-checking at elaborated granularity. The one exception is self-inflicted: the `sko_ex` reduction emits a `bind` over a `choice` binder to bridge its witness shapes, and *that* has no core route ([divergence 5](#divergences)) — keep `sko_ex` core, as having both `∃`-introduction and `∃`-elimination primitive means, and nothing asks for choice congruence at all |
-| `sko_ex` | `connective_def` (duality) + `sko_forall` + `cong` ×2 + `not-not` rewrite + `trans`; existing steps additionally bridge the ∃-shaped witnesses to the ¬∀¬-shaped ones by a `bind` over the `choice` binder (choice congruence — `bind` is binder-generic, see its row) plus deep-`cong` transport | ~35 steps per binding (Δsteps ≈ 6.5 + 34.6·n measured, R² = 0.77); an ~8× local blowup — a ~10-command step region becomes ~84 steps plus ~6 anchors | The reduction is *complete and implemented* (`core/skolem.rs`, all corpus instances reduce and re-check) and every emitted step is a cheap core rule; it is classified expensive on **cost**, not feasibility. Each binding costs a witness-bridge `bind` subproof, a `connective_def` duality, an α-renaming `bind` of the quantified tail, a deep-`cong` transport, and a re-materialized copy of the double-negation helper. The `core` pass therefore leaves `sko_ex` steps alone by default; re-enabling the recipe is one map entry. Full measurements: `investigations/2026-08-18-sko-ex-cost.md` |
 
 ## Equality and rewriting
 
@@ -846,7 +849,7 @@ the context mechanism — `refl` is the one rule that applies the context substi
 system. The clausal `eq_*` forms are the same system repackaged as premise-free clauses through
 `subproof` discharge.
 
-25 rules: 6 core, 10 reducible, 6 rare/simplify, 3 expensive; `eq_transitive` and `eq_congruent` are *variants* (see below).
+25 rules: 6 core, 10 reducible, 6 rare/simplify, 1 expensive, and `eq_transitive`/`eq_congruent` as *variants* (see below).
 
 ### Core (6 + 2 extra)
 
@@ -1177,10 +1180,10 @@ and non-commutative cases keep the binary-associativity `rare_rewrite` chain:
 
 </details>
 
-### Expensive (3)
+### Expensive (1)
 
-`aci_simp` is the one in this category (`poly_simp` and `sko_ex` are the other two, under
-arithmetic and binder):
+`aci_simp` is the only rule of this category in the tier (`poly_simp` and `bind` are the others,
+under arithmetic and binder):
 
 | rule | reduces to | steps | check | status / notes |
 |---|---|---|---|---|
