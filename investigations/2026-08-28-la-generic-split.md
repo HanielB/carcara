@@ -141,3 +141,152 @@ be declined at first without materially affecting coverage.
 The rule to add, `total_int`, is a spec-divergence proposal in the same family as `qnt_duality`,
 `mult_neg` and `ite_then_intro`: an axiom carved out of a rule that was doing two things, so that
 each is checkable on its own.
+
+## Is `la_generic` easier to *produce*? What the three solvers actually do
+
+The argument for keeping integrality inside the rule is a producer's argument: a solver that emits
+`la_generic` never has to say where it rounded, so it never has to track it. Reading cvc5, veriT
+and SMTInterpol, the argument turns out to be true of exactly one of them, and for a smaller
+reason than it sounds.
+
+### First, a correction: CPC's macro rule has no integer reasoning in it
+
+`MACRO_ARITH_SCALE_SUM_UB` is often described as the rule with the integrality baked in. It is
+not. `expandMacroSumUb` (`theory/arith/arith_proof_utilities.cpp`) unfolds it into, per premise,
+an `EVALUATE`/`TRUE_ELIM` of the scalar's sign, `ARITH_MULT_POS`/`ARITH_MULT_NEG` and a
+`MODUS_PONENS`, and then one `ARITH_SUM_UB` over the scaled relations. Its checker
+(`theory/arith/proof_checker.cpp`) fuses strictness — any strict premise makes the conclusion
+strict — checks the signs and refuses spurious mixed arithmetic, and rounds nothing. The "macro"
+is a step-count optimisation over `ARITH_SUM_UB`, not a fusion of two kinds of reasoning.
+
+CPC's integer reasoning is in `INT_TIGHT_UB`/`INT_TIGHT_LB`, which are separate rules with their
+own checkers. **CPC is already the split calculus this note proposes.**
+
+### Where the rounding happens
+
+All three solvers round at the same moment — when a strict bound on an integer variable is
+asserted — and differ only in what survives the rounding.
+
+**veriT** rounds in place. In `LA_constraint_push2` (`src/arith/LA-mp.c`) a 25-line comment gives the
+two tables — one for integral constants, one for `floor(c)` — and the block writes the tightened
+values into `bounds->data[atom].delta` and `.delta2`. The atom keeps its identity; the bound
+under it is replaced. There is no `proof_on` guard anywhere in that block. Proof bookkeeping does
+happen in the same function, but for something else: `prior_coefficient_var[atom]` records the
+*rational* factor the atom's coefficients were divided by (their gcd), and
+`LA_mp_conflict_proof` multiplies it back into every coefficient it writes, because `la_generic`'s
+coefficients are stated against the literals as the user wrote them. So veriT tracks one kind of
+scaling for proofs and deliberately does not track the other — and `LA_mp_conflict_proof` is then
+a direct transcription of the simplex conflict: literals, coefficients, done.
+
+**cvc5** derives instead of overwriting. `TheoryArithPrivate::assertionCases` takes
+`constraint->getFloor()` — a *different* `Constraint` object — calls
+`floorConstraint->impliedByIntTighten(constraint, …)`, and asserts *that* to simplex. The call
+records an edge in the constraint database's derivation graph tagged `IntTightenAP`, and
+`Constraint::externalExplain` reads the tag back to emit `INT_TIGHT_UB`/`LB`. The tag is not
+proof-mode bookkeeping: the graph is what `explain` walks whether or not proofs are on. The
+header says as much about the one thing that *is* extra — "If proofs are on, coefficients will be
+logged. If proofs are off, coefficients will not be logged" — and says it about the Farkas
+coefficients, not about the tightening.
+
+**SMTInterpol** does both. `LinArSolve.generateConstraint` floors the bound of any new integer
+atom, so the *atom itself* is the tightened one and no gap opens between a literal and its bound.
+For derived bounds, `CompositeReason` stores `mExactBound` (the rational Farkas bound) beside
+`mBound` (its floor or ceiling) and exposes `getExactBound()`.
+
+One solver overwrites, two keep the derivation — and the two that keep it do so for reasons that
+have nothing to do with proofs.
+
+### What a producer would actually need to know: nothing
+
+Carcara's `strengthen` is called from `process_disequality`, once per row, on the single negated
+literal already scaled by *its own* coefficient; the gcd of the scaled-cut case is that row's gcd.
+The tightening is therefore a pure function of `(literal, coefficient)` — of data that is, by
+construction, already in the `la_generic` step. Whatever the split form needs can be recomputed
+from the step the solver was going to write anyway.
+
+SMTInterpol demonstrates this by construction. `ProofSimplifier.convertLALemma` is exactly the
+translation from a flat Farkas certificate to the split form, and it consults nothing but the
+literals: a positively-occurring `(<= t 0)` over `Int` is bridged by `totalInt(t, 0)`, the same
+literal over `Real` by `total(t, 0)`, an equality by `symm`; the solver contributes only the
+coefficients. `total` and `totalInt` are picked apart by sort, in the converter, after the fact.
+
+So the honest form of the producer's argument is: `la_generic` saves veriT from *printing* a
+rounding it performed in place. It does not save it from tracking one, because there is nothing
+to track.
+
+### The two designs are not equally legible, and the corpus says so
+
+Because cvc5 emits `INT_TIGHT_UB`/`LB` as steps of their own, its Alethe output has two disjoint
+kinds of `la_generic`. `alethe_post_processor.cpp` shows all three idioms:
+
+- `ARITH_SUM_UB` → `la_generic` with every coefficient `1`;
+- `MACRO_ARITH_SCALE_SUM_UB` → `la_generic` with the Farkas coefficients (equality premises
+  negated, inequality premises absolute, since `la_generic` reads direction off the relation);
+- `INT_TIGHT_UB`/`LB` → a **one-premise** `la_generic`, `(cl (not (< i c)) (<= i ⌊c⌋))` with args
+  `(1 1)`, plus a resolution.
+
+That third idiom *is* the tightening rule this note proposes, spelled as a degenerate
+`la_generic`. It is already in the corpus.
+
+Measured: every `la_generic` step in ~235 raw proofs per solver (`QF_LIA`, `QF_UFLIA`, `UFLIA`),
+with its combination re-run once with `strengthen` switched off, to ask whether the step needs any
+integer reasoning at all or merely happened to contain rows that could be rounded.
+
+| | cvc5 | veriT |
+| --- | --- | --- |
+| `la_generic` steps | 48 075 | 13 910 |
+| mean rows | 4.12 | 8.39 |
+| `strengthen` fires, per step | 1.66 | 2.03 |
+| steps that **need** integrality | 65.8% | 25.2% |
+| two-row steps needing it | 31 613 / 31 613 — **100%** | 251 / 2 281 — 11% |
+| steps with >2 rows needing it | **0 / 16 462 — 0%** | 3 258 / 11 629 — 28% |
+
+Not one of cvc5's 16 462 multi-row `la_generic` steps needs integrality; every step that does is
+one of its 31 613 two-row tightenings. The separation is exact, and it is exact because the
+post-processor put it there. veriT's is not separable at all: a quarter of its steps need
+integrality, and it is fused into general Farkas combinations eight rows wide.
+
+This changes the cost estimate by solver. Under the directed rule, **cvc5's proofs cost nothing**:
+each multi-row step becomes one `farkas`, each two-row step becomes one `la_tightening`, 48 075
+steps in and 48 075 out. The +1.8% is a veriT figure. (These are raw solver proofs; the earlier
+table counts the `core` rung's elaborated proofs, where the reductions emit `la_generic` about
+twice as often as the solvers do.)
+
+### Where the argument really bites, it bites the other way
+
+The producer's argument is about *cuts* — Gomory cuts and branch-and-bound — and about those
+`la_generic`'s built-in integrality does nothing at all. It is a Chvátal rounding of one row. It
+cannot express a cut, and neither veriT nor cvc5 tries:
+
+- veriT drops the branch literals (`LIT_BRANCH_Z`) from the clause and emits `lia_generic`, a rule
+  whose entry in `proof-type.c` reads `"valid: not yet defined"`;
+- cvc5 tags such a constraint `IntHoleAP` — "a catch-all for all integer specific reason" —
+  and `Constraint::externalExplain` turns it into `mkTrustedNode(THEORY_INFERENCE_ARITH, …)`,
+  which the Alethe post-processor prints as `hole`.
+
+SMTInterpol has no hole here, and the reason is `total-int` itself. `CutCreator.generateCut`
+does not derive the cut: it builds the bound literal and hands it to the DPLL engine as a
+branching *suggestion* (`mSolver.mSuggestions.add(cut)`). The case split it opens is discharged
+by the axiom — `total-int` is stated for an arbitrary integer *term*, so it splits on the cut's
+whole linear combination — and each branch closes by ordinary Farkas. One axiom serves as the
+tightening rule and as the cut rule.
+
+That is worth stating as a fact about the ladder rather than about arithmetic. veriT's 2 993
+`lia_generic` steps are the *entire* non-core residue at the `core-full` rung. They are holes
+because Alethe has no integer case-split axiom — not because `la_generic` is too weak, and not
+because veriT withheld anything. The split form, `la_int_totality`, is exactly the axiom that
+would make them provable in principle, and the directed `la_tightening` is one Farkas step from
+it. That is the concrete reason, missing when the naming section was written, to want both.
+
+### The answer
+
+- **For veriT, yes, but the saving is smaller than the argument claims.** `la_generic` lets it
+  transcribe a simplex conflict without mentioning an in-place rounding. It saves a printing
+  decision, not solver bookkeeping: the rounding is a function of the step's own literals and
+  coefficients, and SMTInterpol recovers it from exactly that.
+- **For cvc5 and SMTInterpol, no — it costs them.** Both keep the derivation for their own
+  reasons, and cvc5 has to *fuse* what it already had separate in order to write Alethe: three
+  distinct proof rules go out as one, and one of them goes out as a one-premise instance of a
+  rule built for many.
+- **For cuts, the argument inverts.** Fusing buys no cut strength; both cvc5 and veriT fall back
+  to holes there. The rule that would buy it is the split axiom.
