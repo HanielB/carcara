@@ -232,10 +232,23 @@ fn aci_direction(b: &mut Builder, op: Operator, from: &Rc<Term>, to: &Rc<Term>) 
                 let or_pos = b.step(clause, "or_pos", Vec::new(), Vec::new());
                 node = b.resolve(vec![node, or_pos], vec![(tree.clone(), true)])?;
                 current.splice(pos..pos + 1, args);
+                // A disjunct may repeat — `(or φ φ)` is what an `aci_simp` step looks like when
+                // it drops idempotence — and the clause being taken apart holds one literal for
+                // it however often it occurs, so the leaves are tracked the same way
+                let mut seen = Vec::new();
+                current.retain(|t| {
+                    let fresh = !seen.contains(t);
+                    if fresh {
+                        seen.push(t.clone());
+                    }
+                    fresh
+                });
             }
-            // A `false` leaf is discharged by the `false` axiom
+            // A `false` leaf is discharged by the `false` axiom — unless it is the target
+            // itself, as in `(or false false) ≈ false`, where discharging it would throw away
+            // what the direction is meant to derive
             for lit in current.clone() {
-                if is_identity(Operator::Or, &lit) {
+                if is_identity(Operator::Or, &lit) && lit != *to {
                     let f = b.pool.bool_false();
                     let not_false = b.not(&f);
                     let axiom = b.step(vec![not_false], "false", Vec::new(), Vec::new());
