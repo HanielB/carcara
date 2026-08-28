@@ -130,7 +130,14 @@ A corollary measured here: with `sko_ex` core, nothing in the corpus asks `stric
 identify α-variants. The relaxation was implemented (`cf18ba59`) and reverted (`6b342b52`) when an
 A/B left the residual count unchanged at 80 either way.
 
-**The final measurement.** Of 1053 `bind` steps in the `bind`-heavy sample, 1052 reduce with the
-`sko_ex` reduction enabled — the one that does not is the `choice` bind that reduction emits —
-and **all 1053 reduce with `sko_ex` kept core**. Every proof re-checks at elaborated granularity.
-So the answer to "is `bind` admissible?" is not "in principle": it is, in this corpus, entirely.
+**The final measurement**, over the full evaluation corpus — six logics, both solvers, the
+`core-full` rung of the elimination ladder:
+
+| solver | `bind` steps written | left after the reduction |
+| --- | --- | --- |
+| veriT | 6 592 | 49 |
+| cvc5 | 8 447 | **0** |
+
+The 49 are not veriT's: they are the witness bridges the `sko_ex` reduction emits, `bind`s over
+the `choice` binder. With `sko_ex` kept core there are none. So the answer to "is `bind`
+admissible?" is not "in principle": it is, in this corpus, entirely.
