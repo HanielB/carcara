@@ -381,9 +381,17 @@ fn guard_escape(
     if failed.contains(&(term.clone(), polarity)) {
         return Ok(None);
     }
+    // Every failure a caller retries around passes through here, and a failed attempt may bail
+    // out of scopes it opened (the quantifier production's generalization anchor): abandoning
+    // them puts the builder back where the caller works, so the retry's steps land at the right
+    // depth. A successful attempt closed what it opened
+    let depth = b.depth();
     let escape = guard_escape_step(b, term, polarity, guard, failed)?;
     if escape.is_none() {
         failed.insert((term.clone(), polarity));
+        b.abandon_to(depth);
+    } else {
+        debug_assert_eq!(b.depth(), depth);
     }
     Ok(escape)
 }

@@ -271,6 +271,15 @@ impl<'a> Builder<'a> {
         self.depth -= 1;
     }
 
+    /// Abandons every scope opened above `depth`, for a construction that gives up partway
+    /// through: nothing built inside them is referenced, but the builder has to come back to the
+    /// depth its caller works at, or the caller's next attempt writes its steps too deep.
+    pub fn abandon_to(&mut self, depth: usize) {
+        while self.depth > depth {
+            self.leave_scope();
+        }
+    }
+
     /// Closes a subproof opened by [`Builder::open`] with a `subproof` step discharging the given
     /// assumptions: the closing clause is the negation of each assumption followed by the (unit or
     /// empty) conclusion of the subproof's last step.
@@ -368,7 +377,14 @@ impl<'a> Builder<'a> {
         let mut outbound_premises: IndexSet<Rc<ProofNode>> = IndexSet::new();
         last_step.traverse(|node| {
             if node.depth() >= depth {
-                outbound_premises.extend(node.get_outbound_premises());
+                // A node's own outbound premises are the ones shallower than the *node* — for a
+                // node in a nested scope, that includes premises in this subproof's interior,
+                // which are not outbound *here*. Only what lies outside this subproof qualifies
+                outbound_premises.extend(
+                    node.get_outbound_premises()
+                        .into_iter()
+                        .filter(|p| p.depth() < depth),
+                );
             }
         });
         Rc::new(ProofNode::Subproof(SubproofNode {
