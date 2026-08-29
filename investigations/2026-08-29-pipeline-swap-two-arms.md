@@ -56,3 +56,47 @@ elaboration contributes is exactly that difference.
 `run-eval.sh` carries both arms (and per-config granularity); `ladder-run.sh` drives all
 fourteen configs; `core-isolated.sh`'s separate measurement is subsumed by arm A's baseline
 config but kept. The `prune`-closes-every-stage convention (2026-08-29) applies to all of it.
+
+## Corpus results (sweep of 2026-08-29, 14 configs × 6 logics)
+
+Aggregates over the proofs completing every stage of an arm; ×prev per rung.
+
+**Arm A — vs the regular elaboration, all at elaborated granularity** (459 veriT / 484 cvc5):
+
+| rung | veriT steps | veriT check | cvc5 steps | cvc5 check |
+| --- | --- | --- | --- | --- |
+| core (− reducible) | 1.172 | **1.157** | 1.278 | **1.268** |
+| core-taut (− rw+simp) | 1.014 | 0.974 | 1.161 | 1.088 |
+| core-full (− expensive) | 8.926 | 2.855 | 1.727 | 1.438 |
+
+The first rung's checking column is the number the old regime could never produce: the pure
+cost of reducing the reducible tier, measured against a pivot-carrying baseline at the same
+granularity — +16% (veriT) and +27% (cvc5), no pivot or granularity term in it.
+
+**Arm B — vs the original proof, all at default granularity** (444 veriT / 487 cvc5):
+
+| rung | veriT steps | veriT check | cvc5 steps | cvc5 check |
+| --- | --- | --- | --- | --- |
+| core | 1.419 | 1.179 | 1.137 | 1.106 |
+| core-taut | 1.016 | 0.970 | 1.138 | 0.992 |
+| core-full | 9.504 | 2.092 | 1.622 | 1.216 |
+
+Readings across the arms:
+
+- **The rw+simp rung is free or better in checking, in every arm and solver** (0.97–1.09) —
+  removing the rewrite vocabulary costs 1.4–16% in steps and *saves* checking time as often
+  as not.
+- **The reductions need the regular elaboration for checkability, not for correctness.**
+  Arm B's outputs are all valid at default granularity, and *smaller* than arm A's (no `local`
+  scaffolding: 4.7M vs 5.5M steps at veriT's core rung) — but nothing carries pivots, so they
+  cannot be checked strictly, and their absolute checking time is ~55% higher (18.1 s vs
+  11.6 s at that rung).
+- **Arm B's residue names what the regular elaboration removes**: on cvc5, 301,698
+  `reordering` scaffolding steps (1.45% of the proof — only the `reordering` pass, which needs
+  `local`'s pivots, removes them); on veriT, 4 `ite_intro` steps whose fallback needs `polyeq`.
+  Plus the usual `lia_generic` 2,993.
+- **The expensive rung is insensitive to what runs before it**: same shape (×8.9–9.5 veriT,
+  ×1.6–1.7 cvc5), and the same three QF_LIA/veriT timeout files, in both arms.
+- Elaboration cost: arm B is ~33% cheaper than arm A end to end (sample measurement above),
+  and its cheap pipelines fit the 300 s budget on every file arm A's full pipelines time out
+  on, except the three QF_LIA aci_simp blowups, which are the reductions' own.
