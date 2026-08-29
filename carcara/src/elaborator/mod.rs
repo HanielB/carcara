@@ -6,6 +6,7 @@ mod hole;
 mod local;
 mod polyeq;
 mod prune;
+pub use prune::prune;
 mod reordering;
 mod sat_refutation;
 mod scopes;

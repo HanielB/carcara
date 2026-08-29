@@ -41,7 +41,7 @@ use std::collections::{HashMap, HashSet};
 /// address of its allocation, which the default hasher then runs through `SipHash`; this pass keys
 /// two whole-forest maps by node, so that mixing is a measurable part of its cost.
 #[derive(Default)]
-struct PtrHasher(u64);
+pub(super) struct PtrHasher(u64);
 
 impl std::hash::Hasher for PtrHasher {
     fn finish(&self) -> u64 {
@@ -60,9 +60,9 @@ impl std::hash::Hasher for PtrHasher {
     }
 }
 
-type PtrBuildHasher = std::hash::BuildHasherDefault<PtrHasher>;
-type NodeMap<V> = HashMap<Rc<ProofNode>, V, PtrBuildHasher>;
-type NodeSet<'a> = HashSet<&'a Rc<ProofNode>, PtrBuildHasher>;
+pub(super) type PtrBuildHasher = std::hash::BuildHasherDefault<PtrHasher>;
+pub(super) type NodeMap<V> = HashMap<Rc<ProofNode>, V, PtrBuildHasher>;
+pub(super) type NodeSet<'a> = HashSet<&'a Rc<ProofNode>, PtrBuildHasher>;
 
 /// What the memo holds for a clause that some closed derivation already proves.
 enum Entry {

@@ -268,7 +268,12 @@ pub fn check_and_elaborate<'s>(
 
     let mut elaborator_config = elaborator_config;
     elaborator_config.rare_rules = Some(rules.clone());
-    let node = ast::ProofNodeForest::from_commands(proof.commands);
+    // Converting the command list restricts the forest to the derivation of the empty-clause
+    // conclusion (a no-op for a proof without one): dead steps in the input never enter the node
+    // representation, so no pass pays to carry or rebuild them. The passes themselves work from
+    // the same roots, and a trailing `prune` in the pipeline is left with only the steps the
+    // elaboration itself strands
+    let node = elaborator::prune(ast::ProofNodeForest::from_commands(proof.commands));
     let (elaborated, pipeline_durations) =
         elaborator::Elaborator::new(&mut pool, &problem, elaborator_config)
             .elaborate_with_stats(node, pipeline)?;

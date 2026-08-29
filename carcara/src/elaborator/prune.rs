@@ -19,8 +19,8 @@
 //! A proof with no empty-clause root — a partial proof, or one truncated by the solver — is
 //! returned unchanged: there is no conclusion to prune towards.
 
+use super::hoist::{NodeMap, NodeSet};
 use crate::ast::*;
-use std::collections::{HashMap, HashSet};
 
 /// Restricts the proof to the derivation of its empty-clause conclusion(s), and returns it along
 /// with how many steps were dropped.
@@ -36,17 +36,18 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
         return proof;
     }
 
-    let before = count_commands(&proof);
+    let counting = log::log_enabled!(log::Level::Info);
+    let before = if counting { count_commands(&proof) } else { 0 };
 
     // Everything must be reachable from a goal — including the assumes: an `assume` is checked
     // against the problem's premises individually, so the used subset stands on its own. The ones
     // the goals reach are kept as *leading* roots all the same, because Alethe wants the `assume`
     // commands before the steps and the printer emits roots in order
     let reached = {
-        let mut reached: HashSet<Rc<ProofNode>> = HashSet::new();
+        let mut reached: NodeMap<()> = NodeMap::default();
         let mut todo: Vec<Rc<ProofNode>> = goals.clone();
         while let Some(node) = todo.pop() {
-            if !reached.insert(node.clone()) {
+            if reached.insert(node.clone(), ()).is_some() {
                 continue;
             }
             match node.as_ref() {
@@ -70,14 +71,14 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
     let mut roots: Vec<Rc<ProofNode>> = proof
         .0
         .iter()
-        .filter(|n| matches!(n.as_ref(), ProofNode::Assume { .. }) && reached.contains(*n))
+        .filter(|n| matches!(n.as_ref(), ProofNode::Assume { .. }) && reached.contains_key(*n))
         .cloned()
         .collect();
     roots.extend(goals);
 
     // Rebuild bottom-up, dropping each subproof's dead extra steps. Only subproofs (and the nodes
     // above one) change, so unaffected subgraphs are passed through as they are
-    let mut cache: HashMap<Rc<ProofNode>, Rc<ProofNode>> = HashMap::new();
+    let mut cache: NodeMap<Rc<ProofNode>> = NodeMap::default();
     let mut todo: Vec<(Rc<ProofNode>, bool)> =
         roots.iter().rev().map(|r| (r.clone(), false)).collect();
     while let Some((node, is_done)) = todo.pop() {
@@ -149,12 +150,14 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
     }
 
     let result = ProofNodeForest(roots.iter().map(|r| cache[r].clone()).collect());
-    let after = count_commands(&result);
-    log::info!(
-        "prune: dropped {} of {} commands unreachable from the conclusion",
-        before.saturating_sub(after),
-        before,
-    );
+    if counting {
+        let after = count_commands(&result);
+        log::info!(
+            "prune: dropped {} of {} commands unreachable from the conclusion",
+            before.saturating_sub(after),
+            before,
+        );
+    }
     result
 }
 
@@ -166,7 +169,7 @@ pub fn prune(proof: ProofNodeForest) -> ProofNodeForest {
 /// extra step the last step does not reach is referenced by nothing in the whole proof.
 fn live_extra_steps(s: &SubproofNode) -> Vec<Rc<ProofNode>> {
     let subproof_depth = s.last_step.depth() - 1;
-    let mut used: HashSet<&Rc<ProofNode>> = HashSet::new();
+    let mut used: NodeSet = NodeSet::default();
     let mut todo: Vec<&Rc<ProofNode>> = vec![&s.last_step];
     while let Some(node) = todo.pop() {
         if !used.insert(node) {
