@@ -100,3 +100,18 @@ Readings across the arms:
 - Elaboration cost: arm B is ~33% cheaper than arm A end to end (sample measurement above),
   and its cheap pipelines fit the 300 s budget on every file arm A's full pipelines time out
   on, except the three QF_LIA aci_simp blowups, which are the reductions' own.
+
+## Addendum: pruning stopped being a pass (2026-08-29, commits `113ac8d2`, `5d620f40`)
+
+Prune cost anything only because the conversion to nodes was faithful: the premise graph is
+rooted at the conclusion already, and a dead step survives solely through the root list and the
+subproofs' `extra_steps` — which every pass then carried, and which a trailing pass paid four
+whole-forest walks to remove. Both ends now handle it in walks they were doing anyway:
+`check_and_elaborate` restricts the forest to the conclusion's derivation right after
+`from_commands`, and the printer computes the reachable set once and guards its four
+membership-driven push sites. `--keep-unused` opts out of both. Outputs are identical on veriT
+and up to 0.2% *smaller* on cvc5 (the print filter also drops the moved-out extras the pass
+kept defensively), all strictly checkable; one corpus proof turns out to be 98% dead steps
+(pb2010: 28,957 kept under `--keep-unused`, 489 live). Elaboration on the sample: 6.5→5.4 s
+(veriT) and 9.4→6.7 s (cvc5) against the original trailing-prune pipelines, −17%/−29%. The
+`prune` pass remains available but no evaluation pipeline uses it.
