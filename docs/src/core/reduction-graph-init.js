@@ -32,7 +32,8 @@
 
     var elements = [];
     data.clusters.forEach(function (c) {
-      elements.push({ data: { id: c.id, label: c.label, isCluster: true } });
+      elements.push({ data: { id: c.id, label: c.label, isCluster: true,
+                              isTier: !c.parent, parent: c.parent || undefined } });
     });
     var home = {};
     data.nodes.forEach(function (n) {
@@ -83,6 +84,15 @@
             "text-valign": "top", "text-halign": "center",
             "font-size": "14px", "font-weight": "bold", "color": p.text
         }},
+        // tier groups: the outermost boxes carry the ladder reading
+        { selector: "node[?isTier]", style: {
+            "background-opacity": 0.35, "border-width": 2,
+            "padding": "26px", "font-size": "16px"
+        }},
+        { selector: "node[id='cat_coretier']",  style: { "border-color": p.core } },
+        { selector: "node[id='cat_reducible']", style: { "border-color": p.reducible } },
+        { selector: "node[id='cat_rwsimp']",    style: { "border-color": p["rare-simplify"] } },
+        { selector: "node[id='cat_legacy']",    style: { "border-color": p.oracle } },
         { selector: "edge", style: {
             "curve-style": "bezier",
             "width": 1.2, "line-color": p.edge,

@@ -25,15 +25,11 @@ LEVELS = {
 
 src = open(DOT).read()
 
-# ---- clusters and their nodes ----
+# ---- clusters (two levels: tier groups containing category subclusters) and their nodes ----
 nodes = {}
 clusters = []
-for m in re.finditer(r"subgraph cluster_(\w+) \{(.*?)\n  \}", src, re.S):
-    cname, body = m.group(1), m.group(2)
-    if cname == "legend":
-        continue
-    lab = re.search(r'label="([^"]*)"', body)
-    clusters.append({"id": "cat_" + cname, "label": lab.group(1).replace("\\&", "&")})
+
+def parse_nodes(body, parent):
     for nm in re.finditer(r"\n\s+(\w+)\s*\[(.*?)\];", body, re.S):
         name, attrs = nm.group(1), nm.group(2)
         def attr(key):
@@ -44,7 +40,7 @@ for m in re.finditer(r"subgraph cluster_(\w+) \{(.*?)\n  \}", src, re.S):
         label = attr("label") or name
         node = {
             "id": name,
-            "parent": "cat_" + cname,
+            "parent": parent,
             "label": label.replace("\\n", "\n"),
             "level": LEVELS.get(color, "core"),
             "borderStyle": "double" if "peripheries=2" in attrs
@@ -54,6 +50,22 @@ for m in re.finditer(r"subgraph cluster_(\w+) \{(.*?)\n  \}", src, re.S):
             "tooltip": (attr("tooltip") or "").replace("\\n", "\n"),
         }
         nodes[name] = node
+
+for m in re.finditer(r"subgraph cluster_(\w+) \{(.*?)\n  \}", src, re.S):
+    cname, body = m.group(1), m.group(2)
+    if cname == "legend":
+        continue
+    inner_re = re.compile(r"subgraph cluster_(\w+) \{(.*?)\n    \}", re.S)
+    outer_only = inner_re.sub("", body)
+    lab = re.search(r'label="([^"]*)"', outer_only)
+    clusters.append({"id": "cat_" + cname, "label": lab.group(1).replace("\\&", "&"), "parent": None})
+    for im in inner_re.finditer(body):
+        iname, ibody = im.group(1), im.group(2)
+        ilab = re.search(r'label="([^"]*)"', ibody)
+        clusters.append({"id": "cat_" + iname, "label": ilab.group(1).replace("\\&", "&"),
+                         "parent": "cat_" + cname})
+        parse_nodes(ibody, "cat_" + iname)
+    parse_nodes(outer_only, "cat_" + cname)
 
 # ---- positions and sizes from graphviz ----
 plain = subprocess.run(["dot", "-Tplain", DOT], capture_output=True, text=True).stdout

@@ -1,16 +1,22 @@
 # Reduction graph
 
-The current state of the classification as a graph: nodes are rules (families collapsed, with
-counts), grouped by concern category; an edge points from a rule to the rules its reduction
-targets. Border color and style encode the level, which is also the *elimination stage* the rule
-belongs to — **reducible** (green, removed first), **rare/simplify** (violet dotted, the rewrite
-vocabulary, removed second), **expensive** (yellow dashed, `poly_simp`, `aci_simp` and `sko_ex`,
-removed last), and **core** (blue, bold, what is left). Two further markers sit outside the
+The current state of the classification as a graph, read **hierarchically**: the outermost
+boxes are the ladder tiers — **reducible** (green, stage 1), **rw+simp** (violet, stage 2, the
+rewrite vocabulary), and **core** (blue) — and each tier is subdivided by the logical concern
+categories (structural, clausal, binder, equality & rewriting, arithmetic, bitvector). The
+**expensive** rules (`poly_simp`, `aci_simp`, `bind`; yellow dashed) sit *inside the core box*:
+they are expandable — the last rung of the ladder removes every corpus instance — but in
+practice the idea is not to expand them, so they are core in everything but pedigree; their
+expansion edges are labeled as unused. `aci_simp` is grouped with the structural rules — what
+it checks is term-structure normalization (associativity, commutativity, identities,
+idempotence), not an equational theory. An edge points from a rule to the rules its reduction
+targets, so every arrow flows into (or within) the core box. Two markers sit outside the
 stages: **variant** (grey dashed) for `eq_transitive`/`eq_congruent`, which Carcara checks with
 the same functions as `trans`/`cong` and therefore neither counts nor eliminates, and **oracle**
-(red, double border) for the one rule no reduction reaches, `lia_generic`. Proposed-but-unadopted
-extensions (`equiv_intro`, `or_intro`; the `bind` generalization is noted on the `bind` node) are
-marked by a dashed border or a "(proposed)" note. Edge styles mirror the levels.
+(red, double border) for the one rule no reduction reaches, `lia_generic`, kept with the legacy
+group. Proposed-but-unadopted extensions (`equiv_intro`, `or_intro`; the `bind` generalization
+is noted on the `bind` node) are marked by a dashed border or a "(proposed)" note. Edge styles
+mirror the levels.
 
 Ubiquitous glue targets are omitted to keep the graph readable: nearly every reduction also uses
 `resolution`, `subproof`, and iff-introduction (`equiv_intro`, or its `equiv_neg1/2` derivation),
