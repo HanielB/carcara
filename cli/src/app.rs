@@ -230,6 +230,13 @@ pub struct ElaborationOptions {
     #[clap(long)]
     pub uncrowd_rotate: bool,
 
+    /// Keep the steps nothing on the path to the conclusion uses. By default the elaborated
+    /// output is restricted to the derivation of the empty-clause conclusion: unused input steps
+    /// are dropped when the proof is loaded, and steps the elaboration strands are dropped when
+    /// it is printed.
+    #[clap(long)]
+    pub keep_unused: bool,
+
     /// The pipeline of elaboration passes to use.
     #[clap(
         arg_enum,
@@ -507,6 +514,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
             sat_ref_tools: t.into_config(),
             allowed_rules: c.allowed_rules.unwrap_or_default().into_iter().collect(),
             rare_rules: None,
+            keep_unused: e.keep_unused,
         };
         (config, pipeline)
     }

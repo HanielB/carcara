@@ -271,16 +271,24 @@ pub fn check_and_elaborate<'s>(
     // Converting the command list restricts the forest to the derivation of the empty-clause
     // conclusion (a no-op for a proof without one): dead steps in the input never enter the node
     // representation, so no pass pays to carry or rebuild them. The passes themselves work from
-    // the same roots, and a trailing `prune` in the pipeline is left with only the steps the
-    // elaboration itself strands
-    let node = elaborator::prune(ast::ProofNodeForest::from_commands(proof.commands));
+    // the same roots, and printing filters out what the elaboration itself strands, so no
+    // trailing `prune` pass is needed. `--keep-unused` opts out of both
+    let keep_unused = elaborator_config.keep_unused;
+    let node = ast::ProofNodeForest::from_commands(proof.commands);
+    let node = if keep_unused {
+        node
+    } else {
+        elaborator::prune(node)
+    };
     let (elaborated, pipeline_durations) =
         elaborator::Elaborator::new(&mut pool, &problem, elaborator_config)
             .elaborate_with_stats(node, pipeline)?;
-    let elaborated = ast::Proof {
-        commands: elaborated.into_commands(),
-        ..proof
+    let commands = if keep_unused {
+        elaborated.into_commands()
+    } else {
+        elaborated.into_commands_pruned()
     };
+    let elaborated = ast::Proof { commands, ..proof };
 
     if collect_stats {
         run.elaboration = elaboration.elapsed();

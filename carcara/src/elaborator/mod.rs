@@ -49,6 +49,11 @@ pub struct Config {
 
     pub sat_ref_tools: Option<SatTools>,
 
+    /// Keep the steps nothing on the path to the conclusion uses: disables both the
+    /// conversion-time restriction of the forest to the conclusion's derivation and the
+    /// print-time filter, so unused input steps survive elaboration verbatim.
+    pub keep_unused: bool,
+
     /// The rules that the checker was told to accept as holes, via `--allowed-rules`. The `hoist`
     /// pass needs them to know which derivations it must not share, so that it cannot replace a
     /// real derivation by a holey one.
