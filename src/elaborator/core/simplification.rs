@@ -32,6 +32,10 @@ pub fn shuffle(
     step: &StepNode,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     if !aci_checkable(pool, &step.clause[0]) {
+        log::warn!(
+            "shuffle '{}': not an aci_simp instance, keeping step",
+            step.id
+        );
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
     Ok(Rc::new(ProofNode::Step(StepNode {
@@ -61,6 +65,17 @@ pub fn nary_elim(
         .is_some_and(|(op, _)| is_aci_op(op))
         && aci_checkable(pool, &step.clause[0]);
     if !renameable {
+        // The chainable and non-commutative cases are deliberately left; only an
+        // aci-compatible instance that fails the check is worth a warning
+        if match_term!((= l r) = &step.clause[0])
+            .and_then(|(l, _)| l.as_op())
+            .is_some_and(|(op, _)| is_aci_op(op))
+        {
+            log::warn!(
+                "nary_elim '{}': aci-headed but not an aci_simp instance, keeping step",
+                step.id
+            );
+        }
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
     Ok(Rc::new(ProofNode::Step(StepNode {
