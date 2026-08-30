@@ -54,7 +54,14 @@ pub fn check_assume_shared<CR: CollectResults + Send + Default>(
     for p in premises {
         let mut this_polyeq_time = Duration::ZERO;
 
-        let mut comp = Polyeq::new().mod_reordering(true).mod_nary(true);
+        // Alpha-equivalence is needed because expanding the premise's `let` bindings (with
+        // --expand-let-bindings) may rename bound variables that are shadowed by nested
+        // binders, and in general because the proof may use different bound variable names
+        // than the original problem.
+        let mut comp = Polyeq::new()
+            .mod_reordering(true)
+            .mod_nary(true)
+            .alpha_equiv(true);
         let result = comp.eq_with_time(term, p, &mut this_polyeq_time);
         let depth = comp.max_depth();
 

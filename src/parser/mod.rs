@@ -319,6 +319,14 @@ impl<'p, 's> Parser<'p, 's> {
             .is_some_and(|sort| *sort.as_ref() == Sort::Type)
     }
 
+    /// Returns `true` if the user declared or defined a sort with that name, via
+    /// `declare-sort`, `define-sort` or a datatype declaration.
+    fn is_user_declared_sort(&self, name: &str) -> bool {
+        self.state.sort_declarations.contains_key(name)
+            || self.state.sort_defs.contains_key(name)
+            || self.state.datatype_declarations.get(name).is_some()
+    }
+
     /// Returns a sort error if `got` does not equal `expected`.
     fn check_sort_eq(&mut self, expected: &Sort, got: &Rc<Sort>) -> Result<(), SortError> {
         if expected.is_compatible(got) {
@@ -2175,20 +2183,22 @@ impl<'p, 's> Parser<'p, 's> {
                 _ => return Err(ParserError::WrongNumberOfArgs(1.into(), args.len())),
             },
 
-            // From sets and relations extension
-            "Set" => {
+            // From sets and relations extension. These names are not reserved words, so a
+            // user declaration of the same name (e.g. `(declare-sort Set 0)`) takes
+            // precedence over the theory interpretation and is handled by the arms below.
+            "Set" if !self.is_user_declared_sort("Set") => {
                 assert_num_args(&args, 1)?;
                 Sort::Set(args[0].clone())
             }
-            "Tuple" => {
+            "Tuple" if !self.is_user_declared_sort("Tuple") => {
                 assert_num_args(&args, 1..)?;
                 Sort::Tuple(args)
             }
-            "UnitTuple" => {
+            "UnitTuple" if !self.is_user_declared_sort("UnitTuple") => {
                 assert_num_args(&args, 0)?;
                 Sort::Tuple(Vec::new())
             }
-            "Relation" => {
+            "Relation" if !self.is_user_declared_sort("Relation") => {
                 assert_num_args(&args, 1..)?;
                 Sort::Set(self.pool.add_sort(Sort::Tuple(args)))
             }
