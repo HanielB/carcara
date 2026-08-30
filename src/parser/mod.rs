@@ -2086,8 +2086,18 @@ impl<'p, 's> Parser<'p, 's> {
                 let args = self.parse_sequence(Self::parse_term, true)?;
                 let func = &self.state.function_defs[&func_name];
 
-                func.apply(self.pool, args)
-                    .map_err(|err| self.err(err, head_pos))
+                if func.params.is_empty() && !args.is_empty() {
+                    // A `:named` abbreviation is registered as a nullary definition, but the
+                    // term it names may itself be a function (e.g. a `lambda` shared by the
+                    // printer into application-head position); applying the name is applying
+                    // that term
+                    let body = func.body.clone();
+                    self.make_app(body, args)
+                        .map_err(|err| self.err(err, head_pos))
+                } else {
+                    func.apply(self.pool, args)
+                        .map_err(|err| self.err(err, head_pos))
+                }
             }
             Token::OpenParen => {
                 self.next_token()?;
