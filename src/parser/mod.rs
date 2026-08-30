@@ -202,7 +202,7 @@ impl FunctionDef {
 
         // Build a hash map of all the parameter names and the values they will
         // take
-        let substitution = self
+        let substitution: IndexMap<Rc<Term>, Rc<Term>> = self
             .params
             .iter()
             .zip(args)
@@ -830,11 +830,12 @@ impl<'p, 's> Parser<'p, 's> {
         // then it should be interpreted as a rational literal. The only exception to this is the
         // term '(/ 1 1)', which is still interpreted as a division term.
 
+        // Integer-valued real literals also count as integer constants here — this is how the
+        // printer writes rational literals (`(/ 1.0 999.0)`), so they must fold back into the
+        // same constant when an elaborated proof is re-parsed
         let [a, b] = [a, b].map(|t| match t.as_ref() {
             Term::Const(Constant::Integer(i)) => Some(i),
-            Term::Const(Constant::Real(r)) if self.interpret_ints_as_reals() && r.is_integer() => {
-                Some(r.numer())
-            }
+            Term::Const(Constant::Real(r)) if r.is_integer() => Some(r.numer()),
             _ => None,
         });
         let [a, b] = [a?, b?];
@@ -1713,7 +1714,7 @@ impl<'p, 's> Parser<'p, 's> {
         self.state.symbol_table.pop_scope();
 
         if self.config.expand_lets {
-            let substitution = bindings
+            let substitution: IndexMap<Rc<Term>, Rc<Term>> = bindings
                 .into_iter()
                 .map(|(name, value)| {
                     let var = Term::new_var(name, self.pool.sort(&value));
@@ -2065,7 +2066,7 @@ impl<'p, 's> Parser<'p, 's> {
                 self.expect_token(Token::CloseParen)?;
 
                 self.state.symbol_table.pop_scope();
-                let substitution = args
+                let substitution: IndexMap<Rc<Term>, Rc<Term>> = args
                     .into_iter()
                     .map(|(name, value)| {
                         let var = Term::new_var(name, self.pool.sort(&value));

@@ -1,0 +1,133 @@
+/* Floating per-page table of contents, anchored left of the content column
+   and vertically centered (positioned by pagetoc.js; hidden when no room). */
+.pagetoc {
+  display: none;
+  box-sizing: border-box;
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 220px;
+  max-height: 72vh;
+  overflow-y: auto;
+  font-size: 0.8em;
+  line-height: 1.45;
+  padding: 8px 10px 10px 10px;
+  background-color: var(--bg);
+  border: 1px solid var(--table-border-color, #ccc);
+  border-radius: 6px;
+  z-index: 100;
+}
+/* When the page's own margin is too narrow for the floating toc, carve a column for it out
+   of the page wrapper: the content shifts right by the card's width instead of the toc being
+   dropped. pagetoc.js adds the class only when it is needed, and only above 1080px. */
+body.pagetoc-reserve .page-wrapper > .page {
+  padding-left: 244px;
+}
+body.pagetoc-reserve .nav-wide-wrapper {
+  display: none;
+}
+
+/* Compact the wide prev/next chevrons into bottom-corner buttons so the
+   floating toc (vertically centered) never blocks them. */
+@media only screen and (min-width: 1080px) {
+  .nav-wide-wrapper .nav-chapters {
+    top: auto;
+    bottom: 20px;
+    min-width: 60px;
+    max-width: 60px;
+    height: 70px;
+    border-radius: 6px;
+  }
+}
+.pagetoc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--table-border-color, #ccc);
+  padding-bottom: 5px;
+  margin-bottom: 7px;
+}
+.pagetoc-title {
+  font-weight: bold;
+  color: var(--fg);
+}
+.pagetoc-count {
+  font-size: 0.85em;
+  font-family: var(--mono-font, monospace);
+  color: var(--sidebar-fg, var(--fg));
+  opacity: 0.7;
+}
+.pagetoc-body {
+  position: relative;
+  padding-left: 14px;
+}
+.pagetoc-track {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--table-border-color, #ddd);
+  border-radius: 1px;
+}
+.pagetoc-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  background: var(--sidebar-active, var(--links));
+  border-radius: 1px;
+  transition: height 0.15s ease-out;
+}
+.pagetoc-marker {
+  position: absolute;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sidebar-active, var(--links));
+  transition: top 0.15s ease-out;
+}
+.pagetoc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pagetoc-list li {
+  margin: 0;
+  padding: 2px 0;
+  position: relative;
+}
+.pagetoc-list li::before {
+  content: "\2022";
+  position: absolute;
+  left: -1px;
+  color: var(--sidebar-fg, var(--fg));
+  opacity: 0.45;
+  font-size: 0.9em;
+}
+.pagetoc-list li.pagetoc-h2 a {
+  padding-left: 10px;
+}
+.pagetoc-list li.pagetoc-h3::before {
+  content: "\2013";
+  left: 9px;
+}
+.pagetoc-list li.pagetoc-h3 a {
+  padding-left: 22px;
+}
+.pagetoc a {
+  color: var(--sidebar-fg, var(--fg));
+  text-decoration: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pagetoc a:hover {
+  color: var(--sidebar-active, var(--links));
+}
+.pagetoc a.active {
+  color: var(--sidebar-active, var(--links));
+  font-weight: bold;
+}

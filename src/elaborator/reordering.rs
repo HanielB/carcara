@@ -39,7 +39,8 @@ fn get_recomputation_func(rule: &str) -> Option<RecomputationFunc> {
         // Weakening and contraction recomputation is infallible, so we have to wrap in `Ok`
         "weakening" => |step| Ok(recompute_weakening(step)),
         "contraction" => |step| Ok(recompute_contraction(step)),
-        "resolution" | "th_resolution" | "strict_resolution" => recompute_resolution,
+        "resolution" | "th_resolution" => |step| recompute_resolution(step, false),
+        "strict_resolution" => |step| recompute_resolution(step, true),
         _ => return None,
     })
 }
@@ -59,7 +60,7 @@ fn recompute_contraction(step: &StepNode) -> Vec<Rc<Term>> {
     new
 }
 
-fn recompute_resolution(step: &StepNode) -> Result<Vec<Rc<Term>>, ElaborationError> {
+fn recompute_resolution(step: &StepNode, strict: bool) -> Result<Vec<Rc<Term>>, ElaborationError> {
     if step.premises.len() < 2 {
         return Err(CheckerError::WrongNumberOfPremises((2..).into(), step.premises.len()).into());
     }
@@ -78,7 +79,62 @@ fn recompute_resolution(step: &StepNode) -> Result<Vec<Rc<Term>>, ElaborationErr
             (pivot, polarity)
         })
         .collect();
-    Ok(apply_naive_resolution(&premise_clauses, &pivots)?)
+    if strict {
+        Ok(apply_naive_resolution(&premise_clauses, &pivots)?)
+    } else {
+        Ok(apply_set_resolution(&premise_clauses, &pivots)?)
+    }
+}
+
+/// Applies the resolution steps under the *set* semantics of the checker's
+/// `resolution_with_args`: literals are deduplicated, and removing a pivot removes its (single)
+/// set entry — which is how the elaboration passes compute crowded resolutions. The naive
+/// multiset version below is kept for `strict_resolution`, whose checker removes exactly one
+/// copy per step.
+fn apply_set_resolution(
+    premises: &[&[Rc<Term>]],
+    pivots: &[(&Rc<Term>, bool)],
+) -> Result<Vec<Rc<Term>>, ResolutionError> {
+    fn push(current: &mut Vec<Rc<Term>>, t: &Rc<Term>) {
+        if !current.contains(t) {
+            current.push(t.clone());
+        }
+    }
+
+    let mut current = Vec::new();
+    for t in premises[0] {
+        push(&mut current, t);
+    }
+
+    for (&premise, &(pivot, polarity)) in premises[1..].iter().zip(pivots) {
+        let is_pivot = |x: &Rc<Term>, is_current: bool| {
+            if is_current == polarity {
+                x == pivot
+            } else {
+                x.remove_negation() == Some(pivot)
+            }
+        };
+
+        let pos = current
+            .iter()
+            .position(|x| is_pivot(x, true))
+            .ok_or_else(|| ResolutionError::PivotNotFound(pivot.clone()))?;
+        current.remove(pos);
+
+        let mut found = false;
+        for t in premise {
+            if !found && is_pivot(t, false) {
+                found = true;
+            } else {
+                push(&mut current, t);
+            }
+        }
+        if !found {
+            return Err(ResolutionError::PivotNotFound(pivot.clone()));
+        }
+    }
+
+    Ok(current)
 }
 
 fn apply_naive_resolution(

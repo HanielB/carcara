@@ -155,3 +155,32 @@ fn test_node() {
     let got = node.into_commands();
     assert_eq!(original.commands, got);
 }
+
+#[test]
+fn test_forest_traversal_visits_shared_nodes_once() {
+    use crate::parser::tests::*;
+
+    // every command is a root of the forest, and `t2` and `t3` share `t1`
+    let original = "
+        (assume h0 (= 0 0))
+        (step t1 (cl true) :rule blah :premises (h0))
+        (step t2 (cl true) :rule blah :premises (t1))
+        (step t3 (cl true) :rule blah :premises (t1))
+        (step t4 (cl) :rule blah)
+    ";
+    let mut pool = PrimitivePool::new();
+    let original = parse_proof(&mut pool, original);
+    let forest = ProofNodeForest::from_commands(original.commands);
+
+    // traversing the roots one by one visits the shared prefix of the proof once per root
+    let mut root_by_root = 0;
+    for root in &forest.0 {
+        root.traverse(|_| root_by_root += 1);
+    }
+    assert_eq!(root_by_root, 10);
+
+    // sharing the set of visited nodes visits each of the five nodes exactly once
+    let mut visited = Vec::new();
+    forest.traverse(|node| visited.push(node.id().to_owned()));
+    assert_eq!(visited, ["h0", "t1", "t2", "t3", "t4"]);
+}

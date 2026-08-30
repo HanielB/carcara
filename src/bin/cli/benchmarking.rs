@@ -17,12 +17,34 @@ struct JobDescriptor<'a> {
     run_index: usize,
 }
 
+/// Forces the allocator to finish the bookkeeping caused by parsing, so that its cost is
+/// measured as part of parsing instead of being charged to an unrelated proof step.
+///
+/// Parsing ends by dropping the parser state and the proof source text all at once. glibc's
+/// malloc does not do the corresponding work at that point: the freed chunks are parked in the
+/// unsorted bin, and walking that bin, coalescing neighbours and inserting into the sorted large
+/// bins is deferred to the *next* allocation requests. On large proofs that backlog was measured
+/// at 50-90 ms, and it was paid by whichever step happened to allocate first once checking had
+/// begun -- appearing in `steps.csv` as a single step of some rule hundreds of times slower than
+/// that rule's median, and inflating the checking time by an amount that belongs to parsing.
+///
+/// Repeatedly requesting a large-bin-sized chunk (well below the mmap threshold, so it goes
+/// through the bins) makes the allocator process the backlog here, while the parsing timer is
+/// still running. On a heap that has no backlog, or under an allocator that does not defer this
+/// work, the loop costs well under a millisecond.
+fn settle_allocator() {
+    for _ in 0..1000 {
+        std::hint::black_box(Vec::<u8>::with_capacity(64 * 1024));
+    }
+}
+
 fn run_job<T: CollectResults + Default + Send>(
     results: &mut T,
     job: JobDescriptor,
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> Result<carcara::Status, carcara::Error> {
     let proof_file_name = job.proof_file.to_str().unwrap();
     let mut checker_stats = checker::CheckerStatistics {
@@ -39,9 +61,10 @@ fn run_job<T: CollectResults + Default + Send>(
     let (problem, proof, rules, mut pool) = parser::parse_instance(
         parser::Source::file(job.problem_file, &mut String::new())?,
         parser::Source::file(job.proof_file, &mut String::new())?,
-        None,
+        rare_rules.map(parser::Source::from),
         parser_config,
     )?;
+    settle_allocator(); // still inside the parsing measurement, see the function's documentation
     let parsing = parsing.elapsed();
 
     let mut checker = checker::ProofChecker::new(&mut pool, &rules, checker_config);
@@ -51,7 +74,9 @@ fn run_job<T: CollectResults + Default + Send>(
     let checking_result = checker.check_with_stats(&problem, &proof, &mut checker_stats);
     let checking = checking.elapsed();
 
-    let (elaboration, pipeline_durations) = if let Some((config, pipeline)) = elaborator_config {
+    let (elaboration, pipeline_durations) = if let Some((mut config, pipeline)) = elaborator_config
+    {
+        config.rare_rules = Some(rules.clone());
         let elaboration = Instant::now();
         let node = ast::ProofNodeForest::from_commands(proof.commands);
         let (elaborated, pipeline_durations) = elaborator::Elaborator::new(
@@ -89,6 +114,7 @@ fn worker_thread<T: CollectResults + Default + Send>(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> T {
     let mut results = T::default();
 
@@ -99,6 +125,7 @@ fn worker_thread<T: CollectResults + Default + Send>(
             parser_config,
             checker_config.clone(),
             elaborator_config.clone(),
+            rare_rules,
         );
         match result {
             Ok(carcara::Status::Holey) => results.register_holey(),
@@ -120,6 +147,7 @@ pub fn run_benchmark<T: CollectResults + Default + Send>(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
 ) -> T {
     const STACK_SIZE: usize = 128 * 1024 * 1024;
 
@@ -148,7 +176,13 @@ pub fn run_benchmark<T: CollectResults + Default + Send>(
                 thread::Builder::new()
                     .stack_size(STACK_SIZE)
                     .spawn_scoped(s, move || {
-                        worker_thread(jobs_queue, parser_config, checker_config, elaborator_config)
+                        worker_thread(
+                            jobs_queue,
+                            parser_config,
+                            checker_config,
+                            elaborator_config,
+                            rare_rules,
+                        )
                     })
                     .unwrap()
             })
@@ -170,6 +204,7 @@ pub fn run_csv_benchmark(
     parser_config: parser::Config,
     checker_config: checker::Config,
     elaborator_config: Option<(elaborator::Config, Vec<elaborator::ElaborationPass>)>,
+    rare_rules: Option<&str>,
     runs_file: &str,
     steps_file: &str,
 ) -> Result<(), carcara::Error> {
@@ -180,6 +215,7 @@ pub fn run_csv_benchmark(
         parser_config,
         checker_config,
         elaborator_config,
+        rare_rules,
     );
     println!(
         "{} errors encountered during benchmark",

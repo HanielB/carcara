@@ -202,8 +202,16 @@ pub struct CheckingOptions {
 
 #[derive(ValueEnum, Clone)]
 pub enum ElaborationPass {
+    Prune,
+    Hoist,
+    DeepHoist,
     Polyeq,
     Hole,
+    Core,
+    CoreExpensive,
+    CoreSimpRare,
+    CoreNoRare,
+    CoreTaut,
     Local,
     Uncrowd,
     Reordering,
@@ -217,12 +225,19 @@ pub struct ElaborationOptions {
     #[clap(long)]
     pub uncrowd_rotate: bool,
 
+    /// Keep the steps nothing on the path to the conclusion uses. By default the elaborated
+    /// output is restricted to the derivation of the empty-clause conclusion: unused input steps
+    /// are dropped when the proof is loaded, and steps the elaboration strands are dropped when
+    /// it is printed.
+    #[clap(long)]
+    pub keep_unused: bool,
+
     /// The pipeline of elaboration passes to use.
     #[clap(
         value_enum,
         long,
         num_args = 1..,
-        default_values = &["polyeq", "hole", "local", "uncrowd", "reordering"]
+        default_values = &["hoist", "polyeq", "hole", "local", "uncrowd", "reordering"]
     )]
     pub pipeline: Vec<ElaborationPass>,
 }
@@ -301,6 +316,10 @@ pub struct BenchCommandOptions {
     /// Also elaborate each proof in addition to parsing and checking.
     #[clap(long)]
     pub elaborate: bool,
+
+    /// A file of `declare-rare-rule` definitions for checking `rare_rewrite` steps.
+    #[clap(long)]
+    pub rare_file: Option<String>,
 
     #[clap(flatten)]
     pub elaboration: ElaborationOptions,
@@ -480,17 +499,25 @@ impl IntoConfig for (CheckingOptions, ToolOptions) {
     }
 }
 
-impl IntoConfig for (ElaborationOptions, ToolOptions) {
+impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
     type Output = (elaborator::Config, Vec<elaborator::ElaborationPass>);
 
     fn into_config(self) -> Self::Output {
-        let (e, t) = self;
+        let (e, t, c) = self;
         let pipeline: Vec<_> = e
             .pipeline
             .into_iter()
             .map(|p| match p {
+                ElaborationPass::Prune => elaborator::ElaborationPass::Prune,
+                ElaborationPass::Hoist => elaborator::ElaborationPass::Hoist,
+                ElaborationPass::DeepHoist => elaborator::ElaborationPass::DeepHoist,
                 ElaborationPass::Polyeq => elaborator::ElaborationPass::Polyeq,
                 ElaborationPass::Hole => elaborator::ElaborationPass::Hole,
+                ElaborationPass::Core => elaborator::ElaborationPass::Core,
+                ElaborationPass::CoreExpensive => elaborator::ElaborationPass::CoreExpensive,
+                ElaborationPass::CoreSimpRare => elaborator::ElaborationPass::CoreSimpRare,
+                ElaborationPass::CoreNoRare => elaborator::ElaborationPass::CoreNoRare,
+                ElaborationPass::CoreTaut => elaborator::ElaborationPass::CoreTaut,
                 ElaborationPass::Local => elaborator::ElaborationPass::Local,
                 ElaborationPass::Uncrowd => elaborator::ElaborationPass::Uncrowd,
                 ElaborationPass::Reordering => elaborator::ElaborationPass::Reordering,
@@ -502,7 +529,9 @@ impl IntoConfig for (ElaborationOptions, ToolOptions) {
             .lia_solver(t.smt_solver.clone())
             .uncrowd_rotation(e.uncrowd_rotate)
             .hole_solver(t.smt_solver.clone())
-            .sat_ref_tools(t.into_config());
+            .sat_ref_tools(t.into_config())
+            .allowed_rules(c.allowed_rules.unwrap_or_default().into_iter().collect())
+            .keep_unused(e.keep_unused);
         (config, pipeline)
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 /// An alternative, graph-based representation for an Alethe proof.
 ///
@@ -110,6 +111,29 @@ impl ProofNode {
     }
 }
 
+/// The set of nodes already visited by a traversal.
+///
+/// [`Rc<ProofNode>::traverse`] starts from an empty set, so an analysis that traverses the roots of
+/// a [`ProofNodeForest`] one by one visits every shared subgraph once per root, which is quadratic
+/// in the amount of sharing. Such callers should instead share a single `VisitedNodes` between the
+/// traversals, with [`Rc<ProofNode>::traverse_with`] or [`ProofNodeForest::traverse`].
+#[derive(Debug, Default)]
+pub struct VisitedNodes {
+    seen: HashSet<Rc<ProofNode>>,
+    did_outbound: HashSet<Rc<ProofNode>>,
+}
+
+impl VisitedNodes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns `true` if the given node was already visited.
+    pub fn contains(&self, node: &Rc<ProofNode>) -> bool {
+        self.seen.contains(node)
+    }
+}
+
 impl Rc<ProofNode> {
     /// Constructs a new `Rc<ProofNode>`.
     ///
@@ -125,21 +149,27 @@ impl Rc<ProofNode> {
     }
 
     /// Visits every node of the proof, in postorder, and calls `visit_func` on them.
-    pub fn traverse<F>(&self, mut visit_func: F)
+    pub fn traverse<F>(&self, visit_func: F)
     where
         F: FnMut(&Rc<ProofNode>),
     {
-        use std::collections::HashSet;
+        self.traverse_with(&mut VisitedNodes::new(), visit_func);
+    }
 
-        let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
+    /// Like [`Rc<ProofNode>::traverse`], but takes the set of already visited nodes, so that it can
+    /// be shared with other traversals. Nodes in the set are not visited again.
+    pub fn traverse_with<F>(&self, visited: &mut VisitedNodes, mut visit_func: F)
+    where
+        F: FnMut(&Rc<ProofNode>),
+    {
+        let VisitedNodes { seen, did_outbound } = visited;
         let mut todo: Vec<(&Rc<ProofNode>, bool)> = vec![(self, false)];
-        let mut did_outbound: HashSet<&Rc<ProofNode>> = HashSet::new();
 
         loop {
             let Some((node, is_done)) = todo.pop() else {
                 return;
             };
-            if !is_done && seen.contains(&node) {
+            if !is_done && seen.contains(node) {
                 continue;
             }
 
@@ -157,8 +187,8 @@ impl Rc<ProofNode> {
                 }
                 ProofNode::Subproof(s) if !is_done => {
                     // First, we add all of the subproof's outbound premises if he haven't already
-                    if !did_outbound.contains(&node) {
-                        did_outbound.insert(node);
+                    if !did_outbound.contains(node) {
+                        did_outbound.insert(node.clone());
                         todo.push((node, false));
                         todo.extend(s.outbound_premises.iter().map(|premise| (premise, false)));
                         continue;
@@ -172,7 +202,7 @@ impl Rc<ProofNode> {
             };
 
             visit_func(node);
-            seen.insert(node);
+            seen.insert(node.clone());
         }
     }
 
@@ -265,7 +295,29 @@ impl ProofNodeForest {
 
     /// Converts a `ProofNodeForest` into a vector of [`ProofCommand`]s.
     pub fn into_commands(&self) -> Vec<ProofCommand> {
-        proof_nodes_to_list(self)
+        proof_nodes_to_list(self, false)
+    }
+
+    /// Like [`ProofNodeForest::into_commands`], but emits only the derivation of the forest's
+    /// empty-clause conclusion(s): dead roots, dead `extra_steps` and the assumptions nothing
+    /// reaches are not printed. A forest with no empty-clause root is emitted in full — there is
+    /// no conclusion to restrict to.
+    pub fn into_commands_pruned(&self) -> Vec<ProofCommand> {
+        proof_nodes_to_list(self, true)
+    }
+
+    /// Visits every node of the forest, in postorder, and calls `visit_func` on them.
+    ///
+    /// Nodes shared by several roots are visited only once, since all roots are traversed with the
+    /// same set of visited nodes.
+    pub fn traverse<F>(&self, mut visit_func: F)
+    where
+        F: FnMut(&Rc<ProofNode>),
+    {
+        let mut visited = VisitedNodes::new();
+        for root in &self.0 {
+            root.traverse_with(&mut visited, &mut visit_func);
+        }
     }
 }
 
@@ -373,14 +425,92 @@ fn proof_list_to_nodes(commands: Vec<ProofCommand>) -> ProofNodeForest {
 }
 
 /// Converts a `ProofNode` into a list of proof commands.
-fn proof_nodes_to_list(proof: &ProofNodeForest) -> Vec<ProofCommand> {
+/// The `assume` commands belonging to a subproof's own scope, in the order the proof reaches
+/// them. They have to be emitted before its steps, which is not where a premise-following
+/// traversal would first reach them.
+fn scope_assumes(subproof: &SubproofNode, depth: usize) -> Vec<&Rc<ProofNode>> {
+    use std::collections::HashSet;
+
+    let mut out = Vec::new();
+    let mut seen: HashSet<&Rc<ProofNode>> = HashSet::new();
+    let mut stack: Vec<&Rc<ProofNode>> = vec![&subproof.last_step];
+    stack.extend(subproof.extra_steps.iter());
+    while let Some(node) = stack.pop() {
+        if !seen.insert(node) {
+            continue;
+        }
+        match node.as_ref() {
+            ProofNode::Assume { depth: d, .. } => {
+                if *d == depth {
+                    out.push(node);
+                }
+            }
+            ProofNode::Step(s) => stack.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(s.previous_step.iter()),
+            ),
+            ProofNode::Subproof(s) => {
+                stack.push(&s.last_step);
+                stack.extend(s.extra_steps.iter());
+                stack.extend(s.outbound_premises.iter());
+            }
+        }
+    }
+    out.reverse();
+    out
+}
+
+/// The nodes reachable from the forest's empty-clause roots through the links the printer emits:
+/// premises, discharges, previous-step chains and subproof closings. Membership in a root list or
+/// an `extra_steps` alone does not keep a node alive. Returns `None` when the forest has no
+/// empty-clause root, so a partial proof is printed in full.
+fn reachable_from_goals(proof: &ProofNodeForest) -> Option<std::collections::HashSet<Rc<ProofNode>>> {
+    let goals: Vec<&Rc<ProofNode>> = proof.0.iter().filter(|n| n.clause().is_empty()).collect();
+    if goals.is_empty() {
+        return None;
+    }
+    let mut reached: std::collections::HashSet<Rc<ProofNode>> = std::collections::HashSet::new();
+    let mut todo: Vec<Rc<ProofNode>> = goals.into_iter().cloned().collect();
+    while let Some(node) = todo.pop() {
+        if !reached.insert(node.clone()) {
+            continue;
+        }
+        match node.as_ref() {
+            ProofNode::Assume { .. } => (),
+            ProofNode::Step(s) => todo.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(&s.previous_step)
+                    .cloned(),
+            ),
+            ProofNode::Subproof(s) => todo.push(s.last_step.clone()),
+        }
+    }
+    Some(reached)
+}
+
+fn proof_nodes_to_list(proof: &ProofNodeForest, prune: bool) -> Vec<ProofCommand> {
     use std::collections::{HashMap, HashSet};
 
     let mut stack: Vec<Vec<ProofCommand>> = vec![Vec::new()];
 
+    // With pruning on, only the conclusion's derivation is emitted: a live-node filter guards
+    // every push that is driven by membership (roots, extra steps, scope assumes, outbound
+    // premises) rather than by an emitted step's own references
+    let reached = if prune { reachable_from_goals(proof) } else { None };
+    let live = |node: &Rc<ProofNode>| reached.as_ref().is_none_or(|r| r.contains(node));
+
     let mut seen: HashMap<&Rc<ProofNode>, (usize, usize)> = HashMap::new();
-    let mut todo: Vec<(&Rc<ProofNode>, bool)> =
-        proof.0.iter().rev().map(|node| (node, false)).collect();
+    let mut todo: Vec<(&Rc<ProofNode>, bool)> = proof
+        .0
+        .iter()
+        .filter(|node| live(node))
+        .rev()
+        .map(|node| (node, false))
+        .collect();
     let mut did_outbound: HashSet<&Rc<ProofNode>> = HashSet::new();
 
     loop {
@@ -429,13 +559,38 @@ fn proof_nodes_to_list(proof: &ProofNodeForest) -> Vec<ProofCommand> {
                 if !did_outbound.contains(&node) {
                     did_outbound.insert(node);
                     todo.push((node, false));
-                    todo.extend(s.outbound_premises.iter().map(|premise| (premise, false)));
+                    todo.extend(
+                        s.outbound_premises
+                            .iter()
+                            .filter(|premise| live(premise))
+                            .map(|premise| (premise, false)),
+                    );
                     continue;
                 }
 
                 todo.push((node, true));
                 todo.push((&s.last_step, false));
-                todo.extend(s.extra_steps.iter().rev().map(|node| (node, false)));
+                todo.extend(
+                    s.extra_steps
+                        .iter()
+                        .filter(|node| live(node))
+                        .rev()
+                        .map(|node| (node, false)),
+                );
+
+                // A subproof's `assume` commands have to precede its steps, while this traversal
+                // reaches a node when a premise first needs it — which, for a proof an elaborator
+                // rebuilt, can be after several steps. Emitting the scope's own assumptions
+                // before anything else puts them where the format wants them
+                let assumes = scope_assumes(s, stack.len());
+                todo.extend(
+                    assumes
+                        .into_iter()
+                        .filter(|node| live(node))
+                        .rev()
+                        .map(|node| (node, false)),
+                );
+
                 stack.push(Vec::new());
                 continue;
             }

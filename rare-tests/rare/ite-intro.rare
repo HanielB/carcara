@@ -1,0 +1,8 @@
+(declare-rare-rule ite-true-cond ((@T0 Type) (x1 @T0) (y1 @T0))
+  :args (x1 y1)
+  :conclusion (= (ite true x1 y1) x1)
+)
+(declare-rare-rule ite-false-cond ((@T0 Type) (x1 @T0) (y1 @T0))
+  :args (x1 y1)
+  :conclusion (= (ite false x1 y1) y1)
+)
