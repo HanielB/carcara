@@ -106,3 +106,24 @@ reduction on 4 QF\_UFIDL/uclid veriT proofs at `core-full`, ~27 veriT
 `rare_rewrite`-reduction warnings.
 
 The rerun binary is `carcara 1.1.0 [git 23cac212 coreAlethe-upstream]`.
+
+## Addendum (2026-08-31): the `onepoint` replay guard, removed
+
+Round 2 of the SMT-LIB evaluation localized the remaining `bind` incompleteness
+to a single guard: the replay refused any nested scope closed by `onepoint`
+("its side condition is recomputed from the substituted body"). The refusal was
+conservative, not necessary: the body's point equations and the anchor's
+assigned values are transported by the *same* substitution, and the eliminated
+variables are never substituted (the shadows guard), so the substituted scope
+offers exactly the substituted points its transported anchor assigns — the
+side condition commutes. Removed in `3cbabbcb`; the `onepoint` scope now flows
+through the generic nested-scope path.
+
+Validated on every guard-hitting class the round-2 warning digest named:
+LIA/tptp (`NUM915/916/918`), UF (`stream_processor`), and the LRA Monniaux-QE
+family — all reduce to **zero** `bind` steps and re-check at the elaborated
+granularity, with `CARCARA_VALIDATE_FOREST` clean; 388 tests pass; covered
+local-corpus instances elaborate byte-identically (6/6). Since `onepoint` was
+the *only* bind-failure class in the digest, the next round should take cvc5's
+kept `bind` residue from 926k to (near) zero. Static rerun binary:
+`carcara 1.1.0 [git 3cbabbcb coreAlethe-upstream]`.
