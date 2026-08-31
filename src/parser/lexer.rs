@@ -239,15 +239,20 @@ impl<'s> Lexer<'s> {
     /// At the end, all characters in the returned string will satisfy the predicate, and
     /// `self.current_char` will be the first character that didn't satisfy the predicate.
     fn read_chars_while<P: Fn(char) -> bool>(&mut self, predicate: P) -> String {
-        let mut result = String::new();
+        // The characters come straight from the source, so the token is a slice of it: scanning
+        // first and copying the slice at the end costs one exact-size allocation, instead of the
+        // repeated grow-and-recopy of pushing each character onto a growing `String` (token
+        // reading is the hottest part of the lexer)
+        let start = self.chars.as_str();
+        let mut len = 0;
         while let Some(c) = self.current() {
             if !predicate(c) {
                 break;
             }
-            result.push(c);
+            len += c.len_utf8();
             self.next_char();
         }
-        result
+        start[..len].to_owned()
     }
 
     /// Reads and drops characters until a non-whitespace character is encountered.

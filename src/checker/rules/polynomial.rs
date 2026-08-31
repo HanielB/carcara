@@ -32,65 +32,91 @@ impl Polynomial {
     /// multiplications, and flattens it to polynomial, calculating the coefficient of each
     /// monomial.
     fn from_term(term: &Rc<Term>) -> Self {
-        let mut result = Self::new();
-        result.add_term(term, &Rational::from(1));
-        result
+        let mut memo = IndexMap::new();
+        Self::of_term(term, &mut memo)
     }
 
-    /// Processes a term and adds it to the polynomial.
-    fn add_term(&mut self, term: &Rc<Term>, coeff: &Rational) {
-        // We traverse the term without using a cache for the same reasons as `LinearComb`.
-        match term.as_ref() {
-            Term::Op(Operator::Add | Operator::BvAdd, args) => {
-                for a in args {
-                    self.add_term(a, coeff);
-                }
-            }
+    /// Returns the polynomial of `term`, memoizing each subterm's polynomial so the term is
+    /// traversed as a DAG. The traversal used to thread the occurrence's coefficient through the
+    /// recursion, which made memoization impossible and the flattening exponential on terms with
+    /// heavy sharing (a single `poly_simp` step over a shared bit-blasted term took seconds);
+    /// instead, each subterm's polynomial is computed once, and an occurrence scales a clone of
+    /// the memoized value by its coefficient.
+    fn of_term(term: &Rc<Term>, memo: &mut IndexMap<Rc<Term>, Polynomial>) -> Self {
+        if let Some(p) = memo.get(term) {
+            return p.clone();
+        }
+        let result = match term.as_ref() {
+            Term::Op(Operator::Add | Operator::BvAdd, args) => args
+                .iter()
+                .map(|a| Self::of_term(a, memo))
+                .reduce(Self::add)
+                .unwrap_or_else(Self::new),
             Term::Op(Operator::Sub | Operator::BvNeg, args) if args.len() == 1 => {
-                self.add_term(&args[0], &coeff.as_neg());
+                let mut p = Self::of_term(&args[0], memo);
+                p.neg();
+                p
             }
             Term::Op(Operator::Sub | Operator::BvSub, args) => {
-                self.add_term(&args[0], coeff);
-                for a in &args[1..] {
-                    self.add_term(a, &coeff.as_neg());
-                }
+                let first = Self::of_term(&args[0], memo);
+                args[1..]
+                    .iter()
+                    .fold(first, |acc, a| acc.sub(Self::of_term(a, memo)))
             }
-            Term::Op(Operator::Mult | Operator::BvMul, args) => {
-                let result = args.iter().map(Self::from_term).reduce(Self::mul).unwrap();
-                for (var, inner_coeff) in result.0 {
-                    self.insert(var, inner_coeff * coeff);
-                }
-                self.1 += coeff * result.1;
-            }
+            Term::Op(Operator::Mult | Operator::BvMul, args) => args
+                .iter()
+                .map(|a| Self::of_term(a, memo))
+                .reduce(Self::mul)
+                .unwrap(),
             Term::Op(Operator::RealDiv, args)
                 if args.len() == 2 && args[1].as_fraction().is_some_and(|r| !r.is_zero()) =>
             {
                 let r = args[1].as_fraction().unwrap();
-                self.add_term(&args[0], &(coeff / r));
+                let mut p = Self::of_term(&args[0], memo);
+                p.scale(&(Rational::from(1) / r));
+                p
             }
-            Term::Op(Operator::ToReal, args) => {
-                self.add_term(&args[0], coeff);
-            }
+            Term::Op(Operator::ToReal, args) => Self::of_term(&args[0], memo),
             // We check for division by zero separately because `.as_fraction` panics if the
             // denominator is zero. In this case, we consider the term an atom.
             Term::Op(Operator::RealDiv | Operator::IntDiv, args)
                 if args.len() == 2 && args[1].as_fraction().is_some_and(|r| r.is_zero()) =>
             {
-                self.insert(Monomial(vec![term.clone()]), coeff.clone());
+                Self::atom(term.clone())
             }
             _ => {
-                if let Some(mut r) = term.as_fraction() {
-                    r *= coeff;
-                    self.1 += r;
+                if let Some(r) = term.as_fraction() {
+                    Self(IndexMap::new(), r)
                 } else if let Some((value, _)) = term.as_bitvector() {
                     // The width is irrelevant for the normalization, overflow will be dealt with
                     // later, using the `modulo` method
-                    self.1 += Rational::from(value) * coeff;
+                    Self(IndexMap::new(), Rational::from(value))
                 } else {
-                    self.insert(Monomial(vec![term.clone()]), coeff.clone());
+                    Self::atom(term.clone())
                 }
             }
+        };
+        memo.insert(term.clone(), result.clone());
+        result
+    }
+
+    /// The polynomial consisting of just `term` as a monomial, with coefficient one.
+    fn atom(term: Rc<Term>) -> Self {
+        let mut p = Self::new();
+        p.insert(Monomial(vec![term]), Rational::from(1));
+        p
+    }
+
+    /// Multiplies every coefficient (and the constant) by `c`.
+    fn scale(&mut self, c: &Rational) {
+        if c.is_zero() {
+            *self = Self::new();
+            return;
         }
+        for coeff in self.0.values_mut() {
+            *coeff *= c;
+        }
+        self.1 *= c;
     }
 
     fn mul(self, other: Self) -> Self {
