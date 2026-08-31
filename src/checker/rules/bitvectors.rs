@@ -1,6 +1,9 @@
 use super::{CheckerError, RuleArgs, RuleResult, assert_eq};
 use crate::{
-    ast::{Operator, ParamOperator, Rc, Sort, Term, build_term, match_term_err, pool::TermPool},
+    ast::{
+        Constant, Operator, ParamOperator, Rc, Sort, Term, build_term, match_term_err,
+        pool::TermPool,
+    },
     checker::rules::assert_clause_len,
 };
 use rug::Integer;
@@ -16,6 +19,18 @@ fn bitvector_size(pool: &mut dyn TermPool, term: &Rc<Term>) -> usize {
 fn get_term_bits(term: &Rc<Term>, pool: &mut dyn TermPool) -> Vec<Rc<Term>> {
     if let Some((Operator::BvBbTerm, args_x)) = term.as_op() {
         args_x.to_vec()
+    } else if let Term::Const(Constant::BitVec(value, width)) = term.as_ref() {
+        // The bits of a constant are boolean constants, matching cvc5's bitblaster, which
+        // constant-folds `@bit_of` applications on constants
+        (0..*width)
+            .map(|i| {
+                if value.get_bit(i as u32) {
+                    pool.bool_true()
+                } else {
+                    pool.bool_false()
+                }
+            })
+            .collect()
     } else {
         (0..bitvector_size(pool, term))
             .map(|i| {
@@ -39,7 +54,9 @@ fn ripple_carry_adder(
     let size = x.len();
     let mut carries = vec![carry.unwrap_or_else(|| pool.bool_false())];
 
-    for i in 1..size {
+    // `carries[i]` is the carry into bit `i`, so `carries[size]` is the carry out of the whole
+    // addition
+    for i in 1..=size {
         let carry_i = build_term!(
           pool,
             (or
@@ -625,8 +642,15 @@ fn bitblast_shift_op(
         }
     }
 
+    // If the shift amount is out of range, an arithmetic right shift results in all sign bits,
+    // while the other shifts result in all zeros
+    let out_of_range_bit = if op == Operator::BvAShr {
+        sign_bit
+    } else {
+        pool.bool_false()
+    };
     for bit in &mut res {
-        *bit = build_term!(pool, (ite {y_ult_size.clone()} {bit.clone()} false));
+        *bit = build_term!(pool, (ite {y_ult_size.clone()} {bit.clone()} {out_of_range_bit.clone()}));
     }
 
     pool.add(Term::Op(Operator::BvBbTerm, res))
@@ -702,12 +726,13 @@ fn bitblast_udiv_urem_rec(
         .map(|yi| build_term!(pool, (not {yi.clone()})))
         .collect();
 
-    let (_, co1) = ripple_carry_adder(&r1_shift_add, &not_y, Some(pool.bool_true()), pool);
+    let (r_minus_y, co1) = ripple_carry_adder(&r1_shift_add, &not_y, Some(pool.bool_true()), pool);
+    // sign is true if r1 < y
     let sign = build_term!(pool, (not { co1 }));
     q1[0] = build_term!(pool, (ite {sign.clone()} {q1[0].clone()} true));
 
-    for bit in &mut r1_shift_add {
-        *bit = build_term!(pool, (ite {sign.clone()} {bit.clone()} true));
+    for (bit, minus_bit) in r1_shift_add.iter_mut().zip(r_minus_y) {
+        *bit = build_term!(pool, (ite {sign.clone()} {bit.clone()} { minus_bit }));
     }
 
     let (_, co2) = ripple_carry_adder(x, &not_y, Some(pool.bool_true()), pool);
@@ -782,23 +807,68 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
     // remaining simple enough to be obviously valid. Once this rule is standardized or documented
     // better, this implementation should be revisited.
 
+    fn as_bitwise_op(term: &Rc<Term>) -> Option<(Operator, &Rc<Term>, &Rc<Term>)> {
+        match term.as_ref() {
+            Term::Op(op @ (Operator::BvAnd | Operator::BvOr | Operator::BvXor), args)
+                if args.len() == 2 =>
+            {
+                Some((*op, &args[0], &args[1]))
+            }
+            _ => None,
+        }
+    }
+
+    fn as_extract(term: &Rc<Term>) -> Option<(Integer, Integer, &Rc<Term>)> {
+        match term.as_ref() {
+            Term::ParamOp { op: ParamOperator::BvExtract, op_args, args } => Some((
+                op_args[0].as_integer()?,
+                op_args[1].as_integer()?,
+                &args[0],
+            )),
+            _ => None,
+        }
+    }
+
     assert_clause_len(conclusion, 1)?;
-    let (a, c, slices) = match_term_err!((= (bvand a c) (concat ...)) = &conclusion[0])?;
+    let (lhs, slices) = match_term_err!((= lhs (concat ...)) = &conclusion[0])?;
+    let (op, a, c) = as_bitwise_op(lhs).ok_or_else(|| {
+        CheckerError::Explanation("expected a binary bvand/bvor/bvxor application".into())
+    })?;
 
     let width = bitvector_size(pool, c);
-    let mut done = width.into();
+    let mut done: Integer = width.into();
     for slice in slices {
-        let (i, j, slice_a, slice_c) =
-            match_term_err!((bvand ((_ extract i j) a) ((_ extract i j) c)) = slice)?;
+        let (slice_op, left, right) = as_bitwise_op(slice).ok_or_else(|| {
+            CheckerError::Explanation("expected slice to be a binary bitwise application".into())
+        })?;
+        if slice_op != op {
+            return Err(CheckerError::Explanation(
+                "slice operator differs from the sliced term's operator".into(),
+            ));
+        }
+        let ((i1, j1, t1), (i2, j2, t2)) =
+            as_extract(left).zip(as_extract(right)).ok_or_else(|| {
+                CheckerError::Explanation("expected slice arguments to be extracts".into())
+            })?;
+        if i1 != i2 || j1 != j2 {
+            return Err(CheckerError::Explanation(
+                "extract indices differ within slice".into(),
+            ));
+        }
+        // The operators are commutative, so the operands may appear in either order
+        if !((t1 == a && t2 == c) || (t1 == c && t2 == a)) {
+            return Err(CheckerError::Explanation(
+                "slice arguments are not extracts of the original operands".into(),
+            ));
+        }
 
         let expected = done - 1;
-        if i.as_integer_err()? != expected {
-            return Err(CheckerError::ExpectedInteger(expected, i.clone()));
+        if i1 != expected {
+            return Err(CheckerError::Explanation(format!(
+                "expected slice's upper index to be {expected}, got {i1}"
+            )));
         }
-        done = j.as_integer_err()?;
-
-        assert_eq(a, slice_a)?;
-        assert_eq(c, slice_c)?;
+        done = j1;
     }
     if done != 0 {
         Err(CheckerError::Explanation(
@@ -807,4 +877,32 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
     } else {
         Ok(())
     }
+}
+
+pub fn repeat_elim(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (lhs, rhs) = match_term_err!((= l r) = &conclusion[0])?;
+    let Term::ParamOp { op: ParamOperator::Repeat, op_args, args } = lhs.as_ref() else {
+        return Err(CheckerError::Explanation(
+            "expected left-hand side to be a repeat application".into(),
+        ));
+    };
+    let n = op_args[0].as_integer_err()?;
+    let x = &args[0];
+
+    let copies: Vec<_> = if let Some((Operator::BvConcat, concat_args)) = rhs.as_op() {
+        concat_args.iter().collect()
+    } else {
+        vec![rhs]
+    };
+    if Integer::from(copies.len()) != n {
+        return Err(CheckerError::Explanation(format!(
+            "expected {n} copies, got {}",
+            copies.len()
+        )));
+    }
+    for copy in copies {
+        assert_eq(copy, x)?;
+    }
+    Ok(())
 }

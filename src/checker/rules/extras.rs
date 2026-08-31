@@ -11,6 +11,51 @@ use crate::{
 };
 use std::collections::HashMap;
 
+pub fn absorb(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t, c) = match_term_err!((= t c) = &conclusion[0])?;
+
+    let Some((op, args)) = t.as_op() else {
+        return Err(CheckerError::Explanation(
+            "expected left-hand side to be an operator application".into(),
+        ));
+    };
+
+    // `c` must be the absorbing element of `op`
+    let is_absorbing = match op {
+        Operator::And => *c == pool.bool_false(),
+        Operator::Or => *c == pool.bool_true(),
+        Operator::BvAnd | Operator::BvMul => {
+            matches!(c.as_ref(), Term::Const(Constant::BitVec(v, _)) if v.is_zero())
+        }
+        Operator::BvOr => matches!(
+            c.as_ref(),
+            Term::Const(Constant::BitVec(v, w))
+                if *v == (rug::Integer::from(1) << *w as u32) - 1
+        ),
+        _ => false,
+    };
+    if !is_absorbing {
+        return Err(CheckerError::Explanation(format!(
+            "'{c}' is not the absorbing element of '{op}'"
+        )));
+    }
+
+    // `c` must occur in `t`, considering flattening of nested applications of `op`
+    fn occurs(op: Operator, args: &[Rc<Term>], c: &Rc<Term>) -> bool {
+        args.iter().any(|a| {
+            a == c || matches!(a.as_op(), Some((o, sub)) if o == op && occurs(op, sub, c))
+        })
+    }
+    if occurs(op, args, c) {
+        Ok(())
+    } else {
+        Err(CheckerError::Explanation(format!(
+            "'{c}' does not occur in '{t}'"
+        )))
+    }
+}
+
 pub fn reordering(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
 
