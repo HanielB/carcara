@@ -4,7 +4,9 @@ use crate::{
         pool::{PrimitivePool, TermPool},
     },
     elaborator::{ElaborationError, IdHelper},
-    resolution::{ResolutionTrace, greedy_resolution},
+    resolution::{
+        ResolutionError, ResolutionTrace, greedy_resolution, rup_chain, set_replay_valid,
+    },
     utils::DedupIterator,
 };
 
@@ -59,17 +61,42 @@ pub fn resolution(
     }
 
     let mut premises: Vec<_> = step.premises.iter().dedup().cloned().collect();
-    let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
 
-    let ResolutionTrace { not_not_added, pivot_trace } =
-        greedy_resolution(&step.clause, &premise_clauses, pool, true)
-            .or_else(|first_error| {
-                premises.reverse();
-                let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
-                greedy_resolution(&step.clause, &premise_clauses, pool, true)
-                    .map_err(|_| first_error) // we prefer returning the first error
-            })
-            .map_err(ElaborationError::CouldNotInferPivots)?;
+    // The greedy algorithm can accept configurations that are not valid ordered chains (e.g. a
+    // premise re-introducing a literal after its eliminator), so we validate its trace by
+    // replaying it, and fall back to reconstructing a chain from the RUP certificate when the
+    // trace does not replay
+    let verified_greedy = |premises: &[Rc<ProofNode>], pool: &mut PrimitivePool| {
+        let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
+        let trace = greedy_resolution(&step.clause, &premise_clauses, pool, true)?;
+        if trace.not_not_added
+            || set_replay_valid(&step.clause, &premise_clauses, &trace.pivot_trace)
+        {
+            Ok(trace)
+        } else {
+            Err(ResolutionError::RupFailed)
+        }
+    };
+
+    let greedy = verified_greedy(&premises, pool).or_else(|first_error| {
+        premises.reverse();
+        let result = verified_greedy(&premises, pool);
+        if result.is_err() {
+            premises.reverse();
+        }
+        result.map_err(|_| first_error) // we prefer returning the first error
+    });
+
+    let ResolutionTrace { not_not_added, pivot_trace } = match greedy {
+        Ok(trace) => trace,
+        Err(first_error) => {
+            let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
+            let Some(chain) = rup_chain(&step.clause, &premise_clauses, pool) else {
+                return Err(ElaborationError::CouldNotInferPivots(first_error));
+            };
+            return Ok(build_rup_chain_step(pool, step, &premises, chain, &mut ids));
+        }
+    };
 
     let pivots = pivot_trace
         .into_iter()
@@ -153,4 +180,82 @@ pub fn resolution(
     } else {
         Ok(Rc::new(ProofNode::Step(resolution_step)))
     }
+}
+
+/// Builds the replacement for a resolution step from a chain reconstructed by [`rup_chain`]: the
+/// premises are reordered (and possibly pruned) to the chain order, and, when the chain concludes
+/// a proper subset of the target clause, `weakening` and `reordering` steps restore it.
+fn build_rup_chain_step(
+    pool: &mut PrimitivePool,
+    step: &StepNode,
+    premises: &[Rc<ProofNode>],
+    chain: crate::resolution::RupChain,
+    ids: &mut IdHelper,
+) -> Rc<ProofNode> {
+    use std::collections::HashSet;
+
+    let chain_premises: Vec<_> = chain.order.iter().map(|&i| premises[i].clone()).collect();
+    let args: Vec<_> = chain
+        .pivots
+        .iter()
+        .flat_map(|(pivot, polarity)| [pivot.clone(), pool.bool_constant(*polarity)])
+        .collect();
+
+    let final_set: HashSet<_> = chain.final_clause.iter().cloned().collect();
+    let target_set: HashSet<_> = step.clause.iter().cloned().collect();
+
+    if final_set == target_set {
+        return Rc::new(ProofNode::Step(StepNode {
+            id: step.id.clone(),
+            depth: step.depth,
+            clause: step.clause.clone(),
+            rule: "resolution".to_owned(),
+            premises: chain_premises,
+            args,
+            ..Default::default()
+        }));
+    }
+
+    // The chain concludes a proper subset of the target: weaken, then restore the original order
+    let resolution_step = Rc::new(ProofNode::Step(StepNode {
+        id: ids.next_id(),
+        depth: step.depth,
+        clause: chain.final_clause.clone(),
+        rule: "resolution".to_owned(),
+        premises: chain_premises,
+        args,
+        ..Default::default()
+    }));
+
+    let mut weakened = chain.final_clause;
+    weakened.extend(
+        step.clause
+            .iter()
+            .filter(|t| !final_set.contains(t))
+            .cloned(),
+    );
+    let weakening_step = Rc::new(ProofNode::Step(StepNode {
+        id: ids.next_id(),
+        depth: step.depth,
+        clause: weakened.clone(),
+        rule: "weakening".to_owned(),
+        premises: vec![resolution_step],
+        ..Default::default()
+    }));
+
+    if weakened == step.clause {
+        // The weakening already concludes the exact clause; give it the original id
+        let mut final_step = weakening_step.as_step().unwrap().clone();
+        final_step.id = step.id.clone();
+        return Rc::new(ProofNode::Step(final_step));
+    }
+
+    Rc::new(ProofNode::Step(StepNode {
+        id: step.id.clone(),
+        depth: step.depth,
+        clause: step.clause.clone(),
+        rule: "reordering".to_owned(),
+        premises: vec![weakening_step],
+        ..Default::default()
+    }))
 }

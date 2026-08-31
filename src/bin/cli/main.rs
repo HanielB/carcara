@@ -23,6 +23,23 @@ use std::{
 use clap::Parser;
 
 fn main() {
+    // The parser, the checker's polyequality and the proof-node conversions all recurse on the
+    // structure of terms and proofs, and solver output nests deeply enough to overflow the main
+    // thread's fixed-size stack (a QF_LIA corpus proof segfaulted parsing at the default 8 MiB).
+    // Running the real work on a spawned thread with a large stack is the standard way out: unlike
+    // the main thread's, a spawned thread's stack size is ours to choose.
+    let child = std::thread::Builder::new()
+        .stack_size(512 * 1024 * 1024)
+        .spawn(run)
+        .expect("failed to spawn the main thread");
+    match child.join() {
+        Ok(()) => (),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+    carcara::elaborator::report_recipe_costs();
+}
+
+fn run() {
     let cli = Cli::parse();
     let colors_enabled = !cli.no_color && std::io::stderr().is_terminal();
 
@@ -179,8 +196,9 @@ fn elaborate_command(
 )> {
     let instance = get_instance(&options.input)?;
 
-    let checker_config = (options.checking, options.tools.clone()).into_config();
-    let (elab_config, pipeline) = (options.elaboration, options.tools).into_config();
+    let checker_config = (options.checking.clone(), options.tools.clone()).into_config();
+    let (elab_config, pipeline) =
+        (options.elaboration, options.tools, options.checking).into_config();
 
     check_and_elaborate(
         instance.problem(),
@@ -208,8 +226,15 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         options.num_runs
     );
 
-    let checker_config = (options.checking, options.tools.clone()).into_config();
-    let (elab_config, pipeline) = (options.elaboration, options.tools).into_config();
+    let checker_config = (options.checking.clone(), options.tools.clone()).into_config();
+    let (elab_config, pipeline) =
+        (options.elaboration, options.tools, options.checking).into_config();
+    let rare_file = match &options.rare_file {
+        Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
+            CliError::CarcaraError(carcara::Error::Io { inner: e, file: path.as_str().into() })
+        })?),
+        None => None,
+    };
 
     if options.dump_to_csv {
         benchmarking::run_csv_benchmark(
@@ -219,6 +244,7 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
             options.parsing.into_config(),
             checker_config,
             options.elaborate.then_some((elab_config, pipeline)),
+            rare_file.as_deref(),
             "runs.csv",
             "steps.csv",
         )?;
@@ -232,6 +258,7 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         options.parsing.into_config(),
         checker_config,
         options.elaborate.then_some((elab_config, pipeline)),
+        rare_file.as_deref(),
     );
     if results.is_empty() {
         println!("no benchmark data collected");

@@ -8,3 +8,5 @@ title = "Carcara Documentation"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/ufmg-smite/carcara"
 smart-punctuation = true
+additional-css = ["theme/pagetoc.css"]
+additional-js = ["theme/pagetoc.js"]

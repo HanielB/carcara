@@ -1,11 +1,9 @@
 use super::{
-    CheckerError, EqualityError, RuleArgs, RuleResult, assert_clause_len, assert_eq,
-    assert_is_bool_constant,
+    assert_clause_len, assert_eq, assert_is_bool_constant, CheckerError, EqualityError, RuleArgs,
+    RuleResult,
 };
 use crate::{
-    ast::{
-        Constant, Operator, Rc, Sort, Term, build_term, match_term, match_term_err, pool::TermPool,
-    },
+    ast::*,
     utils::{DedupIterator, MultiSet},
 };
 use indexmap::{IndexMap, IndexSet};
@@ -43,10 +41,19 @@ macro_rules! simplify {
     };
 }
 
+/// The label attached to each rewrite a "simplify" rule applies: the name of the corresponding
+/// rewrite rule (a RARE rule of `rewrites.eo`, or of the extended file the elaborator ships), or
+/// `"evaluate"` for the constant-folding rewrites. The elaboration passes that reduce the
+/// `*_simplify` rules replay these rewrites as chains, so each simplification step function
+/// returns the rewrite it applied along with the result.
+pub type RewriteLabel = &'static str;
+
+pub type SimplifyStepFn = fn(&Term, &mut dyn TermPool) -> Option<(Rc<Term>, RewriteLabel)>;
+
 fn generic_simplify_rule(
     conclusion: &[Rc<Term>],
     pool: &mut dyn TermPool,
-    simplify_function: fn(&Term, &mut dyn TermPool) -> Option<Rc<Term>>,
+    simplify_function: SimplifyStepFn,
 ) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
@@ -59,7 +66,7 @@ fn generic_simplify_rule(
                     return Err(CheckerError::CycleInSimplification(current));
                 }
                 match simplify_function(&current, pool) {
-                    Some(next) => {
+                    Some((next, _)) => {
                         if next == *goal {
                             return Ok(next);
                         }
@@ -87,79 +94,83 @@ fn generic_simplify_rule(
     Ok(())
 }
 
+pub fn ite_simplify_step(term: &Term, pool: &mut dyn TermPool) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // ite true t_1 t_2 => t_1
+        (ite true t_1 t_2): (t_1, _) => (t_1.clone(), "ite-true-cond"),
+
+        // ite false t_1 t_2 => t_2
+        (ite false t_1 t_2): (_, t_2) => (t_2.clone(), "ite-false-cond"),
+
+        // ite phi t t => t
+        (ite phi t t): (_, t) => (t.clone(), "ite-eq-branch"),
+
+        // ite psi true false => psi
+        (ite psi true false): psi => (psi.clone(), "ite-then-true-else-false"),
+
+        // ite psi false true => ¬psi
+        (ite psi false true): psi => (build_term!(pool, (not {psi.clone()})), "ite-then-false-else-true"),
+
+        // ite ¬phi t_1 t_2 => ite phi t_2 t_1
+        (ite (not phi) t_1 t_2): (phi, t_1, t_2) => {
+            (build_term!(pool, (ite {phi.clone()} {t_2.clone()} {t_1.clone()})), "ite-not-cond")
+        },
+
+        // ite phi (ite phi t_1 t_2) t_3 => ite phi t_1 t_3
+        (ite phi (ite phi t_1 t_2) t_3): (phi, t_1, _, t_3) => {
+            (build_term!(pool, (ite {phi.clone()} {t_1.clone()} {t_3.clone()})), "ite-then-lookahead")
+        },
+
+        // ite phi t_1 (ite phi t_2 t_3) => ite phi t_1 t_3
+        (ite phi t_1 (ite phi t_2 t_3)): (phi, t_1, _, t_3) => {
+            (build_term!(pool, (ite {phi.clone()} {t_1.clone()} {t_3.clone()})), "ite-else-lookahead")
+        },
+
+        // ite psi true phi => psi v phi
+        (ite psi true phi): (psi, phi) => {
+            (build_term!(pool, (or {psi.clone()} {phi.clone()})), "ite-then-true")
+        },
+
+        // ite psi phi false => psi ^ phi
+        (ite psi phi false): (psi, phi) => {
+            (build_term!(pool, (and {psi.clone()} {phi.clone()})), "ite-else-false")
+        },
+
+        // ite psi false phi => ¬psi ^ phi
+        (ite psi false phi): (psi, phi) => {
+            (build_term!(pool, (and (not {psi.clone()}) {phi.clone()})), "ite-then-false")
+        },
+
+        // ite psi phi true => ¬psi v phi
+        (ite psi phi true): (psi, phi) => {
+            (build_term!(pool, (or (not {psi.clone()}) {phi.clone()})), "ite-else-true")
+        },
+    })
+}
+
 pub fn ite_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // ite true t_1 t_2 => t_1
-            (ite true t_1 t_2): (t_1, _) => t_1.clone(),
+    generic_simplify_rule(args.conclusion, args.pool, ite_simplify_step)
+}
 
-            // ite false t_1 t_2 => t_2
-            (ite false t_1 t_2): (_, t_2) => t_2.clone(),
+pub fn eq_simplify_step(term: &Term, pool: &mut dyn TermPool) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // t = t => true
+        (= t t): _ => (pool.bool_true(), "eq-refl"),
 
-            // ite phi t t => t
-            (ite phi t t): (_, t) => t.clone(),
+        // t_1 = t_2 => false, if t_1 and t_2 are different numerical constants
+        (= t_1 t_2): (t_1, t_2) if {
+            let t_1 = t_1.as_signed_number();
+            let t_2 = t_2.as_signed_number();
+            t_1.is_some() && t_2.is_some() && t_1 != t_2
+        } => (pool.bool_false(), "evaluate"),
 
-            // ite psi true false => psi
-            (ite psi true false): psi => psi.clone(),
-
-            // ite psi false true => ¬psi
-            (ite psi false true): psi => build_term!(pool, (not {psi.clone()})),
-
-            // ite ¬phi t_1 t_2 => ite phi t_2 t_1
-            (ite (not phi) t_1 t_2): (phi, t_1, t_2) => {
-                build_term!(pool, (ite {phi.clone()} {t_2.clone()} {t_1.clone()}))
-            },
-
-            // ite phi (ite phi t_1 t_2) t_3 => ite phi t_1 t_3
-            (ite phi (ite phi t_1 t_2) t_3): (phi, t_1, _, t_3) => {
-                build_term!(pool, (ite {phi.clone()} {t_1.clone()} {t_3.clone()}))
-            },
-
-            // ite phi t_1 (ite phi t_2 t_3) => ite phi t_1 t_3
-            (ite phi t_1 (ite phi t_2 t_3)): (phi, t_1, _, t_3) => {
-                build_term!(pool, (ite {phi.clone()} {t_1.clone()} {t_3.clone()}))
-            },
-
-            // ite psi true phi => psi v phi
-            (ite psi true phi): (psi, phi) => {
-                build_term!(pool, (or {psi.clone()} {phi.clone()}))
-            },
-
-            // ite psi phi false => psi ^ phi
-            (ite psi phi false): (psi, phi) => {
-                build_term!(pool, (and {psi.clone()} {phi.clone()}))
-            },
-
-            // ite psi false phi => ¬psi ^ phi
-            (ite psi false phi): (psi, phi) => {
-                build_term!(pool, (and (not {psi.clone()}) {phi.clone()}))
-            },
-
-            // ite psi phi true => ¬psi v phi
-            (ite psi phi true): (psi, phi) => {
-                build_term!(pool, (or (not {psi.clone()}) {phi.clone()}))
-            },
-        })
+        // ¬(t = t) => false, if t is a numerical constant
+        (not (= t t)): t if t.is_signed_number() => (pool.bool_false(), "evaluate"),
     })
 }
 
 pub fn eq_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // t = t => true
-            (= t t): _ => pool.bool_true(),
-
-            // t_1 = t_2 => false, if t_1 and t_2 are different numerical constants
-            (= t_1 t_2): (t_1, t_2) if {
-                let t_1 = t_1.as_signed_number();
-                let t_2 = t_2.as_signed_number();
-                t_1.is_some() && t_2.is_some() && t_1 != t_2
-            } => pool.bool_false(),
-
-            // ¬(t = t) => false, if t is a numerical constant
-            (not (= t t)): t if t.is_signed_number() => pool.bool_false(),
-        })
-    })
+    generic_simplify_rule(args.conclusion, args.pool, eq_simplify_step)
 }
 
 /// Used for both the `and_simplify` and `or_simplify` rules, depending on `rule_kind`. `rule_kind`
@@ -190,10 +201,16 @@ fn generic_and_or_simplify(
         _ => unreachable!(),
     }?
     .to_vec();
+    // The right-hand side is normally the list of surviving arguments, spelled as an application
+    // of the same connective. When exactly one argument survives it is the result *itself*, and if
+    // that argument happens to be another application of the connective, splitting it here would
+    // read `(or a b)` as two survivors rather than one. Both readings are therefore kept, and the
+    // comparisons below accept either.
     let result_args = match result_term.as_ref() {
         Term::Op(op, args) if *op == rule_kind => args,
         _ => std::slice::from_ref(result_term),
     };
+    let result_as_single = std::slice::from_ref(result_term);
 
     // Sometimes, the `and_simplify` and `or_simplify` rules are used on a nested application of
     // the rule operator, where the outer operation only has one argument, e.g. `(and (and p q r))`.
@@ -211,7 +228,7 @@ fn generic_and_or_simplify(
     // improves performance significantly. More importantly, it is necessary in some examples,
     // where not all steps of the simplification are applied
     phis.retain(|t| !t.is_bool_constant(skip_term));
-    if result_args.iter().eq(&phis) {
+    if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         return Ok(());
     }
 
@@ -220,7 +237,7 @@ fn generic_and_or_simplify(
     // after this step. This is also necessary in some examples
     let mut seen = IndexSet::with_capacity(phis.len());
     phis.retain(|t| seen.insert(t.clone()));
-    if result_args.iter().eq(&phis) {
+    if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         return Ok(());
     }
 
@@ -256,7 +273,7 @@ fn generic_and_or_simplify(
                 result_term.clone(),
             ))
         }
-    } else if result_args.iter().eq(&phis) {
+    } else if result_args.iter().eq(&phis) || result_as_single.iter().eq(&phis) {
         Ok(())
     } else {
         let expected = pool.add(Term::Op(rule_kind, phis));
@@ -272,129 +289,146 @@ pub fn or_simplify(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     generic_and_or_simplify(pool, conclusion, Operator::Or)
 }
 
+pub fn not_simplify_step(term: &Term, pool: &mut dyn TermPool) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // ¬(¬phi) => phi
+        (not (not phi)): phi => (phi.clone(), "bool-double-not-elim"),
+
+        // ¬false => true
+        (not false): _ => (pool.bool_true(), "evaluate"),
+
+        // ¬true => false
+        (not true): _ => (pool.bool_false(), "evaluate"),
+    })
+}
+
 pub fn not_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // ¬(¬phi) => phi
-            (not (not phi)): phi => phi.clone(),
+    generic_simplify_rule(args.conclusion, args.pool, not_simplify_step)
+}
 
-            // ¬false => true
-            (not false): _ => pool.bool_true(),
+pub fn implies_simplify_step(
+    term: &Term,
+    pool: &mut dyn TermPool,
+) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // ¬phi_1 -> ¬phi_2 => phi_2 -> phi_1
+        (=> (not phi_1) (not phi_2)): (phi_1, phi_2) => {
+            (build_term!(pool, (=> {phi_2.clone()} {phi_1.clone()})), "implies-contra")
+        },
 
-            // ¬true => false
-            (not true): _ => pool.bool_false(),
-        })
+        // false -> phi => true
+        (=> false phi): _ => (pool.bool_true(), "bool-impl-false2"),
+
+        // phi -> true => true
+        (=> phi true): _ => (pool.bool_true(), "bool-impl-true1"),
+
+        // true -> phi => phi
+        (=> true phi): phi => (phi.clone(), "bool-impl-true2"),
+
+        // phi -> false => ¬phi
+        (=> phi false): phi => (build_term!(pool, (not {phi.clone()})), "bool-impl-false1"),
+
+        // phi -> phi => true
+        (=> phi phi): _ => (pool.bool_true(), "implies-refl"),
+
+        // ¬phi -> phi => phi
+        // phi -> ¬phi => ¬phi
+        (=> phi_1 phi_2): (phi_1, phi_2) if {
+            phi_1.remove_negation() == Some(phi_2) || phi_2.remove_negation() == Some(phi_1)
+        } => (phi_2.clone(), "implies-neg"),
+
+        // (phi_1 -> phi_2) -> phi_2 => phi_1 v phi_2
+        (=> (=> phi_1 phi_2) phi_2): (phi_1, phi_2) => {
+            (build_term!(pool, (or {phi_1.clone()} {phi_2.clone()})), "bool-implies-peirce")
+        },
     })
 }
 
 pub fn implies_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // ¬phi_1 -> ¬phi_2 => phi_2 -> phi_1
-            (=> (not phi_1) (not phi_2)): (phi_1, phi_2) => {
-                build_term!(pool, (=> {phi_2.clone()} {phi_1.clone()}))
-            },
+    generic_simplify_rule(args.conclusion, args.pool, implies_simplify_step)
+}
 
-            // false -> phi => true
-            (=> false phi): _ => pool.bool_true(),
+pub fn equiv_simplify_step(
+    term: &Term,
+    pool: &mut dyn TermPool,
+) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // ¬phi_1 = ¬phi_2 => phi_1 = phi_2
+        (= (not phi_1) (not phi_2)): (phi_1, phi_2) => {
+            (build_term!(pool, (= {phi_1.clone()} {phi_2.clone()})), "equiv-neg-both")
+        },
 
-            // phi -> true => true
-            (=> phi true): _ => pool.bool_true(),
+        // phi = phi => true
+        (= phi_1 phi_2): (phi_1, phi_2) if phi_1 == phi_2 => (pool.bool_true(), "eq-refl"),
 
-            // true -> phi => phi
-            (=> true phi): phi => phi.clone(),
+        // phi = ¬phi => false
+        (= phi_1 (not phi_2)): (phi_1, phi_2) if phi_1 == phi_2 => (pool.bool_false(), "bool-eq-nrefl"),
 
-            // phi -> false => ¬phi
-            (=> phi false): phi => build_term!(pool, (not {phi.clone()})),
+        // ¬phi = phi => false
+        (= (not phi_1) phi_2): (phi_1, phi_2) if phi_1 == phi_2 => (pool.bool_false(), "equiv-neg-l"),
 
-            // phi -> phi => true
-            (=> phi phi): _ => pool.bool_true(),
+        // true = phi => phi
+        (= true phi_1): phi_1 => (phi_1.clone(), "equiv-true-l"),
 
-            // ¬phi -> phi => phi
-            // phi -> ¬phi => ¬phi
-            (=> phi_1 phi_2): (phi_1, phi_2) if {
-                phi_1.remove_negation() == Some(phi_2) || phi_2.remove_negation() == Some(phi_1)
-            } => phi_2.clone(),
+        // phi = true => phi
+        (= phi_1 true): phi_1 => (phi_1.clone(), "bool-eq-true"),
 
-            // (phi_1 -> phi_2) -> phi_2 => phi_1 v phi_2
-            (=> (=> phi_1 phi_2) phi_2): (phi_1, phi_2) => {
-                build_term!(pool, (or {phi_1.clone()} {phi_2.clone()}))
-            },
-        })
+        // false = phi => ¬phi
+        (= false phi_1): phi_1 => (build_term!(pool, (not {phi_1.clone()})), "equiv-false-l"),
+
+        // phi = false => ¬phi
+        (= phi_1 false): phi_1 => (build_term!(pool, (not {phi_1.clone()})), "bool-eq-false"),
     })
 }
 
 pub fn equiv_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // ¬phi_1 = ¬phi_2 => phi_1 = phi_2
-            (= (not phi_1) (not phi_2)): (phi_1, phi_2) => {
-                build_term!(pool, (= {phi_1.clone()} {phi_2.clone()}))
-            },
+    generic_simplify_rule(args.conclusion, args.pool, equiv_simplify_step)
+}
 
-            // phi = phi => true
-            (= phi_1 phi_2): (phi_1, phi_2) if phi_1 == phi_2 => pool.bool_true(),
+pub fn bool_simplify_step(
+    term: &Term,
+    pool: &mut dyn TermPool,
+) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        // ¬(phi_1 -> phi_2) => (phi_1 ^ ¬phi_2)
+        (not (=> phi_1 phi_2)): (phi_1, phi_2) => {
+            (build_term!(pool, (and {phi_1.clone()} (not {phi_2.clone()}))), "bool-implies-de-morgan")
+        },
 
-            // phi = ¬phi => false
-            (= phi_1 (not phi_2)): (phi_1, phi_2) if phi_1 == phi_2 => pool.bool_false(),
+        // ¬(phi_1 v phi_2) => (¬phi_1 ^ ¬phi_2)
+        (not (or phi_1 phi_2)): (phi_1, phi_2) => {
+            (build_term!(pool, (and (not {phi_1.clone()}) (not {phi_2.clone()}))), "bool-or-de-morgan")
+        },
 
-            // ¬phi = phi => false
-            (= (not phi_1) phi_2): (phi_1, phi_2) if phi_1 == phi_2 => pool.bool_false(),
+        // ¬(phi_1 ^ phi_2) => (¬phi_1 v ¬phi_2)
+        (not (and phi_1 phi_2)): (phi_1, phi_2) => {
+            (build_term!(pool, (or (not {phi_1.clone()}) (not {phi_2.clone()}))), "bool-and-de-morgan")
+        },
 
-            // true = phi => phi
-            (= true phi_1): phi_1 => phi_1.clone(),
+        // (phi_1 -> (phi_2 -> phi_3)) => ((phi_1 ^ phi_2) -> phi_3)
+        (=> phi_1 (=> phi_2 phi_3)): (phi_1, phi_2, phi_3) => {
+            (build_term!(pool, (=> (and {phi_1.clone()} {phi_2.clone()}) {phi_3.clone()})), "bool-implies-uncurry")
+        },
 
-            // phi = true => phi
-            (= phi_1 true): phi_1 => phi_1.clone(),
+        // ((phi_1 -> phi_2) -> phi_2) => (phi_1 v phi_2)
+        (=> (=> phi_1 phi_2) phi_2): (phi_1, phi_2) => {
+            (build_term!(pool, (or {phi_1.clone()} {phi_2.clone()})), "bool-implies-peirce")
+        },
 
-            // false = phi => ¬phi
-            (= false phi_1): phi_1 => build_term!(pool, (not {phi_1.clone()})),
+        // (phi_1 ^ (phi_1 -> phi_2)) => (phi_1 ^ phi_2)
+        (and phi_1 (=> phi_2 phi_3)): (phi_1, phi_2, phi_3) if phi_1 == phi_2 => {
+            (build_term!(pool, (and {phi_1.clone()} {phi_3.clone()})), "bool-and-mp-r")
+        },
 
-            // phi = false => ¬phi
-            (= phi_1 false): phi_1 => build_term!(pool, (not {phi_1.clone()})),
-        })
+        // ((phi_1 -> phi_2) ^ phi_1) => (phi_1 ^ phi_2)
+        (and (=> phi_1 phi_2) phi_3): (phi_1, phi_2, phi_3) if phi_1 == phi_3 => {
+            (build_term!(pool, (and {phi_1.clone()} {phi_2.clone()})), "bool-and-mp-l")
+        },
     })
 }
 
 pub fn bool_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            // ¬(phi_1 -> phi_2) => (phi_1 ^ ¬phi_2)
-            (not (=> phi_1 phi_2)): (phi_1, phi_2) => {
-                build_term!(pool, (and {phi_1.clone()} (not {phi_2.clone()})))
-            },
-
-            // ¬(phi_1 v phi_2) => (¬phi_1 ^ ¬phi_2)
-            (not (or phi_1 phi_2)): (phi_1, phi_2) => {
-                build_term!(pool, (and (not {phi_1.clone()}) (not {phi_2.clone()})))
-            },
-
-            // ¬(phi_1 ^ phi_2) => (¬phi_1 v ¬phi_2)
-            (not (and phi_1 phi_2)): (phi_1, phi_2) => {
-                build_term!(pool, (or (not {phi_1.clone()}) (not {phi_2.clone()})))
-            },
-
-            // (phi_1 -> (phi_2 -> phi_3)) => ((phi_1 ^ phi_2) -> phi_3)
-            (=> phi_1 (=> phi_2 phi_3)): (phi_1, phi_2, phi_3) => {
-                build_term!(pool, (=> (and {phi_1.clone()} {phi_2.clone()}) {phi_3.clone()}))
-            },
-
-            // ((phi_1 -> phi_2) -> phi_2) => (phi_1 v phi_2)
-            (=> (=> phi_1 phi_2) phi_3): (phi_1, phi_2, phi_3) if phi_2 == phi_3 => {
-                build_term!(pool, (or {phi_1.clone()} {phi_2.clone()}))
-            },
-
-            // (phi_1 ^ (phi_1 -> phi_2)) => (phi_1 ^ phi_2)
-            (and phi_1 (=> phi_2 phi_3)): (phi_1, phi_2, phi_3) if phi_1 == phi_2 => {
-                build_term!(pool, (and {phi_1.clone()} {phi_3.clone()}))
-            },
-
-            // ((phi_1 -> phi_2) ^ phi_1) => (phi_1 ^ phi_2)
-            (and (=> phi_1 phi_2) phi_3): (phi_1, phi_2, phi_3) if phi_1 == phi_3 => {
-                build_term!(pool, (and {phi_1.clone()} {phi_2.clone()}))
-            },
-        })
-    })
+    generic_simplify_rule(args.conclusion, args.pool, bool_simplify_step)
 }
 
 pub fn qnt_simplify(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
@@ -620,10 +654,10 @@ pub fn minus_simplify(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     // The equality in the conclusion may be flipped, but one of the terms in it must be of the
     // form '(- t_1 t_2)'. We first check assuming that 't' is in the right. If that fails, we
     // check the other case and return any error it finds
-    if let Some((t_1, t_2)) = match_term!((- t_1 t_2) = right)
-        && check(t_1, t_2, left).is_ok()
-    {
-        return Ok(());
+    if let Some((t_1, t_2)) = match_term!((- t_1 t_2) = right) {
+        if check(t_1, t_2, left).is_ok() {
+            return Ok(());
+        }
     }
     let (t_1, t_2) = match_term_err!((- t_1 t_2) = left)?;
     check(t_1, t_2, right)
@@ -641,44 +675,49 @@ pub fn sum_simplify(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     generic_sum_prod_simplify_rule(pool, first, second, Operator::Add)
 }
 
-pub fn comp_simplify(args: RuleArgs) -> RuleResult {
-    generic_simplify_rule(args.conclusion, args.pool, |term, pool| {
-        simplify!(term {
-            (< t_1 t_2): (t_1, t_2) => {
-                if let (Some(t_1), Some(t_2)) =
-                    (t_1.as_fraction(), t_2.as_fraction())
-                {
-                    // t_1 < t_2 => phi, where t_1 and t_2 are numerical constants
-                    pool.bool_constant(t_1 < t_2)
-                } else if t_1 == t_2 {
-                    // t < t => false
-                    pool.bool_false()
-                } else {
-                    // t_1 < t_2 => ¬(t_2 <= t_1)
-                    build_term!(pool, (not (<= {t_2.clone()} {t_1.clone()})))
-                }
-            },
-            (<= t_1 t_2): (t_1, t_2) => {
-                if let (Some(t_1), Some(t_2)) =
-                    (t_1.as_fraction(), t_2.as_fraction())
-                {
-                    // t_1 <= t_2 => phi, where t_1 and t_2 are numerical constants
-                    pool.bool_constant(t_1 <= t_2)
-                } else if t_1 == t_2 {
-                    // t <= t => true
-                    pool.bool_true()
-                } else {
-                    return None
-                }
-            },
+pub fn comp_simplify_step(
+    term: &Term,
+    pool: &mut dyn TermPool,
+) -> Option<(Rc<Term>, RewriteLabel)> {
+    simplify!(term {
+        (< t_1 t_2): (t_1, t_2) => {
+            if let (Some(t_1), Some(t_2)) =
+                (t_1.as_fraction(), t_2.as_fraction())
+            {
+                // t_1 < t_2 => phi, where t_1 and t_2 are numerical constants
+                (pool.bool_constant(t_1 < t_2), "evaluate")
+            } else if t_1 == t_2 {
+                // t < t => false
+                (pool.bool_false(), "comp-lt-irrefl")
+            } else {
+                // t_1 < t_2 => ¬(t_2 <= t_1)
+                (build_term!(pool, (not (<= {t_2.clone()} {t_1.clone()}))), "comp-lt-elim")
+            }
+        },
+        (<= t_1 t_2): (t_1, t_2) => {
+            if let (Some(t_1), Some(t_2)) =
+                (t_1.as_fraction(), t_2.as_fraction())
+            {
+                // t_1 <= t_2 => phi, where t_1 and t_2 are numerical constants
+                (pool.bool_constant(t_1 <= t_2), "evaluate")
+            } else if t_1 == t_2 {
+                // t <= t => true
+                (pool.bool_true(), "comp-leq-refl")
+            } else {
+                return None
+            }
+        },
 
-            // t_1 >= t_2 => t_2 <= t_1
-            (>= t_1 t_2): (t_1, t_2) => build_term!(pool, (<= {t_2.clone()} {t_1.clone()})),
+        // t_1 >= t_2 => t_2 <= t_1
+        (>= t_1 t_2): (t_1, t_2) => (build_term!(pool, (<= {t_2.clone()} {t_1.clone()})), "comp-geq-flip"),
 
-            // t_1 > t_2 => ¬(t_1 <= t_2)
-            (> t_1 t_2): (t_1, t_2) => build_term!(pool, (not (<= {t_1.clone()} {t_2.clone()}))),
-        })
+        // t_1 > t_2 => ¬(t_1 <= t_2)
+        (> t_1 t_2): (t_1, t_2) => (build_term!(pool, (not (<= {t_1.clone()} {t_2.clone()}))), "comp-gt-elim"),
     })
+}
+
+pub fn comp_simplify(args: RuleArgs) -> RuleResult {
+    generic_simplify_rule(args.conclusion, args.pool, comp_simplify_step)
 }
 
 fn apply_ac_simp(
@@ -742,7 +781,12 @@ pub fn ac_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     )
 }
 
-// Operators considered in aci_simp
+// Operators considered in aci_simp.
+//
+// The operators `aci_simp` normalizes form a small algebraic hierarchy. All of them are
+// associative; all but `concat` are also commutative with a unit, i.e. commutative monoids. Above
+// that level the hierarchy splits, and `is_idempotent` records where: the *bounded semilattices*
+// admit `x ∘ x = x`, the ring and group operators do not. See `is_idempotent`.
 fn is_assoc(op: Operator) -> bool {
     matches!(
         op,
@@ -757,6 +801,30 @@ fn is_assoc(op: Operator) -> bool {
             | Operator::BvXor
             | Operator::BvConcat
             | Operator::StrConcat
+    )
+}
+
+/// Whether an operator handled by `aci_simp` is idempotent, i.e. whether repeated arguments may be
+/// collapsed.
+///
+/// Idempotence is *not* a commutative-monoid law, and this is the one place where the operators
+/// `is_assoc` lumps together must be told apart. The bounded semilattices `and`, `or`, `bvand` and
+/// `bvor` satisfy `x ∘ x = x`. The remaining operators live in richer structures where it fails:
+///
+///   * `+`, `*`, `bvadd` and `bvmul` are the operations of a commutative ring, where `(+ x x)` is
+///     `2x` and `(* x x)` is `x²`;
+///   * `bvxor` is the operation of an abelian group of exponent two, where `(bvxor x x)` is zero,
+///     not `x`;
+///   * `concat` is not even commutative, so it never reaches the multiset comparison.
+///
+/// Applying idempotence uniformly across `is_assoc` would let `aci_simp` prove `(= (+ x x) x)`.
+/// The extra laws those operators do satisfy — inverses, distributivity, and the quotient by 2^w
+/// for the bitvector sorts — belong to `poly_simp`, whose normal form subsumes this one on
+/// `{+, *, bvadd, bvmul}` outright.
+fn is_idempotent(op: Operator) -> bool {
+    matches!(
+        op,
+        Operator::And | Operator::Or | Operator::BvAnd | Operator::BvOr
     )
 }
 
@@ -819,6 +887,12 @@ fn identity_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Opt
 pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    aci_simp_equal(pool, t1, t2)
+}
+
+/// The body of the `aci_simp` check, exposed so that the `core` elaboration pass can verify a
+/// candidate `aci_simp` step before emitting it.
+pub fn aci_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
     let mut cache = IndexMap::new();
 
     let t11 = if let Term::Op(op, _) = t1.as_ref() {
@@ -836,7 +910,10 @@ pub fn aci_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     };
     match (t11.as_ref(), t22.as_ref()) {
         (Term::Op(op1, args1), Term::Op(op2, args2))
-            if is_assoc(*op1) && *op1 != Operator::BvConcat && op1 == op2 =>
+            if is_assoc(*op1)
+                && *op1 != Operator::BvConcat
+                && *op1 != Operator::StrConcat
+                && op1 == op2 =>
         {
             let args1_multiset: MultiSet<_> = args1.iter().collect();
             let args2_multiset: MultiSet<_> = args2.iter().collect();
@@ -863,21 +940,27 @@ fn apply_aci_simp(
         return t.clone();
     }
     let result = match term.as_ref() {
-        // flatten and remove duplicate on the result
+        // flatten, then remove duplicates (only if the operator is idempotent) and units
         Term::Op(opp, args) if *opp == op => {
-            let args: Vec<_> = args
-                .iter()
-                .flat_map(|term| {
-                    let term = apply_aci_simp(pool, cache, term, op, identity);
-                    match term.as_ref() {
-                        Term::Op(inner_op, inner_args) if *inner_op == op => inner_args.clone(),
-                        _ => vec![term.clone()],
-                    }
-                })
-                .dedup()
-                .filter(|t| identity.is_none() || *t.as_ref() != identity.clone().unwrap())
-                .collect();
-            if args.len() == 1 {
+            let flattened = args.iter().flat_map(|term| {
+                let term = apply_aci_simp(pool, cache, term, op, identity);
+                match term.as_ref() {
+                    Term::Op(inner_op, inner_args) if *inner_op == op => inner_args.clone(),
+                    _ => vec![term.clone()],
+                }
+            });
+            let is_not_identity =
+                |t: &Rc<Term>| identity.is_none() || *t.as_ref() != identity.clone().unwrap();
+            let args: Vec<_> = if is_idempotent(op) {
+                flattened.dedup().filter(is_not_identity).collect()
+            } else {
+                flattened.filter(is_not_identity).collect()
+            };
+            if args.is_empty() {
+                // An identity-only operation (e.g. `(and true true)`) normalizes to the identity
+                // element itself, rather than to an ill-formed zero-argument operation
+                pool.add(identity.clone().unwrap())
+            } else if args.len() == 1 {
                 args[0].clone()
             } else {
                 pool.add(Term::Op(op, args))

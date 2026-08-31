@@ -542,6 +542,18 @@ pub enum SubproofError {
     #[error("substitution '(:= {0} {1})' doesn't appear as a point in phi")]
     NoPointForSubstitution(String, Rc<Term>),
 
+    #[error("generalized `bind` under an anchor with substitution entry for '{0}'")]
+    GeneralizedBindUnderSubstitution(String),
+
+    #[error("generalized `bind` may close only one literal of the clause")]
+    GeneralizedBindMultipleClosures,
+
+    #[error("generalized `bind` conclusion does not close any literal")]
+    GeneralizedBindNoClosure,
+
+    #[error("closure binding '{0}' is not among the anchor variables (in anchor order)")]
+    GeneralizedBindClosureNotInAnchor(String),
+
     /// The binding list in the left-hand side of an `onepoint` rule is wrong.
     #[error("expected binding list in left-hand side to be '{0}'")]
     OnepointWrongLeftBindings(BindingList),

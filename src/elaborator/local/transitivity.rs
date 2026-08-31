@@ -132,6 +132,10 @@ pub fn eq_transitive(
         };
     }
 
+    // `eq_transitive` requires at least three literals — two hypotheses and the conclusion — so a
+    // chain that needs only one premise still has to keep two. Leftover hypotheses are harmless:
+    // `find_chain` stops as soon as the chain closes and ignores the rest
+    let num_needed = num_needed.clamp(2, n - 1);
     let not_needed = if num_needed == n - 1 {
         Vec::new()
     } else {

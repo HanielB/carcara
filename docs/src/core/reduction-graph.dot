@@ -1,0 +1,200 @@
+// Reduction graph of the core Alethe classification — hierarchical view.
+// Top-level groups = the ladder tiers: core (with the expensive rules kept primitive in
+// practice), reducible (stage 1), rw+simp (stage 2: the rewrite vocabulary), legacy/oracle.
+// Each tier is subdivided by the logical concern categories. Border color+style still marks
+// the level per rule; edges = "reduces to" (ubiquitous glue targets omitted except where they
+// are the distinctive target).
+// Levels: core #2a78d6 bold / expensive #eda100 dashed (kept primitive) / reducible #1baf7a /
+//         rw+simp #4a3aa7 dotted / oracle #e34948 double / variant #8a887f.
+digraph core_alethe {
+  rankdir=LR;
+  splines=true;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled",
+        fillcolor="#ffffff", color="#2a78d6", fontcolor="#0b0b0b", margin="0.14,0.08"];
+  edge [fontname="Helvetica", fontsize=9, color="#8a887f", fontcolor="#52514e",
+        arrowsize=0.6];
+
+  subgraph cluster_reducible {
+    label="reducible  (stage 1)"; fontsize=15; style="rounded,bold"; color="#1baf7a"; bgcolor="#f2faf6";
+
+    subgraph cluster_red_clausal {
+      label="clausal"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      th_resolution [URL="classification.html#clausal", target="_self", tooltip="the same rule as resolution\n(the name marks a theory-solver origin)", color="#1baf7a", penwidth=1.6];
+      tautology     [URL="classification.html#clausal", target="_self", tooltip="i ▷ l1, …, ln  with lk = ¬^o φ, lm = ¬^p φ, o/p of opposite parity\n⟹  ▷ ⊤", color="#1baf7a", penwidth=1.6];
+      reordering    [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ a permutation of C", color="#1baf7a", penwidth=1.6];
+      clausif    [URL="classification.html#ex-clausification", target="_self", tooltip="e.g.  and:  i ▷ φ0 ∧ … ∧ φn  ⟹  ▷ φk\nor:  i ▷ φ1 ∨ … ∨ φn  ⟹  ▷ φ1, …, φn\nimplies:  i ▷ φ1 → φ2  ⟹  ▷ ¬φ1, φ2\n(19 rules deconstructing a premise connective)", label="clausification\nrules (19)", color="#1baf7a", penwidth=1.6];
+      equiv_intro [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ ¬A, B;   j ▷ A, ¬B\n⟹  ▷ A ≈ B", label="equiv_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+      or_intro    [URL="classification.html#ex-equiv-or-intro", target="_self", tooltip="(proposed)  i ▷ l1, …, ln\n⟹  ▷ (l1 ∨ … ∨ ln)", label="or_intro\n(proposed)", color="#1baf7a", penwidth=1.6, style="rounded,filled,dashed"];
+      weakening   [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C, D  (arbitrary literals appended)\n(rename to resolution under its RUP reading)", color="#1baf7a", penwidth=1.6];
+      contraction [URL="classification.html#clausal", target="_self", tooltip="i ▷ C\n⟹  ▷ C with duplicate literals removed\n(rename to resolution under its RUP reading)", color="#1baf7a", penwidth=1.6];
+    }
+
+    subgraph cluster_red_binder {
+      label="binder"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      onepoint [URL="classification.html#ex-onepoint", target="_self", tooltip="Γ, x̄ₖ, x̄ⱼ↦t̄ⱼ ▷ φ ≈ φ′\n⟹  Γ ▷ Qx̄.φ ≈ Qx̄ₖ.φ′\n(points t̄ⱼ from guarded equalities xⱼ ≈ tⱼ in φ)", color="#1baf7a", penwidth=1.6];
+      qnt_rw   [URL="classification.html#ex-qnt-simplify", target="_self", tooltip="qnt_simplify:  ▷ ∀x̄.⊤ ≈ ⊤  (⊥ likewise)\nqnt_rm_unused:  ▷ Qx̄.φ ≈ Qx̄′.φ,  dropped variables unused\nqnt_join:  ▷ Qx̄.Qȳ.φ ≈ Qz̄.φ\nminiscope_*:  Q distributed over ∧ / ∨ / ite", label="quantifier\nrewrites (6)", color="#1baf7a", penwidth=1.6];
+    }
+
+    subgraph cluster_red_eqrw {
+      label="equality & rewriting"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      eq_clausal [URL="classification.html#ex-eq-transitive", target="_self", tooltip="eq_reflexive:  ▷ t ≈ t  (→ refl)\neq_congruent_pred:  → eq_congruent + equiv_pos\neq_symmetric:  ▷ (t1≈t2) ≈ (t2≈t1)  (→ refl + cong)\nnot_symm:  i ▷ ¬(φ≈ψ)  ⟹  ▷ ¬(ψ≈φ)", label="clausal eq_* (4)", color="#1baf7a", penwidth=1.6];
+      multi_rare_rewrite [URL="classification.html#ex-multi-rare-rewrite", target="_self", tooltip="Γ ▷ t ≈ u\nby several RARE rules applied at given positions", color="#1baf7a", penwidth=1.6];
+      shuffle   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ ∘(u1 … un)\nequal multisets {t̄} = {ū},  ∘ ∈ {+, *, ∧, ∨}", color="#1baf7a", penwidth=1.6];
+      nary_elim [URL="classification.html#ex-nary-elim", target="_self", tooltip="Γ ▷ ∘(t1 … tn) ≈ its binary nesting", color="#1baf7a", penwidth=1.6];
+      andor_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\naci-compatible instances are aci_simp renames;\nshort-circuits are constant-size CNF-axiom chains", label="and/or\nsimplify (2)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
+    }
+
+    subgraph cluster_red_arith {
+      label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      la_totality  [URL="classification.html#ex-la-totality", target="_self", tooltip="▷ (t1 ≤ t2 ∨ t2 ≤ t1)   (unit or-clause)", color="#1baf7a", penwidth=1.6];
+      la_tautology [URL="classification.html#ex-la-totality", target="_self", tooltip="▷ φ, a trivial LA tautology\nor the unit or-clause of a bound pair  [1.0, 1.0]", color="#1baf7a", penwidth=1.6];
+      la_mult    [URL="classification.html#ex-la-mult-pos", target="_self", tooltip="la_mult_pos:  ▷ (t1 > 0 ∧ t2 ⋈ t3) → t1·t2 ⋈ t1·t3\nla_mult_neg:  ▷ (t1 < 0 ∧ t2 ⋈ t3) → t1·t2 ⋈⁻¹ t1·t3", label="la_mult_pos/neg", color="#1baf7a", penwidth=1.6];
+      la_rw_eq   [URL="classification.html#ex-la-rw-eq", target="_self", tooltip="▷ (t ≈ u) ≈ (t ≤ u ∧ u ≤ t)", color="#1baf7a", penwidth=1.6];
+      arith_simp [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t ≈ u\nconstant folding and collection for +, *, unary/binary −", label="arith simplify (4)", color="#1baf7a", penwidth=1.8, style="rounded,filled"];
+      div_simplify [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ t/t ≈ 1;  t/1 ≈ t;  constant division evaluated\n(reduces through poly_simp)", color="#1baf7a", penwidth=1.6];
+    }
+  }
+
+  subgraph cluster_rwsimp {
+    label="rw+simp  (stage 2: the rewrite vocabulary)"; fontsize=15; style="rounded,bold"; color="#4a3aa7"; bgcolor="#f5f4fb";
+
+    subgraph cluster_rw_eqrw {
+      label="equality & rewriting"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      bool_simp [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ φ ≈ ψ\nψ a fixpoint of the rule's rewrite system\n(not/implies/equiv/bool/ite/eq_simplify)", label="Boolean/ite/eq\nsimplify (6)", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+      distinct_elim [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ distinct(t1 … tn) ≈ pairwise disequalities\nBool, 2 args:  ≈ ¬(φ ≈ ψ);  Bool, ≥3 args:  ≈ ⊥", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    }
+
+    subgraph cluster_rw_arith {
+      label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      comp_simplify [URL="classification.html#arithmetic", target="_self", tooltip="Γ ▷ (t1 ⋈ t2) ≈ ψ\nfixpoint of the comparison rewrites (⋈ ∈ {<, >, ≤, ≥})", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    }
+  }
+
+  subgraph cluster_coretier {
+    label="core  (expensive rules kept primitive in practice)"; fontsize=15; style="rounded,bold"; color="#2a78d6"; bgcolor="#f3f7fc";
+
+    subgraph cluster_core_structural {
+      label="structural"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      assume    [URL="classification.html#structural", target="_self", tooltip="▷ φ\nφ an input assertion (up to orientation of equalities)", color="#2a78d6", penwidth=2.4];
+      subproof  [URL="classification.html#structural", target="_self", tooltip="subproof with assumptions φ1 … φk, last step ψ\n⟹  ▷ ¬φ1, …, ¬φk, ψ", color="#2a78d6", penwidth=2.4];
+      hole      [URL="classification.html#structural", target="_self", tooltip="▷ any clause — unverified; taints validity", color="#2a78d6", penwidth=2.4];
+      aci_simp  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ t1 ≈ t2\nequivalent modulo associativity, commutativity,\nidentity elements and idempotence — term-structure normalization\nexpandable to the two clausal directions of the equivalence;\nin practice kept primitive (the expansion is the expensive rung)", label="aci_simp\n(expensive)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    }
+
+    subgraph cluster_core_clausal {
+      label="clausal"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      resolution [URL="classification.html#clausal", target="_self", tooltip="i1 ▷ C1;  …;  in ▷ Cn\n⟹  ▷ C, a chain of binary resolutions over the premises\nRUP reading: ¬C unit-propagates to a conflict", label="resolution\n(chain + RUP)", color="#2a78d6", penwidth=2.4];
+      true_r     [URL="classification.html#clausal", target="_self", tooltip="▷ ⊤", label="true",  color="#2a78d6", penwidth=2.4];
+      false_r    [URL="classification.html#clausal", target="_self", tooltip="▷ ¬⊥", label="false", color="#2a78d6", penwidth=2.4];
+      not_not    [URL="classification.html#clausal", target="_self", tooltip="▷ ¬(¬¬φ), φ", color="#2a78d6", penwidth=2.4];
+      andor_ax   [URL="classification.html#clausal", target="_self", tooltip="and_pos:  ▷ ¬(φ0 ∧ … ∧ φn), φk\nand_neg:  ▷ (φ1 ∧ … ∧ φn), ¬φ1, …, ¬φn\nor_pos:   ▷ ¬(φ1 ∨ … ∨ φn), φ1, …, φn\nor_neg:   ▷ (φ0 ∨ … ∨ φn), ¬φk", label="and/or axioms (4)", color="#2a78d6", penwidth=2.4];
+      equiv_ax   [URL="classification.html#clausal", target="_self", tooltip="equiv_pos1:  ▷ ¬(φ1 ≈ φ2), φ1, ¬φ2\nequiv_pos2:  ▷ ¬(φ1 ≈ φ2), ¬φ1, φ2\nequiv_neg1:  ▷ (φ1 ≈ φ2), ¬φ1, ¬φ2\nequiv_neg2:  ▷ (φ1 ≈ φ2), φ1, φ2", label="equiv axioms (4)\n(bootstrap)", color="#2a78d6", penwidth=2.4];
+      xorite_ax  [URL="classification.html#clausal", target="_self", tooltip="xor_pos1:  ▷ ¬(xor φ1 φ2), φ1, φ2\nxor_neg1:  ▷ (xor φ1 φ2), φ1, ¬φ2\nite_pos1:  ▷ ¬(ite φ1 φ2 φ3), φ1, φ3\nite_neg1:  ▷ (ite φ1 φ2 φ3), φ1, ¬φ3\n(8 axioms: xor_pos1/2, xor_neg1/2, ite_pos1/2, ite_neg1/2)", label="xor/ite axioms (8)", color="#2a78d6", penwidth=2.4];
+      implies_ax [URL="classification.html#clausal", target="_self", tooltip="implies_pos:   ▷ ¬(φ1 → φ2), ¬φ1, φ2\nimplies_neg1:  ▷ (φ1 → φ2), φ1\nimplies_neg2:  ▷ (φ1 → φ2), ¬φ2", label="implies axioms (3)", color="#2a78d6", penwidth=2.4];
+    }
+
+    subgraph cluster_core_binder {
+      label="binder"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      let_r       [URL="classification.html#binder", target="_self", tooltip="premises ▷ sᵢ ≈ tᵢ;   Γ, x̄↦t̄ ▷ u ≈ u′\n⟹  Γ ▷ (let x̄ = s̄ in u) ≈ u′", label="let", color="#2a78d6", penwidth=2.4];
+      bind_let    [URL="classification.html#binder", target="_self", tooltip="bind for let bindings (extra rule):\nΓ, ȳ, x̄↦ȳ ▷ … ≈ …  over let-bound variables", color="#2a78d6", penwidth=2.4];
+      sko_forall  [URL="classification.html#binder", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.¬(∀xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∀x̄.φ ≈ ψ\n(sequential witness form; the spec text is fixed by divergence 4)", color="#2a78d6", penwidth=2.4];
+      forall_inst [URL="classification.html#binder", target="_self", tooltip="▷ ¬(∀x̄.φ) ∨ φ[x̄↦t̄]\n(unit or-clause; instance terms in :args)", color="#2a78d6", penwidth=2.4];
+      sko_ex   [URL="classification.html#ex-sko-ex", target="_self", tooltip="Γ, x1↦ε1, …, xn↦εn ▷ φ ≈ ψ,  εᵢ = εxᵢ.(∃xᵢ₊₁…xₙ.φ)\n⟹  Γ ▷ ∃x̄.φ ≈ ψ\ncore: kept primitive — its reduction is what would force\ncongruence under choice (divergence 5)", color="#2a78d6", penwidth=2.4];
+      bind        [URL="classification.html#binder", target="_self", tooltip="Γ, ȳ, x̄↦ȳ ▷ φ ≈ ψ\n⟹  Γ ▷ Qx̄.φ ≈ Qȳ.ψ   (Q ∈ {∀,∃})\nexpandable via the ∀-ε-clause + a replay of the body at the witnesses\n(every corpus instance reduces); in practice kept primitive\ndivergence 8 generalizes the anchor and adds a ∀-closure conclusion", label="bind\n(expensive;\nbinder congruence)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    }
+
+    subgraph cluster_core_eqrw {
+      label="equality & rewriting"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      refl  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t1 ≈ t2  where t1·σΓ = t2\n(the only rule applying the context substitution)", color="#2a78d6", penwidth=2.4];
+      trans [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t1 ≈ t2;  Γ ▷ t2 ≈ t3;  …;  Γ ▷ tn ≈ tn+1\n⟹  Γ ▷ t1 ≈ tn+1", color="#2a78d6", penwidth=2.4];
+      cong  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t1 ≈ u1;  …;  Γ ▷ tm ≈ um\n⟹  Γ ▷ f(s̄, t̄) ≈ f(s̄, ū)   (equal prefix s̄ may be skipped)", color="#2a78d6", penwidth=2.4];
+      symm  [URL="classification.html#equality-and-rewriting", target="_self", tooltip="i ▷ φ ≈ ψ\n⟹  ▷ ψ ≈ φ", color="#2a78d6", penwidth=2.4];
+      connective_def [URL="classification.html#equality-and-rewriting", target="_self", tooltip="▷ (xor φ1 φ2) ≈ (¬φ1∧φ2) ∨ (φ1∧¬φ2)\n▷ (φ1 ≈ φ2) ≈ (φ1→φ2) ∧ (φ2→φ1)\n▷ (ite φ1 φ2 φ3) ≈ (φ1→φ2) ∧ (¬φ1→φ3)\n▷ ∀x̄.φ ≈ ¬∃x̄.¬φ   (and dually)\nproposed (div. 6):  ▷ (φ1 → φ2) ≈ ¬φ1 ∨ φ2", color="#2a78d6", penwidth=2.4];
+      rare_rewrite   [URL="classification.html#equality-and-rewriting", target="_self", tooltip="Γ ▷ t ≈ u\nan instance of a declared RARE rule (:args name + substitution)", color="#2a78d6", penwidth=2.4];
+      eq_variant [URL="classification.html#variants-2", target="_self", tooltip="eq_transitive:  ▷ ¬(t1≈t2), …, ¬(tn−1≈tn), t1 ≈ tn\neq_congruent:  ▷ ¬(t1≈u1), …, ¬(tn≈un), f(t̄) ≈ f(ū)\nclausal variants of trans/cong — same checker functions,\nso neither counted towards the core nor eliminated", label="eq_transitive,\neq_congruent\n(variants)", color="#8a887f", penwidth=1.6, style="rounded,filled,dashed"];
+    }
+
+    subgraph cluster_core_arith {
+      label="arithmetic"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      la_generic [URL="classification.html#arithmetic", target="_self", tooltip="▷ φ1, …, φn   (linear (in)equalities)\nnegations refuted by a positive Farkas combination (:args coefficients)", color="#2a78d6", penwidth=2.4];
+      mult_sign [URL="classification.html#arithmetic", target="_self", tooltip="mult_pos:  ▷ ¬(x > 0), ¬(y > 0), (x·y > 0)\nmult_neg:  ▷ ¬(x < 0), ¬(y > 0), (x·y < 0)\n(adopted, implemented)", label="mult_pos/neg\n(extra)", color="#2a78d6", penwidth=2.4];
+      mult_distrib [URL="classification.html#arithmetic", target="_self", tooltip="(extra)  ▷ (x · (y − z)) ≈ (x·y − x·z)\nthe one ring law beyond la_generic's linear reasoning", label="mult_distrib\n(extra)", color="#2a78d6", penwidth=2.4];
+      la_disequality [URL="classification.html#arithmetic", target="_self", tooltip="▷ (t1 ≈ t2) ∨ ¬(t1 ≤ t2) ∨ ¬(t2 ≤ t1)\nthe [antisym] order-antisymmetry axiom", color="#2a78d6", penwidth=2.4];
+      poly_simp  [URL="classification.html#arithmetic", target="_self", tooltip="(extra)  ▷ t ≈ u\nboth sides ring-normalize to the same polynomial\nexpandable: linear instances reduce to two Farkas bounds +\nla_disequality; in practice kept primitive", label="poly_simp\n(expensive)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    }
+
+    subgraph cluster_core_bv {
+      label="bitvector"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#f7f6f3";
+      bitblast [URL="classification.html#bitvector", target="_self", tooltip="▷ ∘bv(x̄) ≈ its bit-level Boolean definition\n(14 operations: extract, concat, sext, =, ult, slt,\nadd, neg, mult, and, or, xor, xnor, not)", label="bitblast_* (14)", color="#2a78d6", penwidth=2.4];
+    }
+  }
+
+  subgraph cluster_legacy {
+    label="legacy (removal) & oracle"; fontsize=15; style="rounded,bold"; color="#e34948"; bgcolor="#fdf4f4";
+    lia_generic [URL="classification.html#legacy", target="_self", tooltip="▷ φ1, …, φn   (linear integer (in)equalities)\nno certificate — not checkable without an oracle", label="lia_generic\n(oracle)", color="#e34948", penwidth=1.4, peripheries=2];
+    qnt_cnf     [URL="classification.html#legacy", target="_self", tooltip="▷ ¬(∀x̄.φ) ∨ ∀x̄ₖ.φ′\nclausification placeholder (no precise semantics)", color="#e34948", penwidth=1.4, peripheries=2];
+    ite_intro   [URL="classification.html#legacy", target="_self", tooltip="▷ t ≈ (t′ ∧ ite-definitions)\nartifact of veriT's internal ite constants", color="#e34948", penwidth=1.4, peripheries=2];
+    bfun_elim   [URL="classification.html#legacy", target="_self", tooltip="i ▷ ψ\n⟹  ▷ ψ′ with Boolean arguments case-expanded", color="#e34948", penwidth=1.4, peripheries=2];
+    ac_simp     [URL="classification.html#legacy", target="_self", tooltip="Γ ▷ ψ ≈ φ1 ∘ … ∘ φn\nflattening of nested ∘ ∈ {∧, ∨} with duplicates removed", color="#e34948", penwidth=1.4, peripheries=2];
+  }
+
+  // ---- reducible edges (solid: meets R1–R4) ----
+  th_resolution -> resolution;
+  equiv_intro -> equiv_ax;
+  or_intro -> andor_ax;
+  tautology -> true_r;
+  reordering -> resolution [style=dotted, label="recomputed\naway"];
+  clausif -> andor_ax; clausif -> equiv_ax; clausif -> xorite_ax; clausif -> implies_ax;
+  xorite_ax -> connective_def [style=dotted, label="agreement\nlemma"];
+  implies_ax -> connective_def [style=dotted, label="lemma, &rarr; ext\n(div. 6)"];
+  bind -> sko_forall [style=dashed, label="ε-clause + replay\n(expansion, unused\nin practice)"]; bind -> forall_inst [style=dashed];
+  sko_ex -> sko_forall [style=dotted, label="unused reduction:\nforces choice congruence\n(div. 5)"];
+  onepoint -> forall_inst; onepoint -> bind;
+  qnt_rw -> bind [label="closure"]; qnt_rw -> forall_inst;
+  qnt_rw -> sko_forall [style=dotted, label="fallback"];
+  eq_clausal -> refl; eq_clausal -> cong; eq_clausal -> eq_variant;
+  eq_variant -> trans [style=dotted, label="same\nchecker"]; eq_variant -> cong [style=dotted];
+  multi_rare_rewrite -> rare_rewrite;
+  la_totality -> la_generic; la_tautology -> la_generic;
+
+  // ---- expensive edges (dashed: check-power upgrade or proposed dependency) ----
+  weakening -> resolution [label="RUP"];
+  contraction -> resolution [label="RUP"];
+  shuffle -> aci_simp;
+  nary_elim -> aci_simp;
+  nary_elim -> rare_rewrite [style=dotted, label="non-comm.\ncases"];
+  la_mult -> mult_sign; la_mult -> mult_distrib; la_mult -> la_generic;
+  la_rw_eq -> la_disequality;
+  la_rw_eq -> la_generic;
+  la_rw_eq -> rare_rewrite [style=dotted];
+  arith_simp -> poly_simp [label="rename"];
+  poly_simp -> la_generic [style=dashed, label="bounds + la_diseq.\n(expansion, unused\nin practice)"];
+  aci_simp -> andor_ax [style=dashed, label="clausal directions\n(expansion, unused\nin practice)"];
+  arith_simp -> rare_rewrite [style=dotted, label="alt: trace"];
+  div_simplify -> poly_simp;
+
+  // ---- rw+simp edges (dotted: trace/program/trust-reduction) ----
+  bool_simp -> rare_rewrite [style=dotted, label="trace"];
+  andor_simp -> aci_simp [label="rename /\nCNF chain"];
+  aci_simp -> rare_rewrite [style=dotted];
+  comp_simplify -> rare_rewrite [style=dotted];
+  poly_simp -> rare_rewrite [style=dotted, label="trust-\nreduction"];
+  ac_simp -> aci_simp [style=dotted, label="fallback"];
+
+  // ---- legend ----
+  subgraph cluster_legend {
+    label="legend"; fontsize=13; style="rounded"; color="#d8d6cf"; bgcolor="#ffffff";
+    l_red  [label="reducible", color="#1baf7a", penwidth=1.6];
+    l_agg  [label="rw+simp", color="#4a3aa7", penwidth=1.8, style="rounded,filled,dotted"];
+    l_exp  [label="expensive\n(kept primitive:\nin practice core)", color="#eda100", penwidth=1.8, style="rounded,filled,dashed"];
+    l_core [label="core", color="#2a78d6", penwidth=2.4];
+    l_var  [label="variant", color="#8a887f", penwidth=1.6, style="rounded,filled,dashed"];
+    l_rem  [label="oracle", color="#e34948", penwidth=1.4, peripheries=2];
+    l_red  -> l_agg [label="stage 1: the\nreducible tier"];
+    l_agg  -> l_exp [style=dotted, label="stage 2: the\nrewrite vocabulary"];
+    l_exp  -> l_core [style=dashed, label="stage 3: expandable,\nnot expanded in practice"];
+    l_core -> l_var [style=invis];
+    l_var -> l_rem [style=invis];
+  }
+}

@@ -108,13 +108,14 @@ fn strict_refl() {
             (step t1.t1 (cl (= x z)) :rule strict_refl)
             (step t1 (cl) :rule hole)": true,
         }
-        "Should reject alpha-equivalent terms (unlike refl)" {
-            // strict_refl does NOT use alpha equivalence, so this should fail
-            // even though refl would accept it
+        "Alpha-equivalent terms are accepted, as in the specification's `refl`" {
+            // The one place the strict variant keeps `refl`'s slack: capture-avoiding
+            // substitution renames, so two derivations of the same formula can differ in a bound
+            // name and nothing else, and no other rule relates them
             "(step t1 (cl (=
                 (forall ((x Int)) (> x 0))
                 (forall ((y Int)) (> y 0))
-            )) :rule strict_refl)": false,
+            )) :rule strict_refl)": true,
         }
         "Terms aren't equal after applying context substitution" {
             "(anchor :step t1 :args ((y Real) (:= (x Real) y)))

@@ -452,3 +452,62 @@ fn generic_eq_congruent(
         ..StepNode::default()
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{self, parse_instance};
+
+    /// When the premise of a `cong` step needs to be flipped, and that premise is itself a `symm`
+    /// step, the flipped premise must be the `symm` step's own premise, and not a second `symm`
+    /// step stacked on top of it. The `polyeq` pass emits such `symm` steps whenever it has to
+    /// apply the context on the right-hand term of a `refl`, so the round trip would otherwise
+    /// show up in most elaborated proofs.
+    #[test]
+    fn cong_does_not_stack_symm_steps() {
+        let problem = "
+            (declare-fun f (Bool) Bool)
+            (declare-const a Bool)
+            (declare-const b Bool)
+        ";
+        let proof = "
+            (assume h1 (= a b))
+            (step t1 (cl (= b a)) :rule symm :premises (h1))
+            (step t2 (cl (= (f a) (f b))) :rule cong :premises (t1))
+        ";
+        let (_, proof, _, mut pool) = parse_instance(
+            parser::Source::from(problem),
+            parser::Source::from(proof),
+            None,
+            parser::Config::new(),
+        )
+        .unwrap();
+        let node = crate::ast::ProofNodeForest::from_commands(proof.commands)
+            .0
+            .pop()
+            .unwrap();
+        let ProofNode::Step(step) = node.as_ref() else {
+            unreachable!();
+        };
+
+        let got = cong(&mut pool, &mut ContextStack::new(), step).unwrap();
+
+        let got_step = got.as_step().unwrap();
+        assert_eq!(got_step.rule, "cong");
+        assert_eq!(got_step.premises.len(), 1);
+        // the premise is `h1`, which already concludes `(= a b)`
+        assert!(got_step.premises[0].is_assume());
+
+        let mut stacked = 0;
+        got.traverse(|node| {
+            let is_symm = |node: &Rc<ProofNode>| {
+                node.as_step()
+                    .is_some_and(|s| s.rule == "symm" && !s.premises.is_empty())
+            };
+            if is_symm(node) && is_symm(&node.as_step().unwrap().premises[0]) {
+                stacked += 1;
+            }
+        });
+        assert_eq!(stacked, 0);
+    }
+}

@@ -71,8 +71,16 @@ impl fmt::Display for CliError {
             }
             CliError::CarcaraError(Error::Elaborator { inner, rule, step, pass, file }) => {
                 let pass = match pass {
+                    ElaborationPass::Prune => "prune",
+                    ElaborationPass::Hoist => "hoist",
+                    ElaborationPass::DeepHoist => "deep-hoist",
                     ElaborationPass::Polyeq => "polyeq",
                     ElaborationPass::Hole => "hole",
+                    ElaborationPass::Core => "core",
+                    ElaborationPass::CoreExpensive => "core-expensive",
+                    ElaborationPass::CoreSimpRare => "core-simp-rare",
+                    ElaborationPass::CoreNoRare => "core-no-rare",
+                    ElaborationPass::CoreTaut => "core-taut",
                     ElaborationPass::Local => "local",
                     ElaborationPass::Uncrowd => "uncrowd",
                     ElaborationPass::Reordering => "reordering",

@@ -460,7 +460,7 @@ pub fn beta_equiv(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         return Err(EqualityError::ExpectedEqual(list, right_bindings.clone()).into());
     }
 
-    let substitution = left_bindings
+    let substitution: indexmap::IndexMap<Rc<Term>, Rc<Term>> = left_bindings
         .iter()
         .zip(args)
         .map(|(var, value)| (pool.add(var.clone().into()), value.clone()))

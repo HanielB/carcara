@@ -1,6 +1,5 @@
 use crate::ast::{Binder, BindingList, Rc, Sort, Term};
 use indexmap::{IndexMap, IndexSet};
-use rapidhash::{HashMapExt, RapidHashMap};
 use rug::Integer;
 use std::{
     borrow::Borrow,
@@ -113,19 +112,32 @@ impl<T> AsRef<T> for HashCache<T> {
     }
 }
 
-/// A stack of hash maps, used as a symbol table.
+/// A map with scoped shadowing: pushing a scope starts a new layer of bindings, and popping it
+/// restores every binding the layer shadowed.
 ///
-/// Values are inserted into the topmost scope, and lookups search scopes from the top down,
-/// returning the first value found.
-#[derive(Debug, Clone)]
+/// Lookups are O(1) regardless of how deep the scope stack is: every key indexes a single map
+/// whose values are stacks of `(scope, value)` bindings, and a per-scope undo log records which
+/// entries each scope introduced so that `pop_scope` can drop exactly those. (The previous
+/// implementation kept one map per scope and searched them innermost-first, which made every
+/// lookup linear in the nesting depth — pathological for proofs with deeply nested subproofs,
+/// e.g. the elaboration of `let`-heavy terms.)
+#[derive(Debug)]
 pub struct HashMapStack<K, V> {
-    scopes: Vec<RapidHashMap<K, V>>,
+    /// For each key, the stack of its active bindings, tagged with the scope that introduced
+    /// them. The vector may be left empty when all bindings of a key are popped.
+    map: IndexMap<K, Vec<(usize, V)>>,
+
+    /// For each scope, the indices (into `map`) of the keys it bound.
+    scopes: Vec<Vec<usize>>,
 }
 
 impl<K, V> HashMapStack<K, V> {
     /// Creates an empty `HashMapStack`, containing a single empty scope.
     pub fn new() -> Self {
-        Self { scopes: vec![RapidHashMap::new()] }
+        Self {
+            map: IndexMap::new(),
+            scopes: vec![Vec::new()],
+        }
     }
 
     /// Returns the number of scopes in the stack.
@@ -135,18 +147,19 @@ impl<K, V> HashMapStack<K, V> {
 
     /// Returns `true` if every scope in the stack is empty.
     pub fn is_empty(&self) -> bool {
-        self.scopes.iter().all(RapidHashMap::is_empty)
+        self.map.values().all(Vec::is_empty)
     }
 
     /// Clears the `HashMapStack`, removing all entries and popping all scopes except the base
     /// scope.
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         *self = Self::new();
     }
 
     /// Pushes a new, empty scope onto the stack.
     pub fn push_scope(&mut self) {
-        self.scopes.push(RapidHashMap::new());
+        self.scopes.push(Vec::new());
     }
 
     /// Pops the topmost scope from the stack.
@@ -159,7 +172,9 @@ impl<K, V> HashMapStack<K, V> {
             0 => unreachable!(),
             1 => panic!("trying to pop last scope in `HashMapStack`"),
             _ => {
-                self.scopes.pop().unwrap();
+                for index in self.scopes.pop().unwrap() {
+                    self.map[index].pop();
+                }
             }
         }
     }
@@ -174,14 +189,7 @@ impl<K: Eq + Hash, V> HashMapStack<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        // Note: If there are a lot of scopes in the symbol table, this can be a big performance
-        // bottleneck. As currently implemented, this function needs to hash the key once for every
-        // scope. The ideal way of solving this would be to hash the key once, and reuse that hash
-        // to access the entry in each scope. To do that, we could use the `HashMap::raw_entry`
-        // method, but it is currently nightly-only. Another way to mitigate this issue is to use
-        // the `HashCache<T>` struct to wrap the key values in the symbol table. This allows the key
-        // to only be hashed once, and that value is stored and reused in the struct.
-        self.scopes.iter().rev().find_map(|scope| scope.get(key))
+        self.map.get(key)?.last().map(|(_, v)| v)
     }
 
     /// Like [`get`](HashMapStack::get), but also returns the depth of the scope in which the key
@@ -191,32 +199,23 @@ impl<K: Eq + Hash, V> HashMapStack<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        self.scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(depth, scope)| scope.get(key).map(|v| (depth, v)))
-    }
-
-    /// Like [`get`](HashMapStack::get), but only searches the topmost scope.
-    pub fn get_top<Q>(&self, key: &Q) -> Option<&V>
-    where
-        K: Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.scopes.last().unwrap().get(key)
+        self.map.get(key)?.last().map(|(depth, v)| (*depth, v))
     }
 
     /// Inserts a key-value pair into the topmost scope.
     pub fn insert(&mut self, key: K, value: V) {
-        self.scopes.last_mut().unwrap().insert(key, value);
-    }
-
-    /// Retains from the top scope only elements specified by the predicate.
-    ///
-    /// This does not change any scope besides the topmost one.
-    pub fn retain_top<F: FnMut(&K, &mut V) -> bool>(&mut self, f: F) {
-        self.scopes.last_mut().unwrap().retain(f);
+        let scope = self.scopes.len() - 1;
+        let entry = self.map.entry(key);
+        let index = entry.index();
+        let bindings = entry.or_default();
+        match bindings.last_mut() {
+            // Inserting a key already bound in the current scope overwrites the binding
+            Some((s, v)) if *s == scope => *v = value,
+            _ => {
+                bindings.push((scope, value));
+                self.scopes.last_mut().unwrap().push(index);
+            }
+        }
     }
 }
 
@@ -228,7 +227,9 @@ impl<K, V> Default for HashMapStack<K, V> {
 
 impl<K: Eq + Hash, V> std::iter::Extend<(K, V)> for HashMapStack<K, V> {
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
-        self.scopes.last_mut().unwrap().extend(iter);
+        for (key, value) in iter {
+            self.insert(key, value);
+        }
     }
 }
 
@@ -249,11 +250,13 @@ impl<T> MultiSet<T> {
     }
 
     /// Returns the number of distinct elements in the multiset.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Returns `true` if the multiset is empty.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -288,6 +291,7 @@ impl<T: Hash + Eq> MultiSet<T> {
     }
 
     /// Returns the number of times `value` occurs in the multiset, or `0` if it is not present.
+    #[allow(dead_code)]
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         T: Borrow<Q>,

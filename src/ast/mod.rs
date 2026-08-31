@@ -22,7 +22,8 @@ mod tests;
 
 pub use evaluate::Value;
 pub use iter::ProofIter;
-pub use node::{ProofNode, ProofNodeForest, StepNode, SubproofNode};
+pub use node::{ProofNode, ProofNodeForest, StepNode, SubproofNode, VisitedNodes};
+pub use pool::{PrimitivePool, TermPool};
 pub use polyeq::{Polyeq, PolyeqComparable, PolyeqConfig, alpha_equiv, polyeq};
 pub use problem::{Problem, ProblemPrelude};
 pub use proof::{AnchorArg, Proof, ProofCommand, ProofStep, Subproof};

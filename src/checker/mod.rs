@@ -1,15 +1,16 @@
 //! A proof checker for Alethe proofs
 pub mod error;
 mod parallel;
-mod rules;
+pub(crate) mod rules;
 mod sat_refutation;
-mod shared;
+pub(crate) mod shared;
 
 use crate::{
     CarcaraResult, Error, Status,
     ast::{
         ContextStack, Problem, ProblemPrelude, Proof, ProofCommand, ProofIter, ProofStep, Rc, Term,
-        pool::PrimitivePool, rare_rules::Rules,
+        pool::{PrimitivePool, TermPool},
+        rare_rules::Rules,
     },
     benchmarking::{CollectResults, OnlineBenchmarkResults},
     external::{ExternalTool, SatTools},
@@ -30,6 +31,78 @@ pub use parallel::{ParallelProofChecker, scheduler::Scheduler};
 // The elaborator needs to use this function to elaborate `bfun_elim` steps
 pub(crate) use rules::clausification::apply_bfun_elim;
 pub(crate) use rules::linear_arithmetic::la_generic_partial;
+pub(crate) use rules::polynomial::poly_simp_equal;
+pub(crate) use rules::quantifier::{conjunctive_normal_form, negation_normal_form, prenex_forall};
+pub(crate) use rules::simplification::aci_simp_equal;
+pub(crate) use rules::simplification::{
+    bool_simplify_step, comp_simplify_step, eq_simplify_step, equiv_simplify_step,
+    implies_simplify_step, ite_simplify_step, not_simplify_step, RewriteLabel, SimplifyStepFn,
+};
+
+/// Runs the `cong` check for a candidate step: the given premise equalities against the conclusion
+/// equality, so that an elaboration pass can find out whether the step it is about to emit would be
+/// accepted — `cong`'s orientation search over two-argument equalities in particular.
+pub(crate) fn cong_equal(
+    pool: &mut dyn TermPool,
+    premises: &[Rc<Term>],
+    conclusion: &Rc<Term>,
+) -> RuleResult {
+    let premises: Vec<_> = premises
+        .iter()
+        .enumerate()
+        .map(|(i, t)| Premise {
+            id: "",
+            clause: std::slice::from_ref(t),
+            index: (0, i),
+        })
+        .collect();
+    let mut context = ContextStack::new();
+    let mut polyeq_time = Duration::ZERO;
+    let rare_rules = Rules { rules: IndexMap::new() };
+    rules::congruence::cong(RuleArgs {
+        conclusion: std::slice::from_ref(conclusion),
+        premises: &premises,
+        args: &[],
+        pool,
+        context: &mut context,
+        rare_rules: &rare_rules,
+        previous_command: None,
+        discharge: &[],
+        polyeq_time: &mut polyeq_time,
+    })
+}
+
+/// Runs a premise-free, context-free rule against a candidate clause, so that an elaboration pass
+/// can find out whether a step it is about to emit would be accepted.
+///
+/// Only rules that take no premises, close no subproof and read no context are meaningful here: the
+/// premise list, the discharge list and the context are all empty, so a rule that needs any of them
+/// simply fails. That is the point — the caller offers a clause to a battery of rules and keeps the
+/// first that accepts it, and the checker itself decides which one that is.
+pub(crate) fn check_premise_free_rule(
+    pool: &mut dyn TermPool,
+    rule: &str,
+    conclusion: &[Rc<Term>],
+    args: &[Rc<Term>],
+) -> RuleResult {
+    let Some(rule) = shared::get_rule(rule, false, false) else {
+        return Err(CheckerError::UnknownRule);
+    };
+    let mut context = ContextStack::new();
+    let mut polyeq_time = Duration::ZERO;
+    let rare_rules = Rules { rules: IndexMap::new() };
+    rule(RuleArgs {
+        conclusion,
+        premises: &[],
+        args,
+        pool,
+        context: &mut context,
+        rare_rules: &rare_rules,
+        previous_command: None,
+        discharge: &[],
+        polyeq_time: &mut polyeq_time,
+    })
+}
 
 /// Benchmarking statistics collected while checking a proof.
 #[derive(Clone)]
@@ -120,6 +193,11 @@ impl Config {
     pub fn allowed_rules(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.allowed_rules = values.into_iter().map(Into::into).collect();
         self
+    }
+
+    /// The rules the checker accepts as holes, as set by [`Config::allowed_rules`].
+    pub fn get_allowed_rules(&self) -> &HashSet<String> {
+        &self.allowed_rules
     }
 }
 
