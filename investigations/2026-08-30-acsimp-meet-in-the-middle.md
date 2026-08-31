@@ -69,3 +69,40 @@ The static binary for the follow-up cluster rerun is built
 (`carcara 1.1.0 [git 1d25acf6 coreAlethe-upstream]`); the first run's results
 stay on the submitted binary (1f562e59) for provenance, with these instances
 documented in coverage.
+
+## Addendum (same day): the other two at-scale defects, fixed
+
+The full SMT-LIB sweep surfaced two more, both in the `core-expensive` rung and
+both concentrated where the local corpus had no instances:
+
+- **Deep outbound premises (ac012f21).** `mutate_impl` recorded only a returned
+  root's *direct* outbound premises into the enclosing scope's frame, so a
+  pass-built derivation whose interior references nodes outside the scope (a
+  replayed `bind` body keeping its premises, a shared depth-0 derivation) left
+  the scope's `outbound_premises` incomplete — 292 cvc5 tasks (UF-heavy)
+  panicked on the printer's invariant. The frame extension now walks the
+  returned derivation (stopping at already-collected nodes, so linear), the two
+  invariant assertions name the offending scope, and `CARCARA_VALIDATE_FOREST=1`
+  re-checks every scope's outbound list after each pass.
+- **Non-closure anchor variables in the closure replay (23cac212).** A
+  generalized bind's anchor may bind more variables than the closed literal
+  quantifies; the body may still reference them (cvc5's LRA Monniaux-QE proofs
+  emit `forall_inst` steps instantiating an anchor variable *at itself*). The
+  closure replay substituted only the closed literal's variables, so those
+  references escaped the eliminated anchor unbound: 619 LRA `core-full` outputs
+  failed to re-parse, and the same family accounts for 924\,780 of the 926\,058
+  `bind` steps cvc5's `core-full` rung left standing. Each such variable is now
+  substituted by a closed dummy witness of its sort (`(choice ((v S)) true)`),
+  sound because the closing clause cannot mention it.
+
+Validated: 388 tests pass; the LRA family now elaborates to 0 `bind` steps and
+re-checks strictly; the UF panic benchmark completes and re-checks; the veriT
+UF full-rung invalid sampled locally re-checks valid; full-pipeline outputs are
+byte-identical to the pre-fix binary on the ac\_simp- and bind-heavy local
+corpus proofs (6/6). Residual defect classes left for triage (small, recorded
+in the SMT-LIB report's coverage): a broken `trans` inside a discharge-scope
+reduction on 4 QF\_UFIDL/uclid veriT proofs at `core-full`, ~27 veriT
+"pivot was not found" at the same rung, and a handful of pivot-inference and
+`rare_rewrite`-reduction warnings.
+
+The rerun binary is `carcara 1.1.0 [git 23cac212 coreAlethe-upstream]`.
