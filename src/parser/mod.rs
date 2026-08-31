@@ -232,6 +232,17 @@ struct SortDef {
 #[derive(Default)]
 struct ParserState {
     symbol_table: HashMapStack<HashCache<String>, Rc<Sort>>,
+
+    /// When let bindings are being expanded, maps each let-bound name to its value term, so that
+    /// occurrences resolve to the value directly while the body is parsed. This makes the
+    /// expansion a plain environment lookup instead of a substitution over the parsed body, which
+    /// was quadratic (in nesting depth times expanded-term size) on problems with deeply nested
+    /// lets. Its scopes are pushed and popped in lockstep with `symbol_table` (see `push_scope` /
+    /// `pop_scope`), so a name is expanded exactly when its innermost `symbol_table` binding is
+    /// the let binding — a binder that shadows a let-bound name declares it at a deeper scope,
+    /// which disables the expansion.
+    let_value_table: HashMapStack<HashCache<String>, Rc<Term>>,
+
     function_defs: RapidHashMap<String, FunctionDef>,
     sort_declarations: RapidHashMap<String, usize>,
     datatype_declarations: HashMapStack<String, usize>,
@@ -304,6 +315,19 @@ impl<'p, 's> Parser<'p, 's> {
     /// Inserts a new symbol into the parser symbol table, with the provided sort.
     fn declare_symbol(&mut self, symbol: String, sort: Rc<Sort>) {
         self.state.symbol_table.insert(HashCache::new(symbol), sort);
+    }
+
+    /// Pushes a new scope onto the symbol table, keeping the let-value table's scopes in lockstep
+    /// so that binding depths in the two tables are comparable (see `ParserState`).
+    fn push_scope(&mut self) {
+        self.state.symbol_table.push_scope();
+        self.state.let_value_table.push_scope();
+    }
+
+    /// Pops the topmost scope from the symbol table and the let-value table.
+    fn pop_scope(&mut self) {
+        self.state.symbol_table.pop_scope();
+        self.state.let_value_table.pop_scope();
     }
 
     /// Searches the symbol table for a symbol, and, if found, returns its sort.
@@ -407,10 +431,22 @@ impl<'p, 's> Parser<'p, 's> {
     }
 
     /// Constructs and sort checks a variable term.
+    ///
+    /// If the identifier is a let-bound name currently being expanded, returns its value term
+    /// directly instead: the let-value table is consulted at the depth of the identifier's
+    /// innermost `symbol_table` binding, so a binder that shadows a let-bound name (declared at a
+    /// deeper scope) correctly disables the expansion.
     fn make_var(&mut self, iden: String) -> Result<Rc<Term>, ParserError> {
         let cached = HashCache::new(iden);
-        let sort = match self.state.symbol_table.get(&cached) {
-            Some(s) => s.clone(),
+        let sort = match self.state.symbol_table.get_with_depth(&cached) {
+            Some((depth, s)) => {
+                if let Some((let_depth, value)) = self.state.let_value_table.get_with_depth(&cached)
+                    && let_depth == depth
+                {
+                    return Ok(value.clone());
+                }
+                s.clone()
+            }
             None => return Err(ParserError::UndefinedIden(cached.unwrap())),
         };
         Ok(self.pool.add(Term::Var(cached.unwrap(), sort)))
@@ -1225,7 +1261,7 @@ impl<'p, 's> Parser<'p, 's> {
             if top_end_step == id.as_ref() {
                 // If this is the last step in a subproof, we need to pop all the subproof data off
                 // of the stacks and build the subproof command with it
-                self.state.symbol_table.pop_scope();
+                self.pop_scope();
                 self.state.step_ids.pop_scope();
                 let (subproof, _, _) = stack.pop().unwrap();
 
@@ -1390,7 +1426,7 @@ impl<'p, 's> Parser<'p, 's> {
 
         // We have to push a new scope into the symbol table in order to parse the subproof
         // arguments
-        self.state.symbol_table.push_scope();
+        self.push_scope();
 
         let args = if self.current_token == Token::Keyword("args".into()) {
             self.next_token()?;
@@ -1496,12 +1532,12 @@ impl<'p, 's> Parser<'p, 's> {
 
         // In order to correctly parse the function body, we push a new scope to the symbol table
         // and add the functions arguments to it.
-        self.state.symbol_table.push_scope();
+        self.push_scope();
         for (var, sort) in &params {
             self.declare_symbol(var.clone(), sort.clone());
         }
         let body = self.parse_term_expecting_sort(&return_sort)?;
-        self.state.symbol_table.pop_scope();
+        self.pop_scope();
 
         self.expect_token(Token::CloseParen)?;
 
@@ -1562,12 +1598,12 @@ impl<'p, 's> Parser<'p, 's> {
             self.expect_token(Token::OpenParen)?;
         }
         for (name, params, return_sort) in declarations {
-            self.state.symbol_table.push_scope();
+            self.push_scope();
             for (var, sort) in &params {
                 self.declare_symbol(var.clone(), sort.clone());
             }
             let body = self.parse_term_expecting_sort(&return_sort)?;
-            self.state.symbol_table.pop_scope();
+            self.pop_scope();
 
             self.add_define_fun_rec_premise(name, params, body);
         }
@@ -1588,13 +1624,13 @@ impl<'p, 's> Parser<'p, 's> {
 
         // In order to correctly parse the sort definition, we push a new scope to the symbol table
         // and add the sort parameters to it.
-        self.state.symbol_table.push_scope();
+        self.push_scope();
         for s in &params {
             let sort = self.pool.add_sort(Sort::Type);
             self.declare_symbol(s.clone(), sort);
         }
         let body = self.parse_sort()?;
-        self.state.symbol_table.pop_scope();
+        self.pop_scope();
 
         self.expect_token(Token::CloseParen)?;
 
@@ -1659,7 +1695,7 @@ impl<'p, 's> Parser<'p, 's> {
     /// already consumed.
     fn parse_binder(&mut self, binder: Binder) -> CarcaraResult<Rc<Term>> {
         self.expect_token(Token::OpenParen)?;
-        self.state.symbol_table.push_scope();
+        self.push_scope();
         let bindings = if binder == Binder::Choice {
             let (var, sort) = self.parse_sorted_var()?;
             self.declare_symbol(var.clone(), sort.clone());
@@ -1679,7 +1715,7 @@ impl<'p, 's> Parser<'p, 's> {
             Binder::Lambda => self.parse_term()?,
             _ => self.parse_term_expecting_sort(&Sort::Bool)?,
         };
-        self.state.symbol_table.pop_scope();
+        self.pop_scope();
         self.expect_token(Token::CloseParen)?;
         Ok(self.pool.add(Term::Binder(binder, bindings, term)))
     }
@@ -1702,31 +1738,27 @@ impl<'p, 's> Parser<'p, 's> {
             true,
         )?;
 
-        self.state.symbol_table.push_scope();
+        self.push_scope();
         for (name, value) in &bindings {
             let sort = self.pool.sort(value);
             self.declare_symbol(name.clone(), sort);
+            if self.config.expand_lets {
+                // Bind the value in the let-value table so occurrences of the name resolve to it
+                // directly in `make_var`; the parsed body then already is the expanded term, with
+                // no substitution pass over it (see `ParserState::let_value_table`)
+                self.state
+                    .let_value_table
+                    .insert(HashCache::new(name.clone()), value.clone());
+            }
         }
 
         let inner = self.parse_term()?;
         self.expect_token(Token::CloseParen)?;
 
-        self.state.symbol_table.pop_scope();
+        self.pop_scope();
 
         if self.config.expand_lets {
-            let substitution: IndexMap<Rc<Term>, Rc<Term>> = bindings
-                .into_iter()
-                .map(|(name, value)| {
-                    let var = Term::new_var(name, self.pool.sort(&value));
-                    (self.pool.add(var), value)
-                })
-                .collect();
-
-            let result = Substitution::new(self.pool, substitution)
-                .unwrap()
-                .apply(self.pool, &inner);
-
-            Ok(result)
+            Ok(inner)
         } else {
             Ok(self.pool.add(Term::Let(BindingList(bindings), inner)))
         }
@@ -2056,29 +2088,22 @@ impl<'p, 's> Parser<'p, 's> {
                     true,
                 )?;
 
-                self.state.symbol_table.push_scope();
+                self.push_scope();
                 for (name, value) in &args {
                     let sort = self.pool.sort(value);
                     self.declare_symbol(name.clone(), sort);
+                    // eo::define is always unfolded: bind the value so occurrences resolve to it
+                    // directly while parsing the body (see `ParserState::let_value_table`)
+                    self.state
+                        .let_value_table
+                        .insert(HashCache::new(name.clone()), value.clone());
                 }
 
                 let inner = self.parse_term()?;
                 self.expect_token(Token::CloseParen)?;
 
-                self.state.symbol_table.pop_scope();
-                let substitution: IndexMap<Rc<Term>, Rc<Term>> = args
-                    .into_iter()
-                    .map(|(name, value)| {
-                        let var = Term::new_var(name, self.pool.sort(&value));
-                        (self.pool.add(var), value)
-                    })
-                    .collect();
-
-                let result = Substitution::new(self.pool, substitution)
-                    .unwrap()
-                    .apply(self.pool, &inner);
-
-                Ok(result)
+                self.pop_scope();
+                Ok(inner)
             }
             Token::Symbol(s) if self.state.function_defs.contains_key(s) => {
                 let head_pos = self.current_position;

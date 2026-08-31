@@ -89,7 +89,7 @@ impl<'p, 's> Parser<'p, 's> {
         self.expect_token(Token::OpenParen)?;
         let params = if self.current_token == Token::ReservedWord(Reserved::Par) {
             self.next_token()?;
-            self.state.symbol_table.push_scope();
+            self.push_scope();
             self.expect_token(Token::OpenParen)?;
             let params = self.parse_sequence(
                 |p| {
@@ -119,7 +119,7 @@ impl<'p, 's> Parser<'p, 's> {
             .collect();
         if !params.is_empty() {
             self.expect_token(Token::CloseParen)?;
-            self.state.symbol_table.pop_scope();
+            self.pop_scope();
         }
         Ok(Datatype { params, constructors })
     }
@@ -273,7 +273,7 @@ impl<'p, 's> Parser<'p, 's> {
         constructors: &IndexMap<String, DatatypeConstructor>,
     ) -> CarcaraResult<MatchCase> {
         self.expect_token(Token::OpenParen)?;
-        self.state.symbol_table.push_scope();
+        self.push_scope();
 
         let pattern = self.parse_match_pattern(sort, constructors)?;
         for (var, sort) in pattern.bindings() {
@@ -281,7 +281,7 @@ impl<'p, 's> Parser<'p, 's> {
         }
 
         let body = self.parse_term()?;
-        self.state.symbol_table.pop_scope();
+        self.pop_scope();
         self.expect_token(Token::CloseParen)?;
         Ok(MatchCase { pattern, body })
     }
