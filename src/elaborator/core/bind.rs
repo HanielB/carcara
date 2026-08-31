@@ -1531,7 +1531,27 @@ fn closure(
     let (eps, skolemized) =
         epsilon_clause(b, context, &conclusion[index], &closure_vars, &body, &ws)?;
 
-    let map = anchor_map(b.pool, &closure_vars, &ws);
+    let mut map = anchor_map(b.pool, &closure_vars, &ws);
+    // The anchor may bind more variables than the closed literal quantifies. The checker reads
+    // those as universally irrelevant — the closing clause cannot mention them — but the *body*
+    // may, e.g. a `forall_inst` instantiating an anchor variable at itself. Once the anchor is
+    // gone such a reference would be unbound, so the replay substitutes each of them by a closed
+    // term of its sort; any term works, since nothing in the conclusion depends on the value
+    for arg in &sub.args {
+        let AnchorArg::Variable(var) = arg else {
+            unreachable!("assign anchors are rejected above");
+        };
+        let var_term = b.pool.add(Term::from(var.clone()));
+        if !map.contains_key(&var_term) {
+            let body = b.pool.bool_true();
+            let dummy = b.pool.add(Term::Binder(
+                Binder::Choice,
+                BindingList(vec![var.clone()]),
+                body,
+            ));
+            map.insert(var_term, dummy);
+        }
+    }
     let mut replacement = Replacement::new(b.pool, map.clone());
     let mut cache = ReplayCache::new();
     let mut assumes = ReplayCache::new();
