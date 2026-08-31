@@ -218,11 +218,10 @@ where
 {
     let range = range.into();
     for x in sequence {
-        if let Term::Const(Constant::Integer(i)) = x.as_ref() {
-            let contained = i.to_usize().is_some_and(|i| range.contains(i));
-            if !contained {
-                return Err(ParserError::WrongValueOfArgs(range, i.clone()));
-            }
+        if let Term::Const(Constant::Integer(i)) = x.as_ref()
+            && !range.contains_integer(i)
+        {
+            return Err(ParserError::WrongValueOfArgs(range, i.clone()));
         }
     }
     Ok(())

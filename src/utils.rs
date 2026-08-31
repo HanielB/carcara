@@ -403,6 +403,12 @@ impl Range {
         self.0.as_ref().is_none_or(|bound| n >= *bound)
             && self.1.as_ref().is_none_or(|bound| n <= *bound)
     }
+
+    /// Returns `true` if `n` is contained in the range, for values that may not fit in a `usize`.
+    pub fn contains_integer(&self, n: &Integer) -> bool {
+        self.0.as_ref().is_none_or(|bound| *n >= *bound)
+            && self.1.as_ref().is_none_or(|bound| *n <= *bound)
+    }
 }
 
 impl fmt::Display for Range {
