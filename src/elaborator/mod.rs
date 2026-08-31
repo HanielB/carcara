@@ -195,6 +195,77 @@ fn nested_binds(proof: &ProofNodeForest) -> HashSet<String> {
     out
 }
 
+/// Debug validation (`CARCARA_VALIDATE_FOREST`): checks that every subproof's
+/// `outbound_premises` lists every premise edge that leaves the scope.
+fn validate_forest(proof: &ProofNodeForest, pass: ElaborationPass) {
+    fn check_scope(sub: &SubproofNode, closing_depth: usize, scope_id: &str, pass: ElaborationPass) {
+        let listed: HashSet<*const ProofNode> =
+            sub.outbound_premises.iter().map(Rc::as_ptr).collect();
+        let mut seen = HashSet::new();
+        let mut stack = vec![&sub.last_step];
+        while let Some(node) = stack.pop() {
+            if !seen.insert(Rc::as_ptr(node)) {
+                continue;
+            }
+            if node.depth() < closing_depth {
+                continue; // outside this scope's interior; reached via an outbound edge
+            }
+            let premises: Vec<&Rc<ProofNode>> = match node.as_ref() {
+                ProofNode::Assume { .. } => Vec::new(),
+                ProofNode::Step(s) => s
+                    .premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(s.previous_step.iter())
+                    .collect(),
+                ProofNode::Subproof(inner) => {
+                    stack.push(&inner.last_step);
+                    stack.extend(inner.extra_steps.iter());
+                    inner.outbound_premises.iter().collect()
+                }
+            };
+            for p in premises {
+                let crosses = p.depth() < closing_depth;
+                if crosses && !listed.contains(&Rc::as_ptr(p)) {
+                    eprintln!(
+                        "FOREST-INVARIANT after {:?}: scope '{}' is missing outbound premise \
+                         '{}' (depth {} < scope interior {}), referenced from '{}'",
+                        pass,
+                        scope_id,
+                        p.id(),
+                        p.depth(),
+                        closing_depth,
+                        node.id(),
+                    );
+                }
+                stack.push(p);
+            }
+        }
+    }
+    let mut seen = HashSet::new();
+    let mut stack: Vec<&Rc<ProofNode>> = proof.0.iter().collect();
+    while let Some(node) = stack.pop() {
+        if !seen.insert(Rc::as_ptr(node)) {
+            continue;
+        }
+        match node.as_ref() {
+            ProofNode::Assume { .. } => (),
+            ProofNode::Step(s) => stack.extend(
+                s.premises
+                    .iter()
+                    .chain(&s.discharge)
+                    .chain(s.previous_step.iter()),
+            ),
+            ProofNode::Subproof(sub) => {
+                check_scope(sub, sub.last_step.depth(), sub.last_step.id(), pass);
+                stack.push(&sub.last_step);
+                stack.extend(sub.extra_steps.iter());
+                stack.extend(sub.outbound_premises.iter());
+            }
+        }
+    }
+}
+
 /// The number of `bind` scopes left in the proof.
 fn count_binds(proof: &ProofNodeForest) -> usize {
     let mut count = 0;
@@ -303,6 +374,9 @@ impl<'e> Elaborator<'e> {
                 }
             };
             current = result.map_err(|e| e.at(proof_filename, pass))?;
+            if std::env::var_os("CARCARA_VALIDATE_FOREST").is_some() {
+                validate_forest(&current, pass);
+            }
             durations.push(time.elapsed());
         }
         Ok((current, durations))
@@ -771,6 +845,13 @@ where
     let mut todo = vec![(root, false)];
 
     let mut outbound_premises_stack = vec![IndexSet::new()];
+    // Nodes whose outbound premises have already been collected into a frame. Every node the
+    // traversal offers to the pass lands here; what remains unseen under a returned replacement
+    // is exactly the derivation the pass *built*, whose interior can reference nodes outside the
+    // current scope (e.g. a replayed `bind` body keeping its premises, or a shared derivation at
+    // depth 0) — those references must reach the enclosing scope's outbound list too, or the
+    // printer meets them inside the wrong anchor.
+    let mut deep_seen: HashSet<Rc<ProofNode>> = HashSet::new();
     let mut context = ContextStack::new();
 
     while let Some((node, is_done)) = todo.pop() {
@@ -825,7 +906,11 @@ where
             ProofNode::Subproof(s) if !is_done => {
                 assert!(
                     node.depth() == outbound_premises_stack.len() - 1,
-                    "all outbound premises should have already been dealt with!"
+                    "all outbound premises should have already been dealt with! \
+                     (subproof closing '{}' at depth {}, traversal at {})",
+                    s.last_step.id(),
+                    node.depth(),
+                    outbound_premises_stack.len() - 1
                 );
 
                 if !did_outbound.contains(node) {
@@ -876,10 +961,40 @@ where
                 mutate_func(&mut context, &new_node, true)?
             }
         };
-        outbound_premises_stack
-            .last_mut()
-            .unwrap()
-            .extend(mutated.get_outbound_premises());
+        {
+            // Collect the outbound premises of the whole returned derivation, not just the
+            // returned root: walk the nodes the pass built (everything not yet seen), and record
+            // every premise edge that leaves the current depth. Linear overall — the walk stops
+            // at nodes already collected for an earlier frame extension.
+            let depth = mutated.depth();
+            let frame = outbound_premises_stack.last_mut().unwrap();
+            let mut walk = vec![mutated.clone()];
+            while let Some(n) = walk.pop() {
+                if !deep_seen.insert(n.clone()) {
+                    continue;
+                }
+                let premises: Vec<Rc<ProofNode>> = match n.as_ref() {
+                    ProofNode::Assume { .. } => continue,
+                    ProofNode::Step(step) => step
+                        .premises
+                        .iter()
+                        .chain(&step.discharge)
+                        .chain(step.previous_step.iter())
+                        .cloned()
+                        .collect(),
+                    // A subproof's own outbound list is already deep (its builder traverses the
+                    // interior), so the interior need not be revisited here
+                    ProofNode::Subproof(sub) => sub.outbound_premises.clone(),
+                };
+                for p in premises {
+                    if p.depth() < depth {
+                        frame.insert(p);
+                    } else {
+                        walk.push(p);
+                    }
+                }
+            }
+        }
         cache.insert(node.clone(), mutated);
     }
     assert!(outbound_premises_stack.len() == 1 && outbound_premises_stack[0].is_empty());

@@ -552,7 +552,11 @@ fn proof_nodes_to_list(proof: &ProofNodeForest, prune: bool) -> Vec<ProofCommand
             ProofNode::Subproof(s) if !is_done => {
                 assert!(
                     node.depth() == stack.len() - 1,
-                    "all outbound premises should have already been dealt with!"
+                    "all outbound premises should have already been dealt with! \
+                     (subproof closing '{}' at depth {}, print frame {})",
+                    s.last_step.id(),
+                    node.depth(),
+                    stack.len() - 1
                 );
 
                 // First, we add all of the subproof's outbound premises if he haven't already
