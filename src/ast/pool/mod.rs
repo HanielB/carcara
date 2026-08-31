@@ -186,7 +186,11 @@ impl PrimitivePool {
                     for a in args {
                         match self.compute_sort(a).as_ref() {
                             Sort::BitVec(_) => break 'block self.compute_sort(a).clone(),
-                            Sort::ParamBitVec => (),
+                            // `Var` is the placeholder sort of an empty rare-list, which can
+                            // appear here transiently when a rule's list parameter is
+                            // instantiated with an empty list, before meta-rewriting
+                            // flattens the application away
+                            Sort::ParamBitVec | Sort::Var(_) => (),
                             _ => unreachable!(),
                         }
                     }
@@ -210,7 +214,11 @@ impl PrimitivePool {
                         Sort::BitVec(0),
                         |acc, sort| match (acc, sort.as_ref()) {
                             (Sort::BitVec(a), Sort::BitVec(b)) => Sort::BitVec(a + b),
-                            (Sort::BitVec(_) | Sort::ParamBitVec, Sort::ParamBitVec)
+                            // `Var` is the placeholder sort of an empty rare-list, which can
+                            // appear here transiently when a rule's list parameter is
+                            // instantiated with an empty list, before meta-rewriting
+                            // flattens the application away
+                            (Sort::BitVec(_) | Sort::ParamBitVec, Sort::ParamBitVec | Sort::Var(_))
                             | (Sort::ParamBitVec, Sort::BitVec(_)) => Sort::ParamBitVec,
                             _ => unreachable!(),
                         },
