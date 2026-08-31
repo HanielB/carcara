@@ -501,11 +501,11 @@ fn replay(
                     assumes,
                 );
             }
-            // `onepoint` is the one closing whose side condition the replay does not track: it
-            // reads the points off the body, and the substituted body can offer different ones
-            if last.rule == "onepoint" {
-                return Err(explanation("nested scope closed by `onepoint`"));
-            }
+            // `onepoint` reads its points off the body, but the replay keeps that side condition
+            // in step: the point equations in the body and the anchor's assigned values are
+            // transported by the same substitution, and the eliminated variables themselves are
+            // never substituted (the shadows guard below), so the substituted scope offers the
+            // substituted points — exactly what its transported anchor assigns.
             // A nested anchor that binds a variable this substitution touches would shadow it.
             // Unlike a binder inside a term, an anchor's variable cannot be renamed away here —
             // the scope's own steps name it
