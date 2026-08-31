@@ -34,10 +34,13 @@ nested lets the cost is quadratic in nesting depth x expanded-DAG size:
 the parser's scope table and resolve occurrences to the bound `Rc<Term>` while
 parsing the body. No substitution pass at all, linear, equivalent under
 hash-consing. Alternatives that also help: port the coreAlethe substitution
-commits (7728a9f7 "Improve performance of substitutions", 63f9e344 "Defer the
-invalidation of substitution application caches"), and swap the substitution
-cache's default SipHash for rapidhash (~18% of the pathological profile is
-SipHash).
+commits
+([7728a9f7](https://github.com/HanielB/carcara/commit/7728a9f7af1b177543e0d09656e7557fa137ecc5)
+"Improve performance of substitutions",
+[63f9e344](https://github.com/HanielB/carcara/commit/63f9e34450b68d8aa4394418aeb24dc02dae46c4)
+"Defer the invalidation of substitution application caches"), and swap the
+substitution cache's default SipHash for rapidhash (~18% of the pathological
+profile is SipHash).
 
 **2. Lexer throughput (the bulk cost).** On a normal 20MB proof parse,
 `Lexer::next_token` is 44.6% inclusive of the whole run: `current()` clones the
@@ -49,9 +52,11 @@ profile is malloc/free. *Fix:* byte-slice cursor with zero-copy token slices
 corpus produced 242GB of proofs; at the observed ~1.6MB/s average, lexer +
 allocator work is most of the 147k s.
 
-(Related, not this corpus's bottleneck: coreAlethe b6d0beb9 makes HashMapStack
-lookups O(1) in subproof nesting depth — BV proofs have no anchors, but the
-port is worthwhile; note wt-diff's version diverged to RapidHashMap.)
+(Related, not this corpus's bottleneck: coreAlethe
+[b6d0beb9](https://github.com/HanielB/carcara/commit/b6d0beb9c6fdb5529b84221e50872f365655c180)
+makes HashMapStack lookups O(1) in subproof nesting depth — BV proofs have no
+anchors, but the port is worthwhile; note wt-diff's version diverged to
+RapidHashMap.)
 
 ## rare_rewrite (75% of rule time)
 
@@ -78,7 +83,9 @@ Fixes, in expected-impact order:
    re-normalizes the proof premise and requires it to be a fixpoint. If the
    first comparison passed, the premise equals a normal form, so the second
    loop looks redundant — verify on the corpus, then drop it.
-5. Done (ported from coreAlethe 61c65719): build the meta-rule set once behind
+5. Done (ported from coreAlethe
+   [61c65719](https://github.com/HanielB/carcara/commit/61c65719ab34db875981384a3f47fe016cf53c6c)):
+   build the meta-rule set once behind
    a OnceLock. Measured no median change (it fixed a first-step timing
    outlier), kept for merge parity.
 
