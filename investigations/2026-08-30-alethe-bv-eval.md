@@ -71,8 +71,13 @@ unknown to carcara (6).
 6. `src/checker/rules/extras.rs`: new generic `absorb` rule: `(= t c)` where `c` is the
    absorbing element of `t`'s top operator (and→false, or→true, bvand/bvmul→0, bvor→ones)
    and occurs among `t`'s arguments modulo same-operator flattening. Mirrors cvc5's
-   `ProofRule::ABSORB`. *Design point open to veto — the alternative is elaborating via
-   ac_simp + new RARE rules that neither tool has.*
+   `ProofRule::ABSORB`. *Decision (2026-08-30): kept for now.* Recorded alternative, if
+   `absorb` is ever dropped: hand-written list-rules `bv-and-zero` / `bv-or-ones` /
+   `bv-mul-zero` in rewrites.eo (`bv-or-ones` with premise
+   `(= c1 (- (int.pow2 w1) 1))`), emitted as a single `rare_rewrite` step when the
+   absorbing constant is a direct child (the common case — cvc5's BV ops are n-ary), or
+   `aci_simp` + `rare_rewrite` + `trans` when nested; carcara's `aci_simp` already covers
+   the BV n-ary operators.
 7. `src/checker/rules/polynomial.rs`: `Polynomial::modulo` drops coefficients that reduce to
    0 mod 2^w (e.g. `1 + (2^w − 1)`); zero-coefficient entries made `poly_simp` falsely
    reject equal BV polynomials (hit on Sage2/bench_13083, a 32k-step proof, now valid).
