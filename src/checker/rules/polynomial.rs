@@ -156,6 +156,9 @@ impl Polynomial {
             }
             *coeff = coeff.numer().clone().modulo(n).into();
         }
+        // A coefficient may have been reduced to zero (e.g. `1 + (2^w - 1)`), and zero-coefficient
+        // entries would make the final `is_zero` check fail
+        self.0.retain(|_, coeff| !coeff.is_zero());
         if self.1.is_integer() {
             self.1 = self.1.numer().clone().modulo(n).into();
             Some(self)
