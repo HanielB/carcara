@@ -119,3 +119,33 @@ scale/merge per occurrence.
   `--stats` "by rule" runs names longer than the column into the value with no
   space; the old regex silently dropped every `bv_bitblast_step_*` row. Both
   scripts now use `^    (.+?)\s*([\d.]+)(unit) ± `.
+
+## Round-2 outcome (2026-08-31, job all-bv2)
+
+The fixes above (coreAlethe-upstream merge, environment-style let expansion,
+memoized poly_simp, lexer token slicing, huge indexed-op arguments) plus the
+cvc5 change (Boolean ABSORB -> dedicated `absorb` rule, option
+`proof-alethe-absorb`, default on; cvc5 alethebv@33a825c5fe, carcara
+bv-fixes@00670e05) were re-run over the 24,218 benchmarks round 1 produced
+proofs for.
+
+Results: 24,218/24,218 unsat reproduced; **24,214 valid, 0 holey, 0 check
+timeouts**; the only non-valid are 2 borderline cvc5 no-proofs (600.4s) and
+the 2 `choice`-binder files. The 7 huge-indexed-op benchmarks now check valid.
+
+On the 24,202 benchmarks valid in both rounds:
+
+| | round 1 | round 2 | speedup |
+|---|---|---|---|
+| parsing | 147,374s | 9,328s | **15.8x** |
+| checking | 39,584s | 12,205s | 3.2x |
+| carcara total | 186,958s | 21,533s | **8.7x** |
+| median / worst | 148ms / 289s | 36ms / 73s | |
+
+carcara is now **cheaper than cvc5 on 100% of benchmarks** (the scatter cloud
+sits entirely below the diagonal; every round-1 above-diagonal streak is gone).
+Rule totals: rare_rewrite 29,169s -> 4,645s (rare-meta-skip); ac_simp
+(2,981s) **eliminated** — its replacement `absorb` checks 7.4M steps in 2.1s;
+poly_simp 376s -> 190s; grand rule total 38.6k s -> 11.6k s. Remaining top
+costs are rare_rewrite and resolution (~4.6k s each), then evaluate (1.7k s).
+Plots in `~/exp/alethe-bv/plots2/`.
