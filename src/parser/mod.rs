@@ -2062,7 +2062,18 @@ impl<'p, 's> Parser<'p, 's> {
             }
             Token::Symbol(s)
                 if ParamOperator::from_str(s).is_ok()
-                    && self.config.allow_higher_order_indexed_ops =>
+                    && self.config.allow_higher_order_indexed_ops
+                    // A user declaration shadows the RARE-style indexed-op sugar: benchmarks
+                    // legitimately declare functions whose names collide with indexed operators
+                    // (e.g. `is`, the datatype tester, as an `(is Int Int)` function in
+                    // UFLIA/simplify), and the sugar only exists for the operators cvc5 prints
+                    // in proofs, which are never user-declared
+                    && self
+                        .state
+                        .symbol_table
+                        .get(&HashCache::new(s.clone()))
+                        .is_none()
+                    && !self.state.function_defs.contains_key(s) =>
             {
                 let op = ParamOperator::from_str(s).unwrap();
                 self.next_token()?;
