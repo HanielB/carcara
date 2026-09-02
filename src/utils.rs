@@ -95,7 +95,9 @@ impl<T: Hash> Hash for HashCache<T> {
 impl<T: Eq + Hash> HashCache<T> {
     /// Creates a new `HashCache`, computing and storing the hash of `value`.
     pub fn new(value: T) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::default();
+        // rapidhash rather than the SipHash default: a `HashCache` is created per identifier
+        // occurrence during parsing, so this hash is on the parser's hot path
+        let mut hasher = rapidhash::fast::RapidHasher::default();
         value.hash(&mut hasher);
         Self { hash: hasher.finish(), value }
     }

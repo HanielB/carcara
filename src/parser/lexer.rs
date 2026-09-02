@@ -4,12 +4,11 @@ use crate::{
     CarcaraResult, Error,
     ast::impl_str_conversion_traits,
     parser::{ParserError, Source},
-    utils::is_symbol_character,
 };
 use rug::{Integer, Rational, ops::Pow};
 use std::{
     path::Path,
-    str::{Chars, FromStr},
+    str::FromStr,
 };
 
 /// A token in the SMT-LIB and Alethe formats.
@@ -171,23 +170,64 @@ impl_str_conversion_traits!(Reserved {
 pub type Position = (usize, usize);
 
 /// A lexer for the SMT-LIB, Alethe and Rare lexicons.
+///
+/// The lexer is a cursor over the raw bytes of the source. Tokens are scanned byte-wise (an
+/// ASCII-delimited grammar makes this safe even for UTF-8 input: continuation bytes never match
+/// an ASCII delimiter) and their text is taken as a slice of the source, so producing a token
+/// costs at most one exact-size allocation. Byte classification goes through a lookup table
+/// instead of character predicate chains, and no byte is ever decoded twice.
 pub struct Lexer<'s> {
-    chars: Chars<'s>,
+    src: &'s str,
+    bytes: &'s [u8],
+    pos: usize,
     line_start: usize,
     lines_read: usize,
-    source_len: usize,
     pub source_name: &'s Path,
 }
+
+/// Lookup table for the bytes that can appear in a simple symbol: ASCII alphanumerics, the symbol
+/// punctuation of the SMT-LIB and Alethe formats, and `'`, which Carcara uses for variables
+/// renamed by capture-avoidance (see `utils::is_symbol_character`).
+static SYMBOL_BYTE: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut b = 0usize;
+    while b < 256 {
+        let c = b as u8;
+        table[b] = c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                b'+' | b'-'
+                    | b'/'
+                    | b'*'
+                    | b'='
+                    | b'%'
+                    | b'?'
+                    | b'!'
+                    | b'.'
+                    | b'$'
+                    | b'_'
+                    | b'~'
+                    | b'&'
+                    | b'^'
+                    | b'<'
+                    | b'>'
+                    | b'@'
+                    | b'\''
+            );
+        b += 1;
+    }
+    table
+};
 
 impl<'s> Lexer<'s> {
     /// Constructs a new `Lexer` from a `Source`.
     pub fn new(source: Source<'s>) -> Self {
-        let source_len = source.contents.len();
         Self {
-            chars: source.contents.chars(),
+            src: source.contents,
+            bytes: source.contents.as_bytes(),
+            pos: 0,
             line_start: 0,
             lines_read: 0,
-            source_len,
             source_name: source.name,
         }
     }
@@ -198,82 +238,82 @@ impl<'s> Lexer<'s> {
         Error::Parser(inner.into(), self.position(), self.source_name.into())
     }
 
-    /// Advances the lexer by one character, and returns the previous `current_char`.
-    fn next_char(&mut self) -> Option<char> {
-        let got = self.chars.next();
-        if got == Some('\n') {
+    /// Returns the byte at the cursor, without advancing.
+    #[inline]
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
+    }
+
+    /// Advances the cursor by one byte, keeping the line bookkeeping. Continuation bytes of a
+    /// multi-byte character never equal `\n`, so advancing through one byte at a time is safe.
+    #[inline]
+    fn bump(&mut self) {
+        if self.bytes[self.pos] == b'\n' {
             self.lines_read += 1;
-            self.line_start = self.source_len - self.chars.as_str().len();
+            self.line_start = self.pos + 1;
         }
-        got
+        self.pos += 1;
+    }
+
+    /// Decodes the character at the cursor. Only used on the cold paths (errors, string literal
+    /// contents, and non-ASCII input).
+    fn current_char(&self) -> Option<char> {
+        self.src[self.pos..].chars().next()
+    }
+
+    /// Advances the cursor past the character at it (of any byte length).
+    fn bump_char(&mut self) {
+        if let Some(c) = self.current_char() {
+            for _ in 0..c.len_utf8() {
+                self.bump();
+            }
+        }
     }
 
     /// Advances the lexer by one line, discarding the remaining contents of the current line.
     fn next_line(&mut self) {
-        // Read characters until line end
-        while self.current().is_some_and(|c| c != '\n') {
-            self.next_char();
+        while let Some(b) = self.peek() {
+            let was_newline = b == b'\n';
+            self.bump();
+            if was_newline {
+                break;
+            }
         }
-        // Then read the \n char itself
-        if self.current() == Some('\n') {
-            self.next_char();
-        }
-    }
-
-    /// Returns the current character.
-    ///
-    /// If the lexer is at the end of the input, returns `None`.
-    fn current(&self) -> Option<char> {
-        self.chars.clone().next()
     }
 
     /// Returns the position of the current character.
     fn position(&self) -> Position {
-        let raw = self.source_len - self.chars.as_str().len();
         // + 1 because lines and columns are usually counted starting from 1
-        (self.lines_read + 1, raw - self.line_start + 1)
+        (self.lines_read + 1, self.pos - self.line_start + 1)
     }
 
-    /// Reads characters while the given predicate returns `true`, and stores them in a `String`.
-    ///
-    /// At the end, all characters in the returned string will satisfy the predicate, and
-    /// `self.current_char` will be the first character that didn't satisfy the predicate.
-    fn read_chars_while<P: Fn(char) -> bool>(&mut self, predicate: P) -> String {
-        // The characters come straight from the source, so the token is a slice of it: scanning
-        // first and copying the slice at the end costs one exact-size allocation, instead of the
-        // repeated grow-and-recopy of pushing each character onto a growing `String` (token
-        // reading is the hottest part of the lexer)
-        let start = self.chars.as_str();
-        let mut len = 0;
-        while let Some(c) = self.current() {
-            if !predicate(c) {
+    /// Scans bytes while they satisfy `predicate`, and returns them as a slice of the source. The
+    /// predicate must only accept ASCII bytes, so the slice always ends on a character boundary.
+    #[inline]
+    fn scan_while<P: Fn(u8) -> bool>(&mut self, predicate: P) -> &'s str {
+        let start = self.pos;
+        while let Some(b) = self.peek() {
+            if !predicate(b) {
                 break;
             }
-            len += c.len_utf8();
-            self.next_char();
+            self.bump();
         }
-        start[..len].to_owned()
-    }
-
-    /// Reads and drops characters until a non-whitespace character is encountered.
-    ///
-    /// This is similar to calling `self.read_chars_while(char::is_whitespace)`, but this method
-    /// doesn't allocate a string to store the result.
-    fn drop_while_whitespace(&mut self) {
-        while let Some(c) = self.current() {
-            if !c.is_whitespace() {
-                break;
-            }
-            self.next_char();
-        }
+        &self.src[start..self.pos]
     }
 
     /// Consumes all leading whitespace and comments in the input source.
     fn consume_whitespace(&mut self) {
-        self.drop_while_whitespace();
-        while self.current() == Some(';') {
-            self.next_line();
-            self.drop_while_whitespace();
+        loop {
+            match self.peek() {
+                Some(b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) => self.bump(),
+                Some(b';') => self.next_line(),
+                // Non-ASCII whitespace is accepted for compatibility with the previous
+                // character-based lexer, though it does not occur in practice
+                Some(b) if b >= 0x80 && self.current_char().is_some_and(char::is_whitespace) => {
+                    self.bump_char();
+                }
+                _ => break,
+            }
         }
     }
 
@@ -281,71 +321,79 @@ impl<'s> Lexer<'s> {
     pub fn next_token(&mut self) -> CarcaraResult<(Token, Position)> {
         self.consume_whitespace();
         let start_position = self.position();
-        let token = match self.current() {
-            Some('(') => {
-                self.next_char();
+        let token = match self.peek() {
+            Some(b'(') => {
+                self.bump();
                 Ok(Token::OpenParen)
             }
-            Some(')') => {
-                self.next_char();
+            Some(b')') => {
+                self.bump();
                 Ok(Token::CloseParen)
             }
-            Some('"') => self.read_string(),
-            Some('|') => self.read_quoted_symbol(),
-            Some(':') => Ok(self.read_keyword()),
-            Some('#') => self.read_bitvector(),
-            Some('-') => {
+            Some(b'"') => self.read_string(),
+            Some(b'|') => self.read_quoted_symbol(),
+            Some(b':') => Ok(self.read_keyword()),
+            Some(b'#') => self.read_bitvector(),
+            Some(b'-') => {
                 // If we encounter the '-' character, the token can either be a GMP-style numerical
                 // literal (e.g. '-5'), or a symbol that starts with '-' (e.g. the '-' operator
                 // itself)
-                self.next_char();
-                if self.current().as_ref().is_some_and(char::is_ascii_digit) {
+                if self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit) {
+                    self.bump();
                     self.read_number(true)
                 } else {
-                    // This assumes that the symbol is never a reserved a word.
-                    let mut symbol = self.read_chars_while(is_symbol_character);
-                    symbol.insert(0, '-');
-                    Ok(Token::Symbol(symbol))
+                    // This assumes that the symbol is never a reserved word. Since '-' is itself a
+                    // symbol byte, scanning from here includes it in the token
+                    let symbol = self.scan_while(|b| SYMBOL_BYTE[b as usize]);
+                    Ok(Token::Symbol(symbol.to_owned()))
                 }
             }
-            Some(c) if c.is_ascii_digit() => self.read_number(false),
-            Some(c) if is_symbol_character(c) => Ok(self.read_simple_symbol()),
+            Some(b) if b.is_ascii_digit() => self.read_number(false),
+            Some(b) if SYMBOL_BYTE[b as usize] => Ok(self.read_simple_symbol()),
             None => Ok(Token::Eof),
-            Some(other) => Err(self.err(ParserError::UnexpectedChar(other))),
+            Some(_) => Err(self.err(ParserError::UnexpectedChar(
+                self.current_char().unwrap(),
+            ))),
         }?;
         Ok((token, start_position))
     }
 
     /// Reads a simple symbol from the input source.
     fn read_simple_symbol(&mut self) -> Token {
-        let symbol = self.read_chars_while(is_symbol_character);
-        if let Ok(reserved) = Reserved::from_str(&symbol) {
+        let symbol = self.scan_while(|b| SYMBOL_BYTE[b as usize]);
+        if let Ok(reserved) = Reserved::from_str(symbol) {
             Token::ReservedWord(reserved)
         } else {
-            Token::Symbol(symbol)
+            Token::Symbol(symbol.to_owned())
         }
     }
 
     /// Reads a quoted symbol from the input source.
     fn read_quoted_symbol(&mut self) -> CarcaraResult<Token> {
-        self.next_char(); // Consume `|`
-        let symbol = self.read_chars_while(|c| c != '|' && c != '\\');
-        match self.current() {
-            Some('\\') => Err(self.err(ParserError::BackslashInQuotedSymbol)),
+        self.bump(); // Consume `|`
+        let start = self.pos;
+        while let Some(b) = self.peek() {
+            if b == b'|' || b == b'\\' {
+                break;
+            }
+            self.bump();
+        }
+        match self.peek() {
+            Some(b'\\') => Err(self.err(ParserError::BackslashInQuotedSymbol)),
             None => Err(self.err(ParserError::EofInQuotedSymbol)),
-            Some('|') => {
-                self.next_char();
+            Some(_) => {
+                let symbol = self.src[start..self.pos].to_owned();
+                self.bump();
                 Ok(Token::Symbol(symbol))
             }
-            _ => unreachable!(),
         }
     }
 
     /// Reads a keyword from the input source.
     fn read_keyword(&mut self) -> Token {
-        self.next_char(); // Consume `:`
-        let symbol = self.read_chars_while(is_symbol_character);
-        Token::Keyword(symbol)
+        self.bump(); // Consume `:`
+        let symbol = self.scan_while(|b| SYMBOL_BYTE[b as usize]);
+        Token::Keyword(symbol.to_owned())
     }
 
     /// Reads a binary or hexadecimal bitvector literal, e.g. `#b0110` or `#x01Ab`.
@@ -353,41 +401,46 @@ impl<'s> Lexer<'s> {
     /// Returns an error if any character other than `b` or `x` is encountered after the `#`, or if
     /// no digits are provided.
     fn read_bitvector(&mut self) -> CarcaraResult<Token> {
-        self.next_char(); // Consume `#`
-        let (base, bits_per_char) = match self.next_char() {
-            Some('b') => (2, 1),
-            Some('x') => (16, 4),
+        self.bump(); // Consume `#`
+        let (base, bits_per_char) = match self.peek() {
+            Some(b'b') => (2, 1),
+            Some(b'x') => (16, 4),
             None => return Err(self.err(ParserError::EmptyBitvector)),
-            Some(other) => return Err(self.err(ParserError::UnexpectedChar(other))),
+            Some(_) => {
+                return Err(self.err(ParserError::UnexpectedChar(
+                    self.current_char().unwrap(),
+                )));
+            }
         };
-        let s = self.read_chars_while(|c| c.is_digit(base as u32));
+        self.bump();
+        let s = self.scan_while(|b| (b as char).is_digit(base as u32));
         if s.is_empty() {
             return Err(self.err(ParserError::EmptyBitvector));
         }
 
         let width = s.len() * bits_per_char;
-        let value = Integer::from_str_radix(&s, base).unwrap();
+        let value = Integer::from_str_radix(s, base).unwrap();
         Ok(Token::Bitvector(value, width))
     }
 
     /// Reads an integer or decimal numerical literal.
     fn read_number(&mut self, negated: bool) -> CarcaraResult<Token> {
-        let first_part = self.read_chars_while(|c| c.is_ascii_digit());
+        let first_part = self.scan_while(|b| b.is_ascii_digit());
 
         if first_part.len() > 1 && first_part.starts_with('0') {
-            return Err(self.err(ParserError::LeadingZero(first_part)));
+            return Err(self.err(ParserError::LeadingZero(first_part.to_owned())));
         }
 
-        if let Some(delimiter @ ('/' | '.')) = self.current() {
-            self.next_char();
-            let second_part = self.read_chars_while(|c| c.is_ascii_digit());
-            if let Some('/' | '.') = self.current() {
+        if let Some(delimiter @ (b'/' | b'.')) = self.peek() {
+            self.bump();
+            let second_part = self.scan_while(|b| b.is_ascii_digit());
+            if let Some(b'/' | b'.') = self.peek() {
                 // A number can have only one delimiter
-                let e = ParserError::UnexpectedChar(self.current().unwrap());
+                let e = ParserError::UnexpectedChar(self.current_char().unwrap());
                 return Err(self.err(e));
             }
             let r = match delimiter {
-                '/' => {
+                b'/' => {
                     let [numer, denom] =
                         [first_part, second_part].map(|s| s.parse::<Integer>().unwrap());
                     if denom.is_zero() {
@@ -396,9 +449,12 @@ impl<'s> Lexer<'s> {
                     }
                     Rational::from((numer, denom))
                 }
-                '.' => {
+                b'.' => {
                     let denom = Integer::from(10u32).pow(second_part.len() as u32);
-                    let numer = (first_part + &second_part).parse::<Integer>().unwrap();
+                    let numer = [first_part, second_part]
+                        .concat()
+                        .parse::<Integer>()
+                        .unwrap();
                     Rational::from((numer, denom))
                 }
                 _ => unreachable!(),
@@ -412,31 +468,40 @@ impl<'s> Lexer<'s> {
 
     /// Reads a string literal from the input source.
     fn read_string(&mut self) -> CarcaraResult<Token> {
-        self.next_char(); // Consume `"`
+        self.bump(); // Consume `"`
         let mut result = String::new();
         loop {
-            let Some(c) = self.current() else {
-                return Err(self.err(ParserError::EofInString));
-            };
-            if c == '"' {
-                self.next_char();
-                if self.current() == Some('"') {
-                    result.push('"');
-                    self.next_char();
-                } else {
+            // Copy plain content in runs: scan up to the next delimiter and append the whole
+            // slice at once (multi-byte characters pass through untouched)
+            let start = self.pos;
+            while let Some(b) = self.peek() {
+                if b == b'"' || b == b'\\' {
                     break;
                 }
-            } else if c == '\\' {
-                self.next_char();
-                if self.current() == Some('u') {
-                    self.next_char();
-                    self.read_unicode_escape_sequence(&mut result)?;
-                } else {
-                    result.push('\\');
+                self.bump();
+            }
+            result.push_str(&self.src[start..self.pos]);
+            match self.peek() {
+                None => return Err(self.err(ParserError::EofInString)),
+                Some(b'"') => {
+                    self.bump();
+                    if self.peek() == Some(b'"') {
+                        result.push('"');
+                        self.bump();
+                    } else {
+                        break;
+                    }
                 }
-            } else {
-                result.push(c);
-                self.next_char();
+                Some(_) => {
+                    // A backslash: either a unicode escape sequence, or a literal backslash
+                    self.bump();
+                    if self.peek() == Some(b'u') {
+                        self.bump();
+                        self.read_unicode_escape_sequence(&mut result)?;
+                    } else {
+                        result.push('\\');
+                    }
+                }
             }
         }
         Ok(Token::String(result))
@@ -446,28 +511,26 @@ impl<'s> Lexer<'s> {
     /// `\u{...}`.
     fn read_unicode_escape_sequence(&mut self, result: &mut String) -> CarcaraResult<()> {
         // At this point, '\' and 'u' have already been read
-        match self.current() {
-            Some('{') => {
-                self.next_char();
+        match self.peek() {
+            Some(b'{') => {
+                self.bump();
                 // Read the contents inside the {} braces, up to five hex characters
-                let mut contents = String::new();
+                let start = self.pos;
                 for _ in 0..5 {
-                    let Some(c) = self.current() else {
-                        return Err(self.err(ParserError::EofInString));
-                    };
-                    if c == '}' || !c.is_ascii_hexdigit() {
-                        break;
+                    match self.peek() {
+                        None => return Err(self.err(ParserError::EofInString)),
+                        Some(b) if b == b'}' || !b.is_ascii_hexdigit() => break,
+                        Some(_) => self.bump(),
                     }
-                    contents.push(c);
-                    self.next_char();
                 }
-                if self.current() == Some('}') {
-                    self.next_char();
+                let contents = &self.src[start..self.pos];
+                if self.peek() == Some(b'}') {
+                    self.bump();
                 } else {
                     // If the contents are not up to 5 hex digits followed by '}', this is not a
                     // well-formed unicode escape sequence, so we abort
                     result.push_str("\\u{");
-                    result.push_str(&contents);
+                    result.push_str(contents);
                     return Ok(());
                 }
                 if contents.is_empty() {
@@ -475,14 +538,14 @@ impl<'s> Lexer<'s> {
                     result.push_str("\\u{}");
                     return Ok(());
                 }
-                let code = u32::from_str_radix(&contents, 16).unwrap();
+                let code = u32::from_str_radix(contents, 16).unwrap();
 
                 // In the SMT-LIB unicode escape syntax, only the planes 0 to 2 of Unicode are
                 // allowed, meaning values up to 0x2FFFF. For values beyond that, we treat the
                 // escape sequence as a literal string.
                 if code > 0x2FFFF {
                     result.push_str("\\u{");
-                    result.push_str(&contents);
+                    result.push_str(contents);
                     result.push('}');
                     return Ok(());
                 }
@@ -492,32 +555,30 @@ impl<'s> Lexer<'s> {
                 // 0xDFFF), which is also considered invalid. Therefore `char::from_u32` may still
                 // fail.
                 let c = char::from_u32(code)
-                    .ok_or_else(|| self.err(ParserError::InvalidUnicode(contents)))?;
+                    .ok_or_else(|| self.err(ParserError::InvalidUnicode(contents.to_owned())))?;
                 result.push(c);
                 Ok(())
             }
             Some(_) => {
-                let mut contents = String::new();
+                let start = self.pos;
                 for _ in 0..4 {
-                    let Some(c) = self.current() else {
-                        return Err(self.err(ParserError::EofInString));
-                    };
-                    if !c.is_ascii_hexdigit() {
-                        break;
+                    match self.peek() {
+                        None => return Err(self.err(ParserError::EofInString)),
+                        Some(b) if !b.is_ascii_hexdigit() => break,
+                        Some(_) => self.bump(),
                     }
-                    contents.push(c);
-                    self.next_char();
                 }
+                let contents = &self.src[start..self.pos];
                 if contents.len() != 4 {
                     // If the contents are not exactly 4 hex digits, this is not a well-formed
                     // unicode escape sequence, so we abort
                     result.push_str("\\u");
-                    result.push_str(&contents);
+                    result.push_str(contents);
                     return Ok(());
                 }
-                let code = u32::from_str_radix(&contents, 16).unwrap();
+                let code = u32::from_str_radix(contents, 16).unwrap();
                 let c = char::from_u32(code)
-                    .ok_or_else(|| self.err(ParserError::InvalidUnicode(contents)))?;
+                    .ok_or_else(|| self.err(ParserError::InvalidUnicode(contents.to_owned())))?;
                 result.push(c);
                 Ok(())
             }
