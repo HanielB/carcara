@@ -104,3 +104,23 @@ every logic except QF_BV; the whole 1.34x aggregate Alethe win is QF_BV
 
 Report refresh (tables, plots, corrected size-gap attribution) follows once
 these land.
+
+## Addendum: the LIA "slow Alethe production" cluster is a cold-start artifact
+
+The solve+print scatter against CPC shows a LIA cluster at ~5 s on the
+Alethe axis (ratio up to 300x). It is not pipeline cost: task CPU time is
+identical across pipelines (LIA totals 56 s Alethe vs 55 s CPC), and the
+same benchmark measures 0.024 s (round 1, long-resident `bin/`), 5.8 s
+(round 2, fresh `bin2/`), 6.3 s (round 3, fresh `bin3/`), 0.021 s (CPC,
+warm `bin/`) at ~0.08 s CPU in all four. Each Alethe round ran freshly
+uploaded 37 MB cvc5 + 40 MB carcara static binaries from scratch storage;
+LIA is the job's first array and its 266 sub-0.1 s tasks start as a
+thundering herd, so every task stalls paging the cold images in. Median
+wall-minus-CPU gap: +5.24 s for alethe3 LIA, ~0 everywhere else and in all
+of CPC. Corpus-wide: ~735 s of 627,000 s (0.1%); but the LIA table row's
+solve/check ratio reads 6.27 where the true value is ~30.
+
+Handling: report annotated (figure caption, caveats, table footnote);
+round-4 runs share fresh bin4 on both pipelines so their comparison stays
+fair; local runner templates now warm the binaries (`--version`) before the
+timed invocation for future rounds.
