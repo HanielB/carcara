@@ -34,6 +34,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-28 | [Splitting `la_generic` into Farkas + tightening](./2026-08-28-la-generic-split.md) | `coreAlethe` | exploration: +1.8–3.5% steps (directed rule vs split), in exchange for removing all integrality reasoning from the arithmetic checker; proposed name `la_tightening` |
 | 2026-08-30 | [Alethe BV proofs: cvc5 production + carcara checking](./2026-08-30-alethe-bv-eval.md) | `bv-fixes` (+ cvc5 `alethebv`) | regressions 55/55 valid; QF_BV sample 133/133 valid |
 | 2026-08-31 | [Carcara performance on the alethe-bv corpus](./2026-08-31-carcara-bv-perf.md) | `bv-fixes` | cluster run 24204 valid / 0 holey; hotspots: let expansion (parsing), rare_rewrite matching, ac_simp/poly_simp caching |
+| 2026-09-03 | [all-alethe3: the hoisting printer at corpus scale](./2026-09-03-alethe3-hoisting-eval.md) | `bv-fixes` (+ cvc5 `alethebv`) | 45159/45171 valid, 0 size regressions, LRA 2.42x smaller; premise-frame + streaming fixes; CPC gap re-attributed (dag0 artifact + res pivots) |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
