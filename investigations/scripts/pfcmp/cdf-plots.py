@@ -135,7 +135,48 @@ def main():
     for ext in ('pdf', 'png'):
         fig.savefig(f'{out}/solve-cmp.{ext}', dpi=200)
     plt.close(fig)
-    print(f'wrote {out}/cdf-check, cdf-pipeline, solve-cmp')
+
+    # ---- scatter: full pipeline, all benchmarks ---------------------------
+    # A side that did not complete (no valid check) is placed on the border
+    # band; the budget is 600 s solve+print + 1200 s check.
+    PIPE_BAND = 4e3
+
+    def pipe_col(df, name):
+        done = pl.col('check_result') == 'valid'
+        return df.with_columns(
+            pl.when(done).then(pl.col('solver_time') + pl.col('check_time'))
+            .otherwise(PIPE_BAND).alias(name)).select(['benchmark', name])
+
+    j = pipe_col(a, 'a_pipe').join(pipe_col(c, 'c_pipe'), on='benchmark')
+    n = len(j)
+    both = j.filter((pl.col('a_pipe') < PIPE_BAND) & (pl.col('c_pipe') < PIPE_BAND))
+    above = (both['c_pipe'] > both['a_pipe']).sum()
+    lo, hi = 1e-2, PIPE_BAND * 1.6
+    fig, ax = plt.subplots(figsize=(6.5, 6))
+    ax.plot([lo, hi], [lo, hi], linestyle='--', color='#999999',
+            linewidth=1.0, zorder=1)
+    ax.annotate('y = x', xy=(4e2, 6.4e2), fontsize=8,
+                color='#777777', rotation=45, ha='center', va='center')
+    ax.axvline(PIPE_BAND, color='#bbbbbb', linewidth=0.8)
+    ax.axhline(PIPE_BAND, color='#bbbbbb', linewidth=0.8)
+    ax.scatter(j['a_pipe'].to_list(), j['c_pipe'].to_list(), s=7, color=CA,
+               alpha=0.22, linewidths=0, zorder=2, rasterized=True)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect('equal')
+    ax.set_xlabel('Alethe + carcara pipeline (s); border = incomplete')
+    ax.set_ylabel('CPC + ethos pipeline (s); border = incomplete')
+    ax.set_title(f'solve + print + check per benchmark ({n} benchmarks;\n'
+                 f'CPC + ethos slower on {100 * above / len(both):.0f}% '
+                 f'of those both completed)', fontsize=10)
+    style(ax)
+    fig.tight_layout()
+    for ext in ('pdf', 'png'):
+        fig.savefig(f'{out}/pipeline-cmp.{ext}', dpi=200)
+    plt.close(fig)
+    print(f'wrote {out}/cdf-check, cdf-pipeline, solve-cmp, pipeline-cmp')
 
 
 if __name__ == '__main__':
