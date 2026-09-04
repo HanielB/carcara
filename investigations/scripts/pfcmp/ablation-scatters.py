@@ -20,6 +20,14 @@ import polars as pl
 
 COLOR = '#2a78d6'
 
+C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, QF_(UF)BV orange
+
+
+def bv_mask(df):
+    import polars as pl
+    return df['benchmark'].str.contains('/QF_BV/|/QF_UFBV/')
+
+
 
 def load(d):
     return pl.read_parquet(os.path.join(d, 'pfchk_cache.v2.parquet')).filter(
@@ -27,14 +35,20 @@ def load(d):
         ['benchmark', 'solver_time', 'check_time', 'proof_bytes'])
 
 
-def scatter(path, xs, ys, lo, hi, xlabel, ylabel, title):
+def scatter(path, xs, ys, bv, lo, hi, xlabel, ylabel, title):
     fig, ax = plt.subplots(figsize=(6.5, 6))
     ax.plot([lo, hi], [lo, hi], linestyle='--', color='#999999',
             linewidth=1.0, zorder=1)
     ax.annotate('y = x', xy=(hi * 0.4, hi * 0.55), fontsize=8,
                 color='#777777', rotation=45, ha='center', va='center')
-    ax.scatter(xs, ys, s=7, color=COLOR, alpha=0.22, linewidths=0, zorder=2,
-               rasterized=True)
+    for want, color, label in ((True, C_BV, 'QF_(UF)BV'),
+                               (False, C_OTH, 'other logics')):
+        pts = [(x, y) for x, y, b in zip(xs, ys, bv) if b == want]
+        if pts:
+            ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=7,
+                       color=color, alpha=0.22, linewidths=0, zorder=2,
+                       rasterized=True, label=label)
+    ax.legend(frameon=False, fontsize=8, loc='upper left', markerscale=2.5)
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlim(lo, hi)
@@ -71,7 +85,7 @@ def main():
     smaller = (j['proof_bytes_s'] < j['proof_bytes']).sum()
     scatter(f'{out}/ablation-bytes',
             j['proof_bytes'].to_list(), j['proof_bytes_s'].to_list(),
-            1e2, 1e10,
+            bv_mask(j).to_list(), 1e2, 1e10,
             'Alethe proof size without subproof sharing (bytes)',
             'Alethe proof size with subproof sharing (bytes)',
             f'proof size per benchmark ({n} valid in both;\n'
@@ -79,7 +93,8 @@ def main():
 
     xs = (j['solver_time'] + j['check_time']).to_list()
     ys = (j['solver_time_s'] + j['check_time_s']).to_list()
-    scatter(f'{out}/ablation-pipeline', xs, ys, 1e-2, 2e3,
+    scatter(f'{out}/ablation-pipeline', xs, ys, bv_mask(j).to_list(),
+            1e-2, 2e3,
             'pipeline time without subproof sharing (s)',
             'pipeline time with subproof sharing (s)',
             f'solve + print + check per benchmark ({n} valid in both)')
@@ -89,7 +104,7 @@ def main():
     slower = (j['check_time_p'] > j['check_time']).sum()
     scatter(f'{out}/pivots-check',
             j['check_time'].to_list(), j['check_time_p'].to_list(),
-            1e-3, 2e3,
+            bv_mask(j).to_list(), 1e-3, 2e3,
             'carcara checking time without pivots (s)',
             'carcara checking time with pivots (s)',
             f'carcara checking time per benchmark ({n} valid in both;\n'

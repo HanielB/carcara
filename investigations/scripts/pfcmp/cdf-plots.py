@@ -22,6 +22,24 @@ import matplotlib.pyplot as plt
 import polars as pl
 
 CA, CC = '#2a78d6', '#eb6834'  # alethe/carcara blue, cpc/ethos orange
+C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, QF_(UF)BV orange
+
+
+def bv_mask(df):
+    return df['benchmark'].str.contains('/QF_BV/|/QF_UFBV/')
+
+
+def scatter_split(ax, j, xcol, ycol):
+    m = bv_mask(j).to_list()
+    xs, ys = j[xcol].to_list(), j[ycol].to_list()
+    for want, color, label in ((True, C_BV, 'QF_(UF)BV'),
+                               (False, C_OTH, 'other logics')):
+        pts = [(x, y) for x, y, b in zip(xs, ys, m) if b == want]
+        if pts:
+            ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=7,
+                       color=color, alpha=0.22, linewidths=0, zorder=2,
+                       rasterized=True, label=label)
+    ax.legend(frameon=False, fontsize=8, loc='upper left', markerscale=2.5)
 
 SOLVE_BAND = 1.5e3  # failed solve+print placed here (budget is 600 s)
 
@@ -118,8 +136,7 @@ def main():
                 color='#777777', rotation=45, ha='center', va='center')
     ax.axvline(SOLVE_BAND, color='#bbbbbb', linewidth=0.8)
     ax.axhline(SOLVE_BAND, color='#bbbbbb', linewidth=0.8)
-    ax.scatter(j['a_solve'].to_list(), j['c_solve'].to_list(), s=7, color=CA,
-               alpha=0.22, linewidths=0, zorder=2, rasterized=True)
+    scatter_split(ax, j, 'a_solve', 'c_solve')
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlim(lo, hi)
@@ -159,8 +176,7 @@ def main():
                 color='#777777', rotation=45, ha='center', va='center')
     ax.axvline(PIPE_BAND, color='#bbbbbb', linewidth=0.8)
     ax.axhline(PIPE_BAND, color='#bbbbbb', linewidth=0.8)
-    ax.scatter(j['a_pipe'].to_list(), j['c_pipe'].to_list(), s=7, color=CA,
-               alpha=0.22, linewidths=0, zorder=2, rasterized=True)
+    scatter_split(ax, j, 'a_pipe', 'c_pipe')
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlim(lo, hi)
