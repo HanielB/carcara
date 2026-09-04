@@ -11,12 +11,18 @@ use indexmap::IndexSet;
 use std::collections::{HashMap, VecDeque, hash_map::Entry};
 
 pub fn resolution(rule_args: RuleArgs) -> RuleResult {
-    if !rule_args.args.is_empty() {
-        // If the rule was given arguments, we redirect to the variant of "resolution" that takes
-        // the pivots as arguments
-        return resolution_with_args(rule_args);
+    let RuleArgs { conclusion, premises, args, pool, .. } = rule_args;
+
+    // If the rule was given pivot arguments, we first try to replay the hinted chain, which is
+    // faster than inferring the pivots. The hints are not obligations, though: the semantics of
+    // the rule is that the conclusion follows from the premises by resolution (reverse unit
+    // propagation), so a step whose hinted chain does not replay literally — e.g., a chain that
+    // eliminates each occurrence of a duplicated literal with a separate binary step, where the
+    // replay's set-based working clause eliminates all occurrences at once — falls back to being
+    // checked like a step with no hints.
+    if !args.is_empty() && check_with_args(conclusion, premises, args, pool).is_ok() {
+        return Ok(());
     }
-    let RuleArgs { conclusion, premises, pool, .. } = rule_args;
 
     // In some cases, this rule is used with a single premise `(not true)` to justify an empty
     // conclusion clause
@@ -126,6 +132,15 @@ pub fn resolution_with_args(
     RuleArgs {
         conclusion, premises, args, pool, ..
     }: RuleArgs,
+) -> RuleResult {
+    check_with_args(conclusion, premises, args, pool)
+}
+
+fn check_with_args(
+    conclusion: &[Rc<Term>],
+    premises: &[Premise],
+    args: &[Rc<Term>],
+    pool: &mut dyn TermPool,
 ) -> RuleResult {
     let resolution_result = apply_generic_resolution::<IndexSet<_>>(premises, args, pool)?;
 

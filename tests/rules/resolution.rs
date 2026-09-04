@@ -326,15 +326,23 @@ fn resolution_with_args() {
                 :premises (t1 t2 t3 t4)
                 :args (q true (not r) true s false))": true,
         }
-        "Wrong pivot polarity in args" {
+        // The pivot arguments are hints, not obligations: a step whose hinted chain does not
+        // replay is still accepted when its conclusion follows from the premises by resolution
+        // (the semantics of the rule), as it does in the two steps below
+        "Wrong pivot polarity in args falls back to the unhinted check" {
             "(step t1 (cl p q r) :rule hole)
             (step t2 (cl (not q) s) :rule hole)
-            (step t3 (cl p r s) :rule resolution :premises (t1 t2) :args (q false))": false,
+            (step t3 (cl p r s) :rule resolution :premises (t1 t2) :args (q false))": true,
         }
-        "Pivot not present in premises" {
+        "Pivot not present in premises falls back to the unhinted check" {
             "(step t1 (cl p q r) :rule hole)
             (step t2 (cl (not q) s) :rule hole)
-            (step t3 (cl p r s) :rule resolution :premises (t1 t2) :args (t true))": false,
+            (step t3 (cl p r s) :rule resolution :premises (t1 t2) :args (t true))": true,
+        }
+        "Invalid step with misleading hints still fails" {
+            "(step t1 (cl p q r) :rule hole)
+            (step t2 (cl (not q) s) :rule hole)
+            (step t3 (cl p s) :rule resolution :premises (t1 t2) :args (q true))": false,
         }
     }
 }
