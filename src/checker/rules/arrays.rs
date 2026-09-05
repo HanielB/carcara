@@ -46,21 +46,20 @@ pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult 
     let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
 
     assert_clause_len(conclusion, 1)?;
-    // both selects must use the same index term
-    let (ac, k, bc) = match_term_err!((not (= (select ac k) (select bc k))) = &conclusion[0])?;
+    // (not (= (select a k) (select b k))) where k is
+    // (choice ((x I)) (or (= a b) (not (= (select a x) (select b x))))), with I the index
+    // sort of a and x the bound variable; repeated captures must be syntactically equal
+    let (ac, bindings, bc, x, bindings2) = match_term_err!(
+        (not (= (select a (choice ... (or (= a b) (not (= (select a x) (select b x))))))
+                (select b (choice ... (or (= a b) (not (= (select a x) (select b x))))))))
+        = &conclusion[0]
+    )?;
     assert_eq(ap, ac)?;
     assert_eq(bp, bc)?;
-
-    // the index must be (choice ((x I)) (or (= a b) (not (= (select a x) (select b x))))),
-    // where I is the index sort of a and x is the bound variable
-    let (bindings, a1, b1, a2, x, b2) = match_term_err!(
-        (choice ... (or (= a1 b1) (not (= (select a2 x) (select b2 x))))) = k
-    )?;
-    assert_eq(ap, a1)?;
-    assert_eq(ap, a2)?;
-    assert_eq(bp, b1)?;
-    assert_eq(bp, b2)?;
-
+    rassert!(
+        bindings == bindings2,
+        CheckerError::Explanation("Expected the same index term in both sides".to_owned())
+    );
     rassert!(
         bindings.len() == 1,
         CheckerError::Explanation(format!(
