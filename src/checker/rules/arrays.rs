@@ -1,8 +1,8 @@
 use super::{
     CheckerError, RuleArgs, RuleResult, assert_clause_len, assert_eq, assert_num_premises,
-    assert_polyeq, get_premise_term,
+    get_premise_term,
 };
-use crate::ast::{Binder, BindingList, Sort, Term, build_term, match_term_err};
+use crate::ast::{Sort, Term, match_term_err};
 
 pub fn idx(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -40,48 +40,52 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     }
 }
 
-pub fn ext(
-    RuleArgs {
-        conclusion,
-        premises,
-        pool,
-        polyeq_time,
-        ..
-    }: RuleArgs,
-) -> RuleResult {
+pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
     let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
-    let (ac, _, bc) = match_term_err!((not (= (select ac k) (select bc k))) = &conclusion[0])?;
-    // arrays the same in premise and conclusion
+
+    assert_clause_len(conclusion, 1)?;
+    // both selects must use the same index term
+    let (ac, k, bc) = match_term_err!((not (= (select ac k) (select bc k))) = &conclusion[0])?;
     assert_eq(ap, ac)?;
     assert_eq(bp, bc)?;
-    // build (choice (x I) (or (= a b) (not (= (select a x) (select b x))))) where
-    // the type of x comes from the array sort of a. With that I can
-    // check alpha equiv of (select a choice) with the lhs of
-    // conclusion and likewise for the rhs
 
-    // check index is (choice (x I) (not (= (select a x) (select b x))))
-    let Sort::Array(index_sort, _) = pool.sort(ap).as_ref().clone() else {
+    // the index must be (choice ((x I)) (or (= a b) (not (= (select a x) (select b x))))),
+    // where I is the index sort of a and x is the bound variable
+    let (bindings, a1, b1, a2, x, b2) = match_term_err!(
+        (choice ... (or (= a1 b1) (not (= (select a2 x) (select b2 x))))) = k
+    )?;
+    assert_eq(ap, a1)?;
+    assert_eq(ap, a2)?;
+    assert_eq(bp, b1)?;
+    assert_eq(bp, b2)?;
+
+    rassert!(
+        bindings.len() == 1,
+        CheckerError::Explanation(format!(
+            "Expected a single bound variable in the index term, got {}",
+            bindings.len()
+        ))
+    );
+    let (name, sort) = &bindings[0];
+    let a_sort = pool.sort(ap);
+    let Sort::Array(index_sort, _) = a_sort.as_ref() else {
         return Err(CheckerError::Explanation(format!(
             "Could not get Array sort from term {}",
             ap
         )));
     };
-    let x = pool.add(Term::new_var("x", index_sort.clone()));
-    let body = build_term!(pool, (or
-        (= {ap.clone()} {bp.clone()})
-        (not (= (select { ap.clone() } { x.clone() }) (select { bp.clone() } { x.clone() })))
-    ));
-    let choice = pool.add(Term::Binder(
-        Binder::Choice,
-        BindingList(vec![("x".to_owned(), index_sort.clone())]),
-        body,
-    ));
-
-    let alpha_equiv_conclusion = build_term!(pool,
-        (not (= (select {ap.clone()} {choice.clone()}) (select {bp.clone()} {choice.clone()})))
+    rassert!(
+        sort == index_sort,
+        CheckerError::Explanation(format!(
+            "Expected the bound variable to have the index sort {index_sort}, got {sort}"
+        ))
     );
-
-    assert_polyeq(&conclusion[0], &alpha_equiv_conclusion, polyeq_time)
+    match x.as_ref() {
+        Term::Var(n, s) if n == name && s == sort => Ok(()),
+        _ => Err(CheckerError::Explanation(format!(
+            "Expected the bound variable {name} in the index term body, got {x}"
+        ))),
+    }
 }
