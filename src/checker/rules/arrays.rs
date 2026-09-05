@@ -2,7 +2,7 @@ use super::{
     CheckerError, RuleArgs, RuleResult, assert_clause_len, assert_eq, assert_num_premises,
     get_premise_term,
 };
-use crate::ast::{Sort, Term, match_term_err};
+use crate::ast::{Sort, match_term_err};
 
 pub fn idx(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -47,27 +47,18 @@ pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult 
 
     assert_clause_len(conclusion, 1)?;
     // (not (= (select a k) (select b k))) where k is
-    // (choice ((x I)) (or (= a b) (not (= (select a x) (select b x))))), with I the index
-    // sort of a and x the bound variable; repeated captures must be syntactically equal
-    let (ac, bindings, bc, x, bindings2) = match_term_err!(
-        (not (= (select a (choice ... (or (= a b) (not (= (select a x) (select b x))))))
-                (select b (choice ... (or (= a b) (not (= (select a x) (select b x))))))))
+    // (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))), with i the index
+    // sort of a. Each binder is matched with its own binding list, so the two index terms
+    // may differ in the name of the bound variable (they are alpha-equivalent); the repeated
+    // sort capture forces them to bind at the same sort
+    let (ac, i, bc) = match_term_err!(
+        (not (= (select a (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))))
+                (select b (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))))))
         = &conclusion[0]
     )?;
     assert_eq(ap, ac)?;
     assert_eq(bp, bc)?;
-    rassert!(
-        bindings == bindings2,
-        CheckerError::Explanation("Expected the same index term in both sides".to_owned())
-    );
-    rassert!(
-        bindings.len() == 1,
-        CheckerError::Explanation(format!(
-            "Expected a single bound variable in the index term, got {}",
-            bindings.len()
-        ))
-    );
-    let (name, sort) = &bindings[0];
+
     let a_sort = pool.sort(ap);
     let Sort::Array(index_sort, _) = a_sort.as_ref() else {
         return Err(CheckerError::Explanation(format!(
@@ -76,15 +67,10 @@ pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult 
         )));
     };
     rassert!(
-        sort == index_sort,
+        **i == **index_sort,
         CheckerError::Explanation(format!(
-            "Expected the bound variable to have the index sort {index_sort}, got {sort}"
+            "Expected the bound variable to have the index sort {index_sort}, got {i}"
         ))
     );
-    match x.as_ref() {
-        Term::Var(n, s) if n == name && s == sort => Ok(()),
-        _ => Err(CheckerError::Explanation(format!(
-            "Expected the bound variable {name} in the index term body, got {x}"
-        ))),
-    }
+    Ok(())
 }

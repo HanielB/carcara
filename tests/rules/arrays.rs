@@ -109,11 +109,18 @@ fn ext() {
                 (select C (choice ((x Int)) (or (= A B) (not (= (select A x) (select B x))))))
             ))) :rule arrays_ext :premises (h1))": false,
         }
-        "Indices in the conclusion are different" {
+        "Index terms differing only in the bound variable's name are alpha-equivalent" {
             "(assume h1 (not (= A B)))
             (step t2 (cl (not (=
                 (select A (choice ((x Int)) (or (= A B) (not (= (select A x) (select B x))))))
                 (select B (choice ((y Int)) (or (= A B) (not (= (select A y) (select B y))))))
+            ))) :rule arrays_ext :premises (h1))": true,
+        }
+        "Body does not use the bound variable" {
+            "(assume h1 (not (= A B)))
+            (step t2 (cl (not (=
+                (select A (choice ((x Int)) (or (= A B) (not (= (select A 1) (select B 1))))))
+                (select B (choice ((x Int)) (or (= A B) (not (= (select A 1) (select B 1))))))
             ))) :rule arrays_ext :premises (h1))": false,
         }
         "Index is not the skolem term" {

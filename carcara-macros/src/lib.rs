@@ -32,6 +32,39 @@ struct ParseCtx {
     // Maps a name written by the user to the generated ident bound by its
     // first occurrence in the pattern.
     bound: HashMap<String, Ident>,
+    // Maps the name of a variable bound by an enclosing explicit binding list
+    // (e.g. `x` in `(choice ((x i)) body)`) to the generated ident holding its
+    // `(String, Rc<Sort>)` entry. An occurrence of the name in the body is then
+    // a check that the term is that bound variable, not a capture.
+    bound_vars: HashMap<String, Ident>,
+}
+
+// What a repeated name is checked against.
+#[derive(Debug, Clone)]
+enum SameAs {
+    // The term captured by the first occurrence of the name.
+    Term(Ident),
+    // The variable of a binding-list entry: the term must be `Term::Var` with
+    // that entry's name and sort.
+    Bound(Ident),
+}
+
+// The binding list of a binder pattern.
+#[derive(Debug, Clone)]
+enum BindingsPat {
+    // `...`: the whole BindingList is captured under the given ident.
+    Any(Ident),
+    // `((x i) ...)`: one entry per pattern, matched positionally. Each entry
+    // binds its name for the body and matches its sort with a pattern.
+    Explicit(Vec<BindingPat>),
+}
+
+#[derive(Debug, Clone)]
+struct BindingPat {
+    // Generated ident bound to the `&(String, Rc<Sort>)` entry.
+    entry_id: Ident,
+    // Pattern for the entry's sort (a capture, `_`, or a repeated name).
+    sort: Pat,
 }
 
 // Internal representation of the s-expression pattern.
@@ -56,7 +89,7 @@ enum Pat {
         // Such an occurrence doesn't capture anything: instead, the generated
         // code checks that this term is equal to the one bound by `first`, and
         // the match fails if it isn't.
-        same_as: Option<Ident>,
+        same_as: Option<SameAs>,
     },
     // Carries a generated name that will hold the captured &[Rc<Term>] slice.
     Variadic(Ident),
@@ -74,7 +107,7 @@ enum Pat {
     // so multiple binders in one pattern don't shadow each other.
     Binder {
         binder: String,
-        bindings_id: Ident,
+        bindings: BindingsPat,
         inner: Box<Pat>,
     },
 }
@@ -98,9 +131,16 @@ impl Pat {
                 .chain(args.iter())
                 .flat_map(|p| p.free_vars())
                 .collect(),
-            // Binder yields its unique bindings ident first, then the inner vars.
-            Pat::Binder { bindings_id, inner, .. } => {
-                let mut vars = vec![bindings_id.clone()];
+            // A binder yields its bindings capture first (the whole list for
+            // `...`, the sort captures in order for an explicit list), then the
+            // inner vars. Bound variable names never capture.
+            Pat::Binder { bindings, inner, .. } => {
+                let mut vars = match bindings {
+                    BindingsPat::Any(id) => vec![id.clone()],
+                    BindingsPat::Explicit(entries) => {
+                        entries.iter().flat_map(|e| e.sort.free_vars()).collect()
+                    }
+                };
                 vars.extend(inner.free_vars());
                 vars
             }
@@ -169,11 +209,15 @@ fn parse_pat(tt: TokenTree, ctx: &mut ParseCtx) -> Pat {
                 // never has to be equal to any other occurrence.
                 let same_as = if name == "_" {
                     None
+                } else if let Some(entry) = ctx.bound_vars.get(name) {
+                    // The name is bound by an enclosing explicit binding list:
+                    // this occurrence must be that bound variable.
+                    Some(SameAs::Bound(entry.clone()))
                 } else {
                     // If this name was already bound, this occurrence becomes an
                     // equality check against the term captured by the first one.
                     match ctx.bound.get(name) {
-                        Some(first) => Some(first.clone()),
+                        Some(first) => Some(SameAs::Term(first.clone())),
                         None => {
                             ctx.bound.insert(name.to_owned(), new_id.clone());
                             None
@@ -201,17 +245,71 @@ fn parse_pat(tt: TokenTree, ctx: &mut ParseCtx) -> Pat {
             let tokens: Vec<_> = g.stream().into_iter().collect();
             assert!(!tokens.is_empty(), "empty group in pattern");
 
-            // Detect (forall ... body), (exists ... body), (choice ... body).
+            // Detect (forall ... body), (exists ... body), (choice ... body), or
+            // the same binders with an explicit binding list:
+            // (choice ((x i) (y j)) body).
             //
-            // Valid shape is exactly 5 tokens: ident + '.' + '.' + '.' + body.
-            // We verify that tokens[1..4] are three consecutive '.' Punct tokens,
-            // so patterns like (forall blah t) or (forall foo bar t) are rejected.
+            // With '...', the shape is exactly 5 tokens: ident + '.' + '.' + '.'
+            // + body, and the whole BindingList is captured. With an explicit
+            // list, it is 3 tokens: ident + list group + body; each entry is a
+            // group (name sortpat), whose name is bound for the body (occurrences
+            // there must be that bound variable) and whose sort is matched by
+            // sortpat (a capture, '_' or a repeated name).
             if let TokenTree::Ident(id) = &tokens[0] {
                 let name = id.to_string();
                 if matches!(name.as_str(), "forall" | "exists" | "choice" | "lambda") {
+                    if tokens.len() == 3 {
+                        let TokenTree::Group(list) = &tokens[1] else {
+                            panic!("binder pattern must be ({name} ... <body>) or ({name} ((x s) ...) <body>)")
+                        };
+                        assert!(
+                            list.delimiter() == Delimiter::Parenthesis,
+                            "binder pattern: binding list must be parenthesized"
+                        );
+                        let mut entries = Vec::new();
+                        let mut shadowed = Vec::new();
+                        for entry_tt in list.stream() {
+                            let TokenTree::Group(entry) = entry_tt else {
+                                panic!("binder pattern: each binding must be (name sortpat)")
+                            };
+                            let entry_tokens: Vec<_> = entry.stream().into_iter().collect();
+                            assert!(
+                                entry_tokens.len() == 2,
+                                "binder pattern: each binding must be (name sortpat)"
+                            );
+                            let TokenTree::Ident(var) = &entry_tokens[0] else {
+                                panic!("binder pattern: binding name must be an identifier")
+                            };
+                            ctx.ctr += 1;
+                            let entry_id = format_ident!("__mt_binding_{}", ctx.ctr);
+                            let sort = parse_pat(entry_tokens[1].clone(), ctx);
+                            let var = var.to_string();
+                            if var != "_" {
+                                shadowed.push((var.clone(), ctx.bound_vars.insert(var, entry_id.clone())));
+                            }
+                            entries.push(BindingPat { entry_id, sort });
+                        }
+                        let inner = parse_pat(tokens[2].clone(), ctx);
+                        // the bound names are only in scope in the body
+                        for (var, prev) in shadowed.into_iter().rev() {
+                            match prev {
+                                Some(prev) => {
+                                    ctx.bound_vars.insert(var, prev);
+                                }
+                                None => {
+                                    ctx.bound_vars.remove(&var);
+                                }
+                            }
+                        }
+                        return Pat::Binder {
+                            binder: name,
+                            bindings: BindingsPat::Explicit(entries),
+                            inner: Box::new(inner),
+                        };
+                    }
                     assert!(
                         tokens.len() == 5,
-                        "binder pattern must be ({name} ... <body>), got {} tokens",
+                        "binder pattern must be ({name} ... <body>) or ({name} ((x s) ...) <body>), got {} tokens",
                         tokens.len()
                     );
                     assert!(
@@ -225,7 +323,7 @@ fn parse_pat(tt: TokenTree, ctx: &mut ParseCtx) -> Pat {
                     let bindings_id = format_ident!("__mt_bindings_{}", ctx.ctr);
                     return Pat::Binder {
                         binder: name,
-                        bindings_id,
+                        bindings: BindingsPat::Any(bindings_id),
                         inner: Box::new(parse_pat(inner_tt, ctx)),
                     };
                 }
@@ -389,8 +487,21 @@ fn gen_match(pat: &Pat, var: &TokenStream2, inner: TokenStream2, ctr: &mut usize
         },
         // Repeated occurrence: the term must be equal to the one captured by the
         // first occurrence, otherwise the whole match fails.
-        Pat::FreeVar { same_as: Some(first), .. } => quote! {
+        Pat::FreeVar { same_as: Some(SameAs::Term(first)), .. } => quote! {
             if (#var) == (#first) { #inner } else { None }
+        },
+        // Occurrence of a variable bound by an explicit binding list: the term
+        // must be that variable. Sorts are compared structurally, as a sort
+        // reached through a term need not be the pool's shared instance.
+        Pat::FreeVar { same_as: Some(SameAs::Bound(entry)), .. } => quote! {
+            if let crate::ast::Term::Var(__mt_name, __mt_sort) = (&(#var) as &crate::ast::Term)
+                && __mt_name == &(#entry).0
+                && **__mt_sort == *(#entry).1
+            {
+                #inner
+            } else {
+                None
+            }
         },
         // Variadic as a standalone pattern: bind the value directly.
         Pat::Variadic(id) => quote! {
@@ -523,7 +634,7 @@ fn gen_match(pat: &Pat, var: &TokenStream2, inner: TokenStream2, ctr: &mut usize
         // 'inner' parameter of gen_match (which is the continuation TokenStream2).
         Pat::Binder {
             binder,
-            bindings_id,
+            bindings,
             inner: inner_pat,
         } => {
             let binder_variant = match binder.as_str() {
@@ -541,13 +652,41 @@ fn gen_match(pat: &Pat, var: &TokenStream2, inner: TokenStream2, ctr: &mut usize
             // passing 'inner' (the continuation) as the innermost code.
             let body = gen_match(inner_pat, &quote! { #inner_var }, inner, ctr);
 
-            quote! {
-                if let crate::ast::Term::Binder(#binder_variant, #bindings_id, #inner_var) =
-                    (&(#var) as &crate::ast::Term)
-                {
-                    #body
-                } else {
-                    None
+            match bindings {
+                BindingsPat::Any(bindings_id) => quote! {
+                    if let crate::ast::Term::Binder(#binder_variant, #bindings_id, #inner_var) =
+                        (&(#var) as &crate::ast::Term)
+                    {
+                        #body
+                    } else {
+                        None
+                    }
+                },
+                BindingsPat::Explicit(entries) => {
+                    *ctr += 1;
+                    let list_id = format_ident!("__mt_bindings_{}", ctr);
+                    let entry_ids: Vec<&Ident> = entries.iter().map(|e| &e.entry_id).collect();
+                    // match the sorts right-to-left so the leftmost entry is the
+                    // outermost binding (DFS order of the tuple), then the body
+                    let mut body = body;
+                    for e in entries.iter().rev() {
+                        let entry_id = &e.entry_id;
+                        let v = quote! { (&(#entry_id).1) };
+                        body = gen_match(&e.sort, &v, body, ctr);
+                    }
+                    quote! {
+                        if let crate::ast::Term::Binder(#binder_variant, #list_id, #inner_var) =
+                            (&(#var) as &crate::ast::Term)
+                        {
+                            if let [#(#entry_ids),*] = &#list_id[..] {
+                                #body
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
                 }
             }
         }
@@ -561,7 +700,7 @@ pub fn match_term(input: TokenStream) -> TokenStream {
     // Single counter shared between parse_pat (for variable/variadic/binder idents)
     // and gen_match (for temporary arg idents). gen_match starts at 1000 to avoid
     // collisions with the idents generated by parse_pat.
-    let mut ctx = ParseCtx { ctr: 0, bound: HashMap::new() };
+    let mut ctx = ParseCtx { ctr: 0, bound: HashMap::new(), bound_vars: HashMap::new() };
     let pat = parse_pat(pattern, &mut ctx);
     let free_vars = pat.free_vars();
 

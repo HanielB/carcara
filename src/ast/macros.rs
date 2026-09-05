@@ -244,6 +244,53 @@ mod tests {
     }
 
     #[test]
+    fn test_match_term_binding_list() {
+        let mut p = PrimitivePool::new();
+
+        // An explicit binding list captures the sorts (not the list), binds the names for the
+        // body, and checks that body occurrences are the bound variables
+        let term = parse_term(&mut p, "(forall ((x Int)) (= x x))");
+        let s: &Rc<Sort> = match_term!((forall ((x s)) (= x x)) = &term).unwrap();
+        assert_eq!(**s, Sort::Int);
+
+        // a body occurrence of the name that is not the bound variable fails
+        let term = parse_term(&mut p, "(forall ((x Int)) (= x 1))");
+        assert!(match_term!((forall ((x _)) (= x x)) = &term).is_none());
+
+        // a bound variable of another name fails (the name in the pattern binds the position)
+        let term = parse_term(&mut p, "(forall ((y Int)) (= y y))");
+        assert!(match_term!((forall ((x _)) (= x x)) = &term).is_some());
+        let term = parse_term(&mut p, "(forall ((x Int) (y Int)) (= x y))");
+        assert!(match_term!((forall ((x _) (y _)) (= x y)) = &term).is_some());
+        assert!(match_term!((forall ((x _) (y _)) (= y x)) = &term).is_none());
+
+        // the list length is an arity check
+        assert!(match_term!((forall ((x _)) (= x _)) = &term).is_none());
+
+        // a repeated sort name is an equality check across binders, and the bound name goes
+        // out of scope after its binder: the outer `x` below is an ordinary capture
+        let term = parse_term(
+            &mut p,
+            "(= (forall ((x Int)) (= x x)) (exists ((z Int)) (= z z)))",
+        );
+        let s: &Rc<Sort> =
+            match_term!((= (forall ((x s)) (= x x)) (exists ((z s)) (= z z))) = &term).unwrap();
+        assert_eq!(**s, Sort::Int);
+        let term = parse_term(
+            &mut p,
+            "(= (forall ((x Int)) (= x x)) (exists ((z Bool)) (= z z)))",
+        );
+        assert!(
+            match_term!((= (forall ((x s)) (= x x)) (exists ((z s)) (= z z))) = &term).is_none()
+        );
+        let term = parse_term(&mut p, "(= (forall ((x Int)) (= x x)) true)");
+        let (s, x): (&Rc<Sort>, &Rc<Term>) =
+            match_term!((= (forall ((x s)) (= x x)) x) = &term).unwrap();
+        assert_eq!(**s, Sort::Int);
+        assert!(x.is_bool_true());
+    }
+
+    #[test]
     fn test_build_term() {
         let definitions = "
             (declare-fun a () Int)
