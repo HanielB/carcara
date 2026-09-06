@@ -296,6 +296,27 @@ shrank >5% (the lemma-heavy ones; median ratio 1.000). AUFLIRA 9.4 ->
 QF_ABV -3.5%. **Round 1 -> 4** (28,443 common): 42.5 -> 19.3 GB, 172.8
 -> 116.3 M steps, check 4,238 -> 2,526 s, no growth, 21,541 shrank >5%.
 
+### The three holey proofs (rounds 2-4)
+
+Benchmarks fetched (`~/exp/pfcmp/local/holey/`), proofs produced locally
+(cvc5 `1eb17718e1`): 320_oggenc 1 hole step, cs_szymanski_5 5,
+064_gcc 24 — **all `macro-quant-var-elim-eq`** (`MACRO_QUANT_VAR_ELIM_EQ`),
+and the *same three benchmarks are "incomplete" for ethos* on the CPC
+side (`; trust THEORY_REWRITE macro-quant-var-elim-eq` in the CPC
+proof). So it is a cvc5 proof-production gap, identical in both
+formats, not a translation gap. The macro has an elaboration
+(`BasicRewriteRCons::ensureProofMacroQuantVarElimEq` -> QUANT_VAR_REORDERING,
+QUANT_MERGE_PRENEX, ACI_NORM, cong, the non-macro `QUANT_VAR_ELIM_EQ`,
+which the Alethe post-processor handles), but it bails out when
+`QuantifiersRewriter::getVarElim` cannot replay the elimination with a
+proof (comment: "e.g. if varElimEntEq is true"). The instances here are
+that case: `forall x:BV64. (not (= t (concat #b00 x))) or F(x)` — the
+variable occurs under a `concat` with a constant prefix, so it is
+eliminated through the *entailed* equality x = ((_ extract 63 0) t)
+(the result carries `(not (= t (concat #b00 ((_ extract 63 0) t))))`
+and F[extract/x]). Fix would be cvc5-side: a proof for the
+concat/extract inversion in `getVarElim` (or a dedicated rewrite rule).
+
 ## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
 
 Haniel's decision: represent it with a suitable choice term. The Skolem
