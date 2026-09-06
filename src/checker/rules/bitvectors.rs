@@ -818,6 +818,40 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
         }
     }
 
+    // The sliced term may be an n-ary application in which the constant operand occurs at any
+    // position, e.g. (bvor x y #b0001 z); it is then sliced as the binary application of the
+    // constant and the remaining operands regrouped under the same operator, which is how the
+    // slices refer to them.
+    fn as_sliced_op(
+        term: &Rc<Term>,
+        pool: &mut dyn TermPool,
+    ) -> Option<(Operator, Rc<Term>, Rc<Term>)> {
+        let Term::Op(op @ (Operator::BvAnd | Operator::BvOr | Operator::BvXor), args) =
+            term.as_ref()
+        else {
+            return None;
+        };
+        if args.len() == 2 {
+            return Some((*op, args[0].clone(), args[1].clone()));
+        }
+        let constants: Vec<usize> = (0..args.len())
+            .filter(|&i| args[i].as_bitvector().is_some())
+            .collect();
+        let [ci] = constants[..] else { return None };
+        let rest: Vec<Rc<Term>> = args
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != ci)
+            .map(|(_, t)| t.clone())
+            .collect();
+        let rest = if rest.len() == 1 {
+            rest[0].clone()
+        } else {
+            pool.add(Term::Op(*op, rest))
+        };
+        Some((*op, rest, args[ci].clone()))
+    }
+
     fn as_extract(term: &Rc<Term>) -> Option<(Integer, Integer, &Rc<Term>)> {
         match term.as_ref() {
             Term::ParamOp { op: ParamOperator::BvExtract, op_args, args } => Some((
@@ -831,9 +865,12 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
 
     assert_clause_len(conclusion, 1)?;
     let (lhs, slices) = match_term_err!((= lhs (concat ...)) = &conclusion[0])?;
-    let (op, a, c) = as_bitwise_op(lhs).ok_or_else(|| {
-        CheckerError::Explanation("expected a binary bvand/bvor/bvxor application".into())
+    let (op, a, c) = as_sliced_op(lhs, pool).ok_or_else(|| {
+        CheckerError::Explanation(
+            "expected a bvand/bvor/bvxor application with a single constant operand".into(),
+        )
     })?;
+    let (a, c) = (&a, &c);
 
     let width = bitvector_size(pool, c);
     let mut done: Integer = width.into();
