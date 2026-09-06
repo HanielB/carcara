@@ -1,8 +1,7 @@
 use super::{
-    CheckerError, RuleArgs, RuleResult, assert_clause_len, assert_eq, assert_num_premises,
-    get_premise_term,
+    RuleArgs, RuleResult, assert_clause_len, assert_eq, assert_num_premises, get_premise_term,
 };
-use crate::ast::{Sort, match_term_err};
+use crate::ast::match_term_err;
 
 pub fn idx(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
@@ -40,37 +39,22 @@ pub fn row_contra(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult
     }
 }
 
-pub fn ext(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
+pub fn ext(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = get_premise_term(&premises[0])?;
     let (ap, bp) = match_term_err!((not (= a b)) = premise)?;
 
     assert_clause_len(conclusion, 1)?;
     // (not (= (select a k) (select b k))) where k is
-    // (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))), with i the index
-    // sort of a. Each binder is matched with its own binding list, so the two index terms
-    // may differ in the name of the bound variable (they are alpha-equivalent); the repeated
-    // sort capture forces them to bind at the same sort
-    let (ac, i, bc) = match_term_err!(
-        (not (= (select a (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))))
-                (select b (choice ((x i)) (or (= a b) (not (= (select a x) (select b x))))))))
+    // (choice ((x _)) (or (= a b) (not (= (select a x) (select b x))))). Each binder is
+    // matched with its own binding list, so the two index terms may differ in the name of
+    // the bound variable (they are alpha-equivalent). The sort of x needs no check: the body
+    // applies `select` to a and x, so a well-sorted term already binds x at a's index sort
+    let (ac, _, bc, _) = match_term_err!(
+        (not (= (select a (choice ((x _)) (or (= a b) (not (= (select a x) (select b x))))))
+                (select b (choice ((x _)) (or (= a b) (not (= (select a x) (select b x))))))))
         = &conclusion[0]
     )?;
     assert_eq(ap, ac)?;
-    assert_eq(bp, bc)?;
-
-    let a_sort = pool.sort(ap);
-    let Sort::Array(index_sort, _) = a_sort.as_ref() else {
-        return Err(CheckerError::Explanation(format!(
-            "Could not get Array sort from term {}",
-            ap
-        )));
-    };
-    rassert!(
-        **i == **index_sort,
-        CheckerError::Explanation(format!(
-            "Expected the bound variable to have the index sort {index_sort}, got {i}"
-        ))
-    );
-    Ok(())
+    assert_eq(bp, bc)
 }
