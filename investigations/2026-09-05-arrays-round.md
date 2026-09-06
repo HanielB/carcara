@@ -64,3 +64,29 @@ valid proofs) — not yet decomposed (needs a fat AUFBV sample).
    untranslated RARE macro (quantifier variable elimination); expected gap.
 
 Round-4-style artifacts: none (warmed runners; wall vs CPU consistent).
+
+## Follow-ups landed the same day
+
+- **INST_CONSTANT (class 3) fixed** in cvc5 `1acbc03224`: an instantiation
+  constant of `(forall x1..xn. F)` for variable i is converted as the
+  `QUANTIFIERS_SKOLEMIZE` witness for x_i (the choice term the converter
+  already builds), so `--proof-alethe-define-skolems` defines it by name —
+  no new symbol is declared. 018_bzip2 now checks valid (14 skolem
+  definitions, 0 holes).
+- **AUFBV fatness explained** (018_bzip2: 546 MB / 85,708 steps): `bind`
+  182 MB (19 KB/step), `trans` 163 MB, `qnt_rm_unused`, `miniscope_*` (up
+  to 422 KB/step) — quantifier-rewriting steps whose conclusions carry two
+  copies of huge quantified formulas. `:named` cannot share terms under
+  binders (named terms must be closed), while CPC's `define` sharing can;
+  a format-level constraint.
+- **SCOPE short-circuit** in `reorganize` (cvc5, next commit after
+  `1acbc03224`): the consumer of the SCOPE implication is an `implies`
+  step re-deriving VP3 `(cl (not (and F1..Fn)) F)`; it is replaced by the
+  VP3 step already in its premise's derivation, so VP4–VP8 and the
+  `implies` step become unreachable. storecomm (QF_AUFLIA) 7,231 → 6,193
+  steps (−14%), QF_AX storecomm 21,401 → 18,239, swap −14%; probe sweep
+  equal or smaller everywhere, all valid; regressions pass. The remaining
+  per-scope cost (subproof + n and_pos + resolution + reordering +
+  contraction) is inherent to reaching VP3 from the subproof clause; the
+  and_pos steps coincide with the SAT-level CNF_AND_POS clauses and are
+  merged by content dedup.
