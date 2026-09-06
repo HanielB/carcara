@@ -36,6 +36,7 @@ result can be reviewed without re-running the experiment.
 | 2026-08-31 | [Carcara performance on the alethe-bv corpus](./2026-08-31-carcara-bv-perf.md) | `bv-fixes` | cluster run 24204 valid / 0 holey; hotspots: let expansion (parsing), rare_rewrite matching, ac_simp/poly_simp caching |
 | 2026-09-03 | [all-alethe3: the hoisting printer at corpus scale](./2026-09-03-alethe3-hoisting-eval.md) | `bv-fixes` (+ cvc5 `alethebv`) | 45159/45171 valid, 0 size regressions, LRA 2.42x smaller; premise-frame + streaming fixes; CPC gap re-attributed (dag0 artifact + res pivots) |
 | 2026-09-05 | [Alethe arrays: translation already on alethebv; SMT-LIB probe clean](./2026-09-05-alethe-arrays.md) | `bv-fixes` (+ cvc5 `alethebv`) | aletheArrays subsumed (no const-array code anywhere); 164/164 produced QF_AUFLIA+QF_ABV proofs valid, 0 holes; 86/86 cvc5 arrays regressions |
+| 2026-09-05 | [Arrays round: Alethe+carcara vs CPC+ethos on the array logics](./2026-09-05-arrays-round.md) | `bv-fixes` (+ cvc5 `alethebv`) | 28,446 valid / 2 holey; carcara 6.65x faster; Alethe 2x bigger (SCOPE translation = 40-50% of steps); slicing + printer-order fixes; INST_CONSTANT leak |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
