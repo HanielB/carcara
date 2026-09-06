@@ -20,12 +20,12 @@ import polars as pl
 
 COLOR = '#2a78d6'
 
-C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, QF_(UF)BV orange
+C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, BV-logic orange
 
 
 def bv_mask(df):
     import polars as pl
-    return df['benchmark'].str.contains('/QF_BV/|/QF_UFBV/')
+    return df['benchmark'].str.contains(r'/[A-Z_]*BV/')
 
 
 CHECK_BAND = 3e3   # failed checking placed here (budget is 1200 s)
@@ -44,7 +44,7 @@ def scatter(ax, xs, ys, bv, lo, hi, band, xlabel, ylabel, title):
                 color='#777777', rotation=45, ha='center', va='center')
     ax.axvline(band, color='#bbbbbb', linewidth=0.8)
     ax.axhline(band, color='#bbbbbb', linewidth=0.8)
-    for want, color, label in ((True, C_BV, 'QF_(UF)BV'),
+    for want, color, label in ((True, C_BV, 'BV logics'),
                                (False, C_OTH, 'other logics')):
         pts = [(x, y) for x, y, b in zip(xs, ys, bv) if b == want]
         if pts:

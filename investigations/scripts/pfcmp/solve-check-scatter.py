@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Scatter of cvc5 solving+printing time vs carcara time for pfcmp, with
-QF_(UF)BV and the other logics in different colors.
+the BV logics (any logic whose name contains BV) and the others in
+different colors.
 
 For every benchmark whose proof checked valid, plots cvc5 solving time
 (x, the runner's measured wall time) against carcara's total time
@@ -24,7 +25,7 @@ import matplotlib.pyplot as plt
 UNIT_S = {'ns': 1e-9, 'µs': 1e-6, 'us': 1e-6, 'ms': 1e-3, 's': 1.0}
 PHASE_LINE = re.compile(r'^(parsing|checking):\s+([\d.]+)(ns|µs|us|ms|s) ')
 
-C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, QF_(UF)BV orange
+C_OTH, C_BV = '#2a78d6', '#d9822b'  # non-BV blue, BV-logic orange
 
 
 def parse(results_dir):
@@ -40,8 +41,7 @@ def parse(results_dir):
             out = d['output_log']
             if '[pfchk] ok=1' not in out:
                 continue
-            bv = ('/QF_BV/' in d.get('job_args', '')
-                  or '/QF_UFBV/' in d.get('job_args', ''))
+            bv = re.search(r'/[A-Z_]*BV/', d.get('job_args', '')) is not None
             solve = float(out.split('solver_time=')[1].split('\n')[0])
             phases = {}
             for l in out.splitlines():
@@ -73,7 +73,7 @@ def main():
             linewidth=1.0, zorder=1)
     ax.annotate('y = x', xy=(hi * 0.4, hi * 0.55), fontsize=8,
                 color='#777777', rotation=45, ha='center', va='center')
-    for bv, color, label in ((True, C_BV, 'QF_(UF)BV'),
+    for bv, color, label in ((True, C_BV, 'BV logics'),
                              (False, C_OTH, 'other logics')):
         xs, ys = pts[bv]
         if xs:
