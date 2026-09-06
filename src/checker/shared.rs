@@ -337,6 +337,7 @@ pub fn get_rule(
         "evaluate" => extras::evaluate,
         "beta_equiv" => extras::beta_equiv,
         "div_intro" => extras::div_intro,
+        "div_by_zero_intro" => extras::div_by_zero_intro,
         "log2_intro" => extras::log2_intro,
         "to_int_intro" => extras::to_int_intro,
 

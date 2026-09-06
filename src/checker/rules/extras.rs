@@ -43,9 +43,8 @@ pub fn absorb(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 
     // `c` must occur in `t`, considering flattening of nested applications of `op`
     fn occurs(op: Operator, args: &[Rc<Term>], c: &Rc<Term>) -> bool {
-        args.iter().any(|a| {
-            a == c || matches!(a.as_op(), Some((o, sub)) if o == op && occurs(op, sub, c))
-        })
+        args.iter()
+            .any(|a| a == c || matches!(a.as_op(), Some((o, sub)) if o == op && occurs(op, sub, c)))
     }
     if occurs(op, args, c) {
         Ok(())
@@ -469,21 +468,124 @@ pub fn beta_equiv(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_eq(&reduced, right)
 }
 
+/// Checks the axiom cvc5 instantiates when eliminating a division. For an integer division by a
+/// constant `b`: `(and (<= (* b (div a b)) a) (< a (* b (+ (div a b) c))))`, with `c` 1 if `b`
+/// is positive and -1 otherwise. For an integer division by an arbitrary `b`, the same bounds under
+/// each sign: `(and (=> (> b 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) 1))))) (=> (< b
+/// 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) (- 1)))))))`. For a real division:
+/// `(=> (not (= b 0)) (= (* b (/ a b)) a))`, where the numerator and denominator may carry
+/// `to_real` casts inside the division that they do not carry outside.
 pub fn div_intro(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
+    let term = &conclusion[0];
 
-    let (b, _, c) =
-        match_term_err!((and (<= (* b (div a b)) a) (< a (* b (+ (div a b) c)))) = &conclusion[0])?;
-
-    let b = b.as_signed_number_err()?;
-    if b.is_zero() {
-        return Err(CheckerError::DivOrModByZero);
+    // Integer division by a constant
+    if let Some((b, _, c)) =
+        match_term!((and (<= (* b (div a b)) a) (< a (* b (+ (div a b) c)))) = term)
+    {
+        let b = b.as_signed_number_err()?;
+        if b.is_zero() {
+            return Err(CheckerError::DivOrModByZero);
+        }
+        let expected = if b.is_positive() { 1 } else { -1 };
+        if c.as_signed_number_err()? != expected {
+            return Err(CheckerError::ExpectedNumber(expected.into(), c.clone()));
+        }
+        return Ok(());
     }
-    let expected = if b.is_positive() { 1 } else { -1 };
-    if c.as_signed_number_err()? != expected {
-        return Err(CheckerError::ExpectedNumber(expected.into(), c.clone()));
+
+    // Integer division by an arbitrary term: the bounds under each sign of the denominator
+    if let Some((_, zp, _, one, zn, minus_one)) = match_term!(
+        (and
+            (=> (> b zp) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) one)))))
+            (=> (< b zn) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) minus_one))))))
+        = term
+    ) {
+        for (t, expected) in [(zp, 0), (zn, 0), (one, 1), (minus_one, -1)] {
+            if t.as_signed_number_err()? != expected {
+                return Err(CheckerError::ExpectedNumber(expected.into(), t.clone()));
+            }
+        }
+        return Ok(());
     }
 
+    // Real division: the denominator being non-zero, it times the quotient is the numerator
+    fn strip_to_real(t: &Rc<Term>) -> &Rc<Term> {
+        match_term!((to_real x) = t).unwrap_or(t)
+    }
+    let (b, zero, b2, a, b3, a2) =
+        match_term_err!((=> (not (= b zero)) (= (* b2 (/ a b3)) a2)) = term)?;
+    if !zero.as_number_err()?.is_zero() {
+        return Err(CheckerError::ExpectedNumber(0.into(), zero.clone()));
+    }
+    assert_eq(b2, b)?;
+    assert_eq(strip_to_real(b3), b)?;
+    assert_eq(strip_to_real(a), a2)?;
+    Ok(())
+}
+
+/// Checks `(= (op a b) (ite (= b 0) (choice ((y T)) (= y (op a 0))) (op a b)))`, for `op` one of
+/// `/`, `div` and `mod`: the elimination of a division or modulus by a possibly-zero denominator,
+/// whose value at zero is the (unspecified) value of the operator at zero. `y` must not occur free
+/// in `a`. The numerator inside the choice term may carry a `to_real` wrapper the original does
+/// not, as cvc5 casts integer arguments of the real by-zero function.
+pub fn div_by_zero_intro(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    use rug::Rational;
+
+    assert_clause_len(conclusion, 1)?;
+    let (lhs, rhs) = match_term_err!((= lhs rhs) = &conclusion[0])?;
+    let Some((op @ (Operator::RealDiv | Operator::IntDiv | Operator::Mod), [a, b])) = lhs.as_op()
+    else {
+        return Err(CheckerError::TermOfWrongForm("(op a b)", lhs.clone()));
+    };
+    let (cond, then, els) = match_term_err!((ite cond then els) = rhs)?;
+    let (cond_b, zero) = match_term_err!((= cond_b zero) = cond)?;
+    assert_eq(cond_b, b)?;
+    let is_zero = |t: &Rc<Term>| t.as_number().is_some_and(|n| n.is_zero());
+    rassert!(
+        is_zero(zero),
+        CheckerError::ExpectedNumber(Rational::new(), zero.clone())
+    );
+    assert_eq(els, lhs)?;
+
+    let Term::Binder(Binder::Choice, bindings, body) = then.as_ref() else {
+        return Err(CheckerError::TermOfWrongForm(
+            "(choice ((y T)) (= y (op a 0)))",
+            then.clone(),
+        ));
+    };
+    let [(name, sort)] = bindings.as_slice() else {
+        return Err(CheckerError::TermOfWrongForm(
+            "(choice ((y T)) (= y (op a 0)))",
+            then.clone(),
+        ));
+    };
+    let y = pool.add(Term::Var(name.clone(), sort.clone()));
+    let (body_y, value) = match_term_err!((= body_y value) = body)?;
+    assert_eq(body_y, &y)?;
+    let Some((value_op, [value_a, value_zero])) = value.as_op() else {
+        return Err(CheckerError::TermOfWrongForm("(op a 0)", value.clone()));
+    };
+    rassert!(
+        value_op == op,
+        CheckerError::Explanation(format!(
+            "expected the choice term to apply '{op}', got '{value_op}'"
+        ))
+    );
+    let value_a = match_term!((to_real inner) = value_a)
+        .filter(|inner| *inner == a)
+        .unwrap_or(value_a);
+    assert_eq(value_a, a)?;
+    rassert!(
+        is_zero(value_zero),
+        CheckerError::ExpectedNumber(Rational::new(), value_zero.clone())
+    );
+    rassert!(
+        !pool.free_vars(a).contains(&y),
+        CheckerError::Explanation(format!(
+            "the bound variable '{name}' occurs in the numerator '{a}'"
+        ))
+    );
     Ok(())
 }
 

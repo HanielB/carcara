@@ -515,6 +515,9 @@ fn div_intro() {
     test_cases! {
         definitions = "
             (declare-const a Int)
+            (declare-const b Int)
+            (declare-const x Real)
+            (declare-const y Real)
         ",
         "Simple working examples" {
             "(step t1 (cl (and (<= (* 5 (div a 5)) a) (< a (* 5 (+ (div a 5) 1)))))
@@ -533,6 +536,26 @@ fn div_intro() {
             "(step t1 (cl (and (<= (* 5 (div a 3)) a) (< a (* 5 (+ (div a 5) 1)))))
                 :rule div_intro)": false,
         }
+        "Integer division by an arbitrary term" {
+            "(step t1 (cl (and
+                (=> (> b 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) 1)))))
+                (=> (< b 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) (- 1))))))
+            )) :rule div_intro)": true,
+
+            "(step t1 (cl (and
+                (=> (> b 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) 1)))))
+                (=> (< b 0) (and (<= (* b (div a b)) a) (< a (* b (+ (div a b) 1)))))
+            )) :rule div_intro)": false,
+        }
+        "Real division" {
+            "(step t1 (cl (=> (not (= y 0.0)) (= (* y (/ x y)) x))) :rule div_intro)": true,
+
+            "(step t1 (cl (=> (not (= y 1.0)) (= (* y (/ x y)) x))) :rule div_intro)": false,
+
+            "(step t1 (cl (=> (not (= y 0.0)) (= (* x (/ x y)) x))) :rule div_intro)": false,
+
+            "(step t1 (cl (=> (not (= y 0.0)) (= (* y (/ x y)) y))) :rule div_intro)": false,
+        }
         "Wrong coefficient" {
             "(step t1 (cl (and (<= (* 5 (div a 5)) a) (< a (* 5 (+ (div a 5) 2)))))
                 :rule div_intro)": false,
@@ -544,6 +567,61 @@ fn div_intro() {
                 (<= (* (- 5) (div a (- 5))) a)
                 (< a (* (- 5) (+ (div a (- 5)) 1)))
             )) :rule div_intro)": false,
+        }
+    }
+}
+
+#[test]
+fn div_by_zero_intro() {
+    test_cases! {
+        definitions = "
+            (declare-const x Real)
+            (declare-const y Real)
+            (declare-const a Int)
+            (declare-const b Int)
+            (declare-const z Real)
+        ",
+        "Simple working examples" {
+            "(step t1 (cl (= (/ x y) (ite (= y 0.0) (choice ((z Real)) (= z (/ x 0.0))) (/ x y))))
+                :rule div_by_zero_intro)": true,
+
+            "(step t1 (cl (= (div a b) (ite (= b 0) (choice ((c Int)) (= c (div a 0))) (div a b))))
+                :rule div_by_zero_intro)": true,
+
+            "(step t1 (cl (= (mod a b) (ite (= b 0) (choice ((c Int)) (= c (mod a 0))) (mod a b))))
+                :rule div_by_zero_intro)": true,
+        }
+        "Zero denominator in the original term" {
+            "(step t1 (cl (= (/ x 0.0) (ite (= 0.0 0.0) (choice ((z Real)) (= z (/ x 0.0))) (/ x 0.0))))
+                :rule div_by_zero_intro)": true,
+        }
+        "Condition on the wrong term, or not on zero" {
+            "(step t1 (cl (= (/ x y) (ite (= x 0.0) (choice ((z Real)) (= z (/ x 0.0))) (/ x y))))
+                :rule div_by_zero_intro)": false,
+
+            "(step t1 (cl (= (/ x y) (ite (= y 1.0) (choice ((z Real)) (= z (/ x 0.0))) (/ x y))))
+                :rule div_by_zero_intro)": false,
+        }
+        "Else branch is not the original term" {
+            "(step t1 (cl (= (/ x y) (ite (= y 0.0) (choice ((z Real)) (= z (/ x 0.0))) (/ y x))))
+                :rule div_by_zero_intro)": false,
+        }
+        "Choice term is not the value of the operator at zero" {
+            "(step t1 (cl (= (/ x y) (ite (= y 0.0) (choice ((z Real)) (= z (/ y 0.0))) (/ x y))))
+                :rule div_by_zero_intro)": false,
+
+            "(step t1 (cl (= (/ x y) (ite (= y 0.0) (choice ((z Real)) (= z (/ x 1.0))) (/ x y))))
+                :rule div_by_zero_intro)": false,
+
+            "(step t1 (cl (= (/ x y) (ite (= y 0.0) (choice ((z Real)) true) (/ x y))))
+                :rule div_by_zero_intro)": false,
+
+            "(step t1 (cl (= (div a b) (ite (= b 0) (choice ((c Int)) (= c (mod a 0))) (div a b))))
+                :rule div_by_zero_intro)": false,
+        }
+        "Bound variable occurs in the numerator" {
+            "(step t1 (cl (= (/ z y) (ite (= y 0.0) (choice ((z Real)) (= z (/ z 0.0))) (/ z y))))
+                :rule div_by_zero_intro)": false,
         }
     }
 }
