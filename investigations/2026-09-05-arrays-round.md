@@ -120,3 +120,51 @@ Round-4-style artifacts: none (warmed runners; wall vs CPU consistent).
   `miniscope` steps — a genuine format constraint (CPC shares open terms).
 - Probe sweep, arrays cases, alethe/arrays/quantifiers regressions
   (8/8, 455/455) all pass at each step.
+
+## Arrays round 2 (2026-09-06): the fixes at scale, and a regression
+
+**Run:** `all-arr2-alethe` (bin9: cvc5 alethebv @ `bce1d54bef`, carcara
+bv-fixes @ `d3e6a138`, same limits/octa/warmup; 47 min wall). The CPC
+side was not re-run: no cvc5 change since round 1 touches anything but
+`src/proof/alethe/`, so `all-arr-cpc` is the comparison partner (Haniel
+cancelled the submitted CPC job). Scripts: `submit-pfcmp-arr2.sh`,
+`run-arr2-alethe.sh`; tables from the new `logic-tables.py`.
+
+**Outcome:** 28,566 valid (= CPC's 28,566), 3 holey, 11 errors, 59
+memouts (from 128), 58 print timeouts; common valid 28,547. Unique: 19
+each way (Alethe misses: 11 errors, 6 print timeouts, 2 memouts; CPC
+misses: 16 print memouts, 3 ethos timeouts). carcara 8.90x faster in
+total (median 4.95x); Alethe corpus 30 GB vs CPC 21 GB (from 39 vs 19;
+CPC/Alethe 0.69 total, 0.68 median); commands 203 vs 129 M; pipeline
+CPC 1.16x. AUFBV: 42 -> 126 valid, 11.7 GB -> 4.05 GB, median 182 B/step
+(from 3,964; CPC 127). Round 1 -> round 2 on the 28,445 commonly valid:
+bytes 42.8 -> 29.8 GB, steps 167.7 -> 148.2 M (short-circuits: QF_AX
+-12%, QF_AUFLIA -12%, AUFLIRA -11%), check 4,300 -> 3,407 s.
+
+**Regression found: sharing lost in `bind` subproofs.** 12,167 proofs
+grew >5% (AUFLIRA median x1.06, AUFNIRA median x2.9; worst
+`AUFLIRA/nasa/fol_simplify_array_only/quaternion_ds1_symm_1367`: 156 KB
+-> 1.96 MB, 962 steps both). Cause: the closed-term rule of `bce1d54bef`
+(`isOpen`) refused to name any term with a free bound variable — but
+inside a `bind`/`sko` subproof the anchor's variables occur free in every
+conclusion, and the old printer named those terms (which is what carcara
+accepts and what round 1 measured). The quantifier-rewriting steps in
+the subproof (cong/trans/rare_rewrite over 70-deep implication chains)
+were printed in full. **Fix:** conversion keyed per occurrence: a term is
+nameable at an occurrence iff none of its free variables is bound by a
+binder enclosing that occurrence in the converted term (its variables
+are then in scope, e.g. anchor-bound); under a capturing binder it is
+printed in full (its closed subterms still by name). Keys pair the term
+with its captured variables; the conversion of a key is context-free
+since children's keys are determined by the parent's. Declarations and
+carriers are keyed the same way. quaternion_1367: 1.96 MB -> 125 KB
+(round 1: 156 KB), valid, no duplicate names; storecomm byte-identical.
+
+**Errors (11, all AUFNIRA/FFT):** cvc5 prints `(error "Proof unsupported
+by Alethe: contains Skolem (kind div_by_zero ...")` — the total-division
+skolem `@div_by_zero` (Real -> Real) has no witness form for
+`--proof-alethe-define-skolems` and no Alethe counterpart. Open: a
+representation decision (it denotes the unspecified value of `(/ x 0)`).
+
+**Holey (3):** ABV cs_szymanski_5, AUFBV 320_oggenc and 064_gcc, one
+`hole` step each (proofs not retrieved; to be looked at in round 3).
