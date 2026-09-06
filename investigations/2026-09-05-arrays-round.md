@@ -168,3 +168,38 @@ representation decision (it denotes the unspecified value of `(/ x 0)`).
 
 **Holey (3):** ABV cs_szymanski_5, AUFBV 320_oggenc and 064_gcc, one
 `hole` step each (proofs not retrieved; to be looked at in round 3).
+
+**Round 3** (`all-arr3-alethe`, bin10: cvc5 `8975c05822` with the sharing
+fix, carcara `e8b779b2`) submitted 2026-09-06; the CPC partner stays
+`all-arr-cpc`.
+
+## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
+
+Haniel's decision: represent it with a suitable choice term. The Skolem
+is a *function* `@div_by_zero : Real -> Real` applied to the numerator
+(likewise `@int_div_by_zero`, `@mod_by_zero`), and it enters the proof
+through one `ARITH_REDUCTION` step per division:
+`(= (/ a b) (ite (= b 0) (@div_by_zero a) (/_total a b)))` (no axiom
+conjunction). Implementation (cvc5 alethebv, commit after `8975c05822`;
+carcara `d5764544`):
+- The application `(@div_by_zero a)` converts to
+  `(choice ((y Real)) (= y (/ a 0)))`, the value of the operator at the
+  zero denominator (SMT-LIB leaves it unspecified; the term must depend
+  on `a` — a constant stand-in would equate all divisions by zero, which
+  is unsound). Under `--proof-alethe-define-skolems` the function is
+  defined once, `(define-fun @div_by_zero_N ((x Real)) Real (choice ((y
+  Real)) (= y (/ x 0/1))))` (printer extended to lambda definitions), and
+  applications are kept.
+- The eliminating equality was mis-translated (the DIVISION case assumed
+  the `(and eq axiom)` shape of the linear cases); it is now one step of
+  the new Alethe rule `div_by_zero_intro`, checked by carcara:
+  `(= (op a b) (ite (= b 0) (choice ((y T)) (= y (op a 0))) (op a b)))`,
+  op in /, div, mod, y not free in a, `to_real` casts inside tolerated.
+- carcara's `div_intro` also accepts the two nonlinear axiom shapes cvc5
+  emits for a division by an arbitrary denominator (real:
+  `(=> (not (= b 0)) (= (* b (/ a b)) a))`; integer: the bounds under each
+  sign), which the small regression `alethe-div-by-zero.smt2` needs.
+- z3.638004 (FFT): 22.8 KB, valid both with and without defined skolems;
+  cvc5 alethe/arith regressions 188/188 (Alethe tester on); carcara suite
+  green. The 11 FFT benchmarks get a follow-up cluster run
+  (`all-arr3-alethe-fix`, bin11) patched into round 3.
