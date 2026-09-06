@@ -347,3 +347,51 @@ carcara `d5764544`):
   cvc5 alethe/arith regressions 188/188 (Alethe tester on); carcara suite
   green. The 11 FFT benchmarks get a follow-up cluster run
   (`all-arr3-alethe-fix`, bin11) patched into round 3.
+
+## Round 6 and the unified evaluation (2026-09-06)
+
+**Round 6** (`all-alethe6-share`, bin12 = cvc5 `1eb17718e1` + carcara
+`d5764544`; the main 45,171-benchmark corpus, default Alethe
+configuration only — Haniel asked for just that one and a lean report):
+45,083 valid (round 5: 45,082), 81 print timeouts, 2 choice-binder
+errors, 0 holey. Round 5 -> 6 on 45,071 common: 250.8 -> 242.0 GB, 1,313
+-> 1,219 M steps, check 35,672 -> 35,010 s, no proof grew (LIA -72%, LRA
+-48%, QF_UF -27%, QF_UFIDL -26%; QF_BV unchanged).
+
+**Cold-start artifact, again.** The `--version` warm-up pages in only the
+part of the binary it touches; the FIRST array of every Alethe run had
+wall >> CPU in its timed sections: cmp_LIA in round 6 (228/266 tasks;
+solving wall 499 s vs 81 s CPU), arr_QF_AX in arrays rounds 1/3/4
+(~130/279 tasks, ~1,000 s excess). CPC runs unaffected. Fix runner
+`run-pfcmp-fix.sh`: reads cvc5, carcara and rewrites.eo in full (`cat >
+/dev/null`) before timing AND records per-phase CPU time with GNU time
+(`/usr/bin/time -f "%U %S"`, accounting verified through `timeout`):
+new pfchk keys `solver_cpu`, `check_cpu` (cache + tables updated). Fix
+run (`all-alethe6-share-fix` = cmp_LIA, `all-arr4-alethe-fix` =
+arr_QF_AX): all valid, proofs byte-identical; QF_AX fully repaired
+(solving wall 2,622 s vs CPU 2,614; check 237 vs 233; 0 flagged tasks);
+LIA wall 499 -> 74 s vs 48 s CPU (tiny tasks keep ~60 ms of process
+overhead each). cvc5's `--stats` (steady_clock) and carcara's `--stats`
+(Instant) are wall clocks too, so per-phase CPU needs GNU time.
+Merged via merge-results.py into `all-alethe6-share-merged` /
+`all-arr4-alethe-merged`.
+
+**Unified datasets** (`union-results.py --drop AUFNIRA,QF_AUFNIA`, the
+evaluation is AUFBVLIRA-only): `all-alethe-union` (round 6 merged +
+arrays round 4 merged) vs `all-cpc-union` (all-cpc-fresh + all-arr-cpc);
+74,601 benchmarks, 26 logics. Alethe 72,609 valid / 3 holey / 2 errors;
+CPC 71,997 / 3 / 0 (182 ethos timeouts). Common 71,979: carcara 18.95x
+faster (median 5.44x, 98.1%); bytes 182 vs 262 GB (CPC/Alethe 1.44;
+median 0.88, CPC smaller on 73%); commands 1,228 vs 1,324 M (1.08,
+median 1.50); solve+print CPC 0.92x; pipeline CPC 1.52x. Unique 630
+(CPC: 450 print memouts, 174 ethos timeouts, 5 print timeouts) vs 18
+(15 Alethe print timeouts, 2 choice errors, 1 memout). Per logic
+CPC/Alethe bytes: QF_BV 1.59, AUFLIRA 1.52, QF_ABV 1.34, QF_LIA 1.30,
+QF_UF 1.24; LIA 0.29, LRA 0.51, QF_AX 0.78, QF_AUFLIA 0.82, AUFBV 0.24.
+
+**Lean report** `~/exp/pfcmp/report2/report.pdf` (7 pages): setup,
+results (combined per-logic table, headline table, unique solves,
+per-logic bytes table, scatters/CDFs over the union with BV coloring),
+"where the differences come from" (checking, size, remaining Alethe
+overhead, coverage), caveats. The old report (`report/`) stays as the
+history of the rounds.

@@ -3,7 +3,7 @@
 experiment, straight from the runners' results.json.gz (the [pfchk]
 key=value lines), so proof_assumes / proof_defines are available too.
 
-Usage: logic-tables.py <alethe-dir> <cpc-dir> [--tex]
+Usage: logic-tables.py <alethe-dir> <cpc-dir> [--tex | --combined]
 
 Prints, for each pipeline: the outcome breakdown and the per-logic table
 (valid checks only: problems, solving+printing time, checking time,
@@ -21,11 +21,11 @@ import sys
 
 import polars as pl
 
-KEYS = ('solver_rc', 'solver_time', 'proof_bytes', 'proof_steps',
-        'proof_assumes', 'proof_defines', 'check_rc', 'check_time',
+KEYS = ('solver_rc', 'solver_time', 'solver_cpu', 'proof_bytes', 'proof_steps',
+        'proof_assumes', 'proof_defines', 'check_rc', 'check_time', 'check_cpu',
         'check_result', 'ok')
-NUM = {'solver_time', 'check_time', 'proof_bytes', 'proof_steps',
-       'proof_assumes', 'proof_defines', 'ok'}
+NUM = {'solver_time', 'solver_cpu', 'check_time', 'check_cpu', 'proof_bytes',
+       'proof_steps', 'proof_assumes', 'proof_defines', 'ok'}
 
 
 def parse(d):
@@ -200,11 +200,46 @@ def only_c_breakdown(df, col):
     return dict(sorted(df.group_by(col).len().iter_rows(), key=lambda x: -x[1]))
 
 
+def combined(a, c):
+    """One LaTeX row per logic with both pipelines: benchmarks, then valid /
+    solving / checking / ratio for Alethe and for CPC (valid checks only),
+    non-QF logics first, then QF, then the total."""
+    def agg(df):
+        v = df.filter(pl.col('check_result') == 'valid')
+        g = v.group_by('logic').agg(pl.len().alias('n'),
+                                    pl.col('solver_time').sum().alias('solve'),
+                                    pl.col('check_time').sum().alias('check'))
+        rows = {r['logic']: r for r in g.to_dicts()}
+        rows['Total'] = {'n': len(v), 'solve': v['solver_time'].sum(),
+                         'check': v['check_time'].sum()}
+        return rows
+    ra, rc = agg(a), agg(c)
+    bench = {r['logic']: r['len'] for r in a.group_by('logic').len().to_dicts()}
+    bench['Total'] = len(a)
+    q, qf = logic_order([l for l in bench if l != 'Total'])
+    out = []
+    for gi, group in enumerate((q, qf, ['Total'])):
+        for l in group:
+            name = l.replace('_', '\\_')
+            cells = [f"    {name:10s} & {bench[l]:6d}"]
+            for rows in (ra, rc):
+                r = rows.get(l, {'n': 0, 'solve': 0.0, 'check': 0.0})
+                ratio = r['solve'] / r['check'] if r['check'] else float('nan')
+                cells.append(f" & {r['n']:6d} & {r['solve']:10.2f} & {r['check']:9.2f} & {ratio:6.2f}")
+            out.append(''.join(cells) + ' \\\\')
+        if gi < 2:
+            out.append('    \\midrule')
+    return '\n'.join(out)
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     tex = '--tex' in sys.argv
     d_a, d_c = args[0], args[1]
     a, c = parse(d_a), parse(d_c)
+    if '--combined' in sys.argv:
+        print(combined(a, c))
+        return
     for name, df in (('Alethe + carcara', a), ('CPC + ethos', c)):
         print(f'== {name}: {len(df)} benchmarks, {df["logic"].n_unique()} logics')
         print(outcome(df))
