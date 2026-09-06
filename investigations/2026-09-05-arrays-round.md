@@ -169,9 +169,31 @@ representation decision (it denotes the unspecified value of `(/ x 0)`).
 **Holey (3):** ABV cs_szymanski_5, AUFBV 320_oggenc and 064_gcc, one
 `hole` step each (proofs not retrieved; to be looked at in round 3).
 
-**Round 3** (`all-arr3-alethe`, bin10: cvc5 `8975c05822` with the sharing
-fix, carcara `e8b779b2`) submitted 2026-09-06; the CPC partner stays
-`all-arr-cpc`.
+## Arrays round 3 (2026-09-06): the canonical arrays dataset
+
+**Run:** `all-arr3-alethe` (bin10: cvc5 alethebv `8975c05822` with the
+anchor-bound sharing fix, carcara bv-fixes `e8b779b2`; octa, 12/node,
+warmed; 47 min). CPC partner: `all-arr-cpc` (round 1). Plots in
+`~/exp/pfcmp/plots-arr3`, tables from `logic-tables.py`; report Section 5
+rewritten on these numbers.
+
+**Outcome:** 28,567 valid (CPC 28,566), 3 holey, 11 errors (the FFT
+div_by_zero class, fixed after this run — follow-up `all-arr3-alethe-fix`
+on bin11 patches them), 59 memouts, 59 print timeouts (52 QF_ABV),
+1,826 unproved. Common 28,549: carcara 10.75x faster in total (median
+5.48x, faster on 99.6%); bytes 24 vs 21 GB (CPC/Alethe 0.87 total, 0.85
+median; CPC smaller on 84.6%); commands 201 vs 130 M; solve+print CPC
+0.87x; pipeline CPC 1.17x. Unique 18 vs 17. Per logic: AUFLIRA at parity
+(1.01), QF_AX/QF_AUFLIA/ALIA CPC 25-40% leaner, QF_ABV 1.26 and QF_AUFBV
+1.68 in Alethe's favour, AUFBV 0.24 (3.9 GB vs 0.9 GB). Array rules:
+arrays_row 650,130, idx 22,639, ext 692, row_contra 35.
+
+**Round 1 -> 3** (28,443 common valid): bytes 41.8 -> 22.5 GB, steps
+166.1 -> 146.7 M, check 4,199 -> 2,758 s, solve unchanged; NO proof grew,
+21,529 shrank >5%. AUFBV 42 common: 11.7 GB -> 179 MB; AUFLIRA 14.6 ->
+8.0 GB; AUFNIRA 127 -> 69 MB; QF_AX -9%, QF_AUFLIA -9%. **Round 2 -> 3**
+(28,563): 33.6 -> 25.9 GB, no growth, 19,426 shrank >5% (the regression
+undone: AUFNIRA 390 -> 71 MB, AUFLIRA 14.2 -> 8.8 GB).
 
 ## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
 
