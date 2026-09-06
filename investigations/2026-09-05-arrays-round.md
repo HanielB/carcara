@@ -90,3 +90,33 @@ Round-4-style artifacts: none (warmed runners; wall vs CPU consistent).
   contraction) is inherent to reaching VP3 from the subproof clause; the
   and_pos steps coincide with the SAT-level CNF_AND_POS clauses and are
   merged by content dedup.
+
+## Second batch of follow-ups (cvc5 alethebv 41fead09af + let-binding commit)
+
+- **`not_and` short-circuit** in `reorganize`: a `not_and` step unfolding
+  `(cl (not (and F1..Fn)))` — obtained by resolving F away from VP3 — is
+  replaced by the same resolution applied to the subproof clause (same
+  premises and pivots, VP3 swapped for the subproof step). storecomm
+  (QF_AUFLIA) 6,193 → 5,843 steps, `not_and` 50 → 0. The two
+  short-circuits together: 7,231 → 5,843 (−19%). What remains per scope is
+  the `(and A)`-atom detour used by the SAT-level resolutions (82 of 184
+  VP3 consumers here), i.e. cvc5's proof shape; the cure is on the cvc5
+  side (theory lemmas as clauses) or a resolution-rewriting pass.
+- **AUFBV fatness: sharing under binders.** `:named` may name any *closed*
+  term, even under a binder. The Alethe let binding now traverses binders
+  and shares a term iff it has no free bound variable (the converter's
+  `choice` = `APPLY_UF(choice, BVL, body)` counts as a binder). Two
+  bookkeeping fixes were needed for correctness at scale: the first
+  occurrence of a term is recorded when first *reached* in pre-order
+  (recording at the parent's enumeration put a declaration after an
+  occurrence in an earlier sibling → "identifier not defined"), and
+  unshared terms whose conversion embeds a descendant's declaration are
+  treated as declaration carriers (only their first occurrence embeds it;
+  previously a term was declared 60x inside one assumption). Results:
+  018_bzip2 546 MB → 169 MB (−69%), formula_216 671 → 561 KB, 433_oggenc
+  969 → 604 KB; QF_BV proofs byte-identical; small (≤12%) growth on tiny
+  proofs where naming overhead exceeds the saving. What is left in AUFBV
+  is terms containing the bound variable repeated across `bind`/`trans`/
+  `miniscope` steps — a genuine format constraint (CPC shares open terms).
+- Probe sweep, arrays cases, alethe/arrays/quantifiers regressions
+  (8/8, 455/455) all pass at each step.
