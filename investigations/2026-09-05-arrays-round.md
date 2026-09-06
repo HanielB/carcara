@@ -177,13 +177,15 @@ warmed; 47 min). CPC partner: `all-arr-cpc` (round 1). Plots in
 `~/exp/pfcmp/plots-arr3`, tables from `logic-tables.py`; report Section 5
 rewritten on these numbers.
 
-**Outcome:** 28,567 valid (CPC 28,566), 3 holey, 11 errors (the FFT
-div_by_zero class, fixed after this run — follow-up `all-arr3-alethe-fix`
-on bin11 patches them), 59 memouts, 59 print timeouts (52 QF_ABV),
-1,826 unproved. Common 28,549: carcara 10.75x faster in total (median
-5.48x, faster on 99.6%); bytes 24 vs 21 GB (CPC/Alethe 0.87 total, 0.85
-median; CPC smaller on 84.6%); commands 201 vs 130 M; solve+print CPC
-0.87x; pipeline CPC 1.17x. Unique 18 vs 17. Per logic: AUFLIRA at parity
+**Outcome (with the fix run merged, `all-arr3-alethe-merged` =
+round 3 + `all-arr3-alethe-fix`, bin11, on the 11 FFT benchmarks, all
+valid; merged by `merge-results.py`):** 28,578 valid (CPC 28,566), 3
+holey, 0 errors, 59 memouts, 59 print timeouts (52 QF_ABV), 1,826
+unproved. Common 28,560: carcara 10.75x faster in total (median 5.48x,
+faster on 99.6%); bytes 24 vs 21 GB (CPC/Alethe 0.87 total, 0.85 median;
+CPC smaller on 84.6%); commands 201 vs 130 M; solve+print CPC 0.87x;
+pipeline CPC 1.17x. Unique 18 vs 6 (Alethe misses: 5 print timeouts, 1
+memout). Per logic: AUFLIRA at parity
 (1.01), QF_AX/QF_AUFLIA/ALIA CPC 25-40% leaner, QF_ABV 1.26 and QF_AUFBV
 1.68 in Alethe's favour, AUFBV 0.24 (3.9 GB vs 0.9 GB). Array rules:
 arrays_row 650,130, idx 22,639, ext 692, row_contra 35.
@@ -194,6 +196,36 @@ arrays_row 650,130, idx 22,639, ext 692, row_contra 35.
 8.0 GB; AUFNIRA 127 -> 69 MB; QF_AX -9%, QF_AUFLIA -9%. **Round 2 -> 3**
 (28,563): 33.6 -> 25.9 GB, no growth, 19,426 shrank >5% (the regression
 undone: AUFNIRA 390 -> 71 MB, AUFLIRA 14.2 -> 8.8 GB).
+
+### Why CPC is leaner on QF_AX / QF_AUFLIA after round 3 (Haniel's question)
+
+Two components, measured on local QF_AUFLIA benchmarks with the round-3
+toolchain (`~/exp/pfcmp` scratch `lean/`):
+
+1. **Encoding, on identical proof DAGs.** storecomm_t1_np_nf_ni_00030_002
+   is pure rewriting: Alethe 959 steps / CPC 956 steps + 218 defines, same
+   rules (rare_rewrite=array-store-swap 212, cong 215, trans 212, evaluate
+   212, refl 104); 92 KB vs 69 KB (0.75, the QF_AUFLIA median). Alethe
+   states every step's conclusion `(cl (= lhs rhs))` (48.5 B/step avg,
+   46.5 KB total) although the rule + args + premises determine it; CPC
+   is conclusion-free and carries only the rule's arguments (:args 18.8
+   KB) plus its defines (8.6 KB), i.e. 27 KB vs 46.5 KB — 19 of the 22.5
+   KB gap. The rest: the RARE rule name as a string argument
+   (`"array-store-swap"`, 3.6 KB here) where CPC uses it as the :rule,
+   and `(! t :named @p_N)` vs `(define @tN () t)` being a wash.
+2. **Structure, on lemma-heavy proofs.** swap_t1_pp_nf_ai_00004_002:
+   Alethe 1,334 steps + 74 anchors vs CPC 1,002 steps + 151 defines; 110
+   KB vs 70 KB (0.64, the QF_AX median). Per SCOPE the Alethe translation
+   still spends `subproof` (97 B) + one `and_pos` per assumption (202 x
+   65 B) + `resolution` (243 x 83 B, mostly these) + `reordering` (71) +
+   `contraction` (89) + `or_neg` (98) + the assumptions inside the
+   subproof (232 x 27 B) = ~64 KB of the 110 KB, against CPC's `scope`
+   (242 x 49 B) + `process_scope` (80 x 65 B) = 17 KB: Alethe has no rule
+   that discharges a subproof into the clause the SAT level uses, so the
+   clause is assembled by resolution against the `and_pos` instances of
+   the conjunction atom; that is the "(and A)-atom detour" left after the
+   short-circuits. CPC also folds each resolution chain into one
+   `chain_m_resolution` (25 steps, 3.8 KB).
 
 ## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
 
