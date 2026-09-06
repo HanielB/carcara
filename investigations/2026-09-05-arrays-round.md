@@ -271,6 +271,31 @@ byte-identical; all valid. Regressions alethe|arrays|quantifiers|arith
 658/658. Round 4 (`all-arr4-alethe`, bin12 = cvc5 `1eb17718e1` + carcara
 `d5764544`) staged.
 
+## Arrays round 4 (2026-09-06): the canonical arrays dataset
+
+**Run:** `all-arr4-alethe` (bin12: cvc5 alethebv `1eb17718e1` = round 3 +
+div_by_zero choice term + clause round-trip short-circuits; carcara
+bv-fixes `d5764544`; octa, warmed; ~45 min). CPC partner: `all-arr-cpc`.
+Plots `~/exp/pfcmp/plots-arr4`; report Section 5 on these numbers.
+
+**Outcome:** 28,579 valid (CPC 28,566), 3 holey (unchanged: ABV
+cs_szymanski_5, AUFBV 320_oggenc, 064_gcc), 0 errors, 59 memouts, 58
+print timeouts (53 QF_ABV), 1,826 unproved. Common 28,561: carcara
+12.16x faster (median 5.47x, 99.6%); **bytes 21 vs 22 GB (CPC/Alethe
+1.05 total — Alethe smaller in total; 0.85 median, CPC smaller on
+84.3%)**; commands 175 vs 134 M (0.77); solve+print CPC 0.89x; pipeline
+CPC 1.21x. Unique 18 vs 5. Per logic (CPC/Alethe): AUFLIRA 1.52, QF_ABV
+1.34, QF_AUFBV 1.72, AUFBV 0.24 (Alethe leaner); QF_AX 0.78, QF_AUFLIA
+0.82, ALIA 0.61, AUFNIRA 0.76 (CPC leaner: the conclusion encoding).
+Array rules: row 658,313, idx 22,713, ext 696, row_contra 35.
+
+**Round 3 -> 4** (28,577 common): bytes 28.2 -> 23.8 GB (-16%), steps
+159.9 -> 119.3 M (-25%), check 3,191 -> 2,890 s; no proof grew, 1,090
+shrank >5% (the lemma-heavy ones; median ratio 1.000). AUFLIRA 9.4 ->
+6.2 GB / 63.8 -> 35.9 M steps; QF_AUFLIA -19%, QF_AX -18%, QF_ALIA -14%,
+QF_ABV -3.5%. **Round 1 -> 4** (28,443 common): 42.5 -> 19.3 GB, 172.8
+-> 116.3 M steps, check 4,238 -> 2,526 s, no growth, 21,541 shrank >5%.
+
 ## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
 
 Haniel's decision: represent it with a suitable choice term. The Skolem
