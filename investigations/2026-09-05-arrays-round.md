@@ -227,6 +227,50 @@ toolchain (`~/exp/pfcmp` scratch `lean/`):
    short-circuits. CPC also folds each resolution chain into one
    `chain_m_resolution` (25 steps, 3.8 KB).
 
+### Why the subproof clause is not used directly (Haniel's follow-up)
+
+Traced on swap_t1_pp_nf_ai_00004_002 (74 subproofs, 53 top-level
+implication clauses VP3 = `(cl (not (and F1..Fn)) G)`):
+
+- cvc5's proof of a theory propagation/conflict is two nested SCOPEs over
+  the same literals (theory_engine.cpp:2112-2156, TheoryEngine's lazy
+  explanation proof): the theory's own SCOPE proves `(=> (and F1..Fn) G)`,
+  and the theory engine wraps it in SCOPE(F1..Fn){ AND_INTRO(F1..Fn);
+  MODUS_PONENS }. Alethe renders the inner SCOPE as `subproof` t2 = the
+  clause `(cl ¬F1 .. ¬Fn G)`; MODUS_PONENS needs the *implication*, so
+  the translation rebuilds VP3 from t2 with n `and_pos` (= CNF_AND_POS
+  clauses) + `resolution` + `reordering` + `contraction`; the outer SCOPE
+  becomes subproof t1 (n assumes + `and_intro` + `resolution` with VP3)
+  concluding the same literal set as t2, in another order. 12 of the 74
+  subproofs are such duplicates (11 with a different literal order).
+  Re-pointing them to the inner subproof (plus a `reordering` when the
+  order differs) makes 122 steps unreachable (and_pos 50, resolution 24,
+  subproof/contraction/and_intro/reordering 12 each): 10% of the bytes.
+- Of the 53 VP3s: 35 are consumed inside such outer subproofs, 12 at top
+  level by a `resolution` with `and_neg` `(cl (and F) ¬F1 .. ¬Fn)` on the
+  conjunction — which yields the subproof clause *again* (the SAT-level
+  CNF of the lemma `(=> A G)`): a second short-circuit candidate
+  (re-point the resolution to the subproof, ~5-8% more). The remaining 14
+  keep `¬(and F)` in the result: there the conjunction is a genuine SAT
+  atom (cvc5 sends the lemma as the implication, Tseitin-encoded), so
+  `¬A ∨ G` and the CNF clauses of A are what resolution needs; only a
+  cvc5-side change (lemmas as clauses) removes that.
+- Even with both short-circuits the swap proof stays ~90 KB vs CPC's 70:
+  the rest is the conclusion encoding (component 1 above).
+
+**Implemented** (cvc5 alethebv `1eb17718e1`): `reorganize` records the
+subproofs reached outside anchors by the sorted literal ids of their
+clause; a later top-level subproof, resolution, reordering or contraction
+with the same literal multiset is re-pointed to that subproof (through a
+`reordering` step when the order differs; only post-visited subproofs
+are recorded, so no cycles). swap: 109.6 KB / 1,334 steps -> 93.6 KB /
+1,125 (and_neg 20 -> 0, and_pos 202 -> 105, resolution 243 -> 197);
+read6 268.8 -> 237.3 KB; swapmem002ue (QF_ABV, bitblasting-dominated)
+-0.2%; storecomm (rewriting only) and nasa quaternion_1367 (quantified)
+byte-identical; all valid. Regressions alethe|arrays|quantifiers|arith
+658/658. Round 4 (`all-arr4-alethe`, bin12 = cvc5 `1eb17718e1` + carcara
+`d5764544`) staged.
+
 ## Division by zero (cvc5 `@div_by_zero`) — decided and implemented
 
 Haniel's decision: represent it with a suitable choice term. The Skolem
