@@ -34,7 +34,7 @@ fi
 # The logics in the AUFBVNIRA fragment (no strings, datatypes, floating points, etc.)
 LOGICS='QF_UF|UF|QF_LIA|QF_LRA|QF_UFLIA|QF_UFLRA|QF_IDL|QF_RDL|LIA|LRA|UFLIA|UFLRA|AUFLIA|AUFLIRA|AUFNIRA|QF_AUFLIA|QF_ALIA|QF_AX|QF_NIA|QF_NRA|NIA|NRA|QF_UFNIA|QF_UFNRA|UFNIA|UFNRA|QF_UFIDL|ALIA|QF_BV|BV|QF_UFBV|UFBV|QF_ABV|ABV|QF_AUFBV|AUFBV|QF_BVLIA|QF_UFBVLIA|QF_AUFBVLIA|QF_AUFBVLRA|QF_UFBVNIA|AUFBVLIRA|AUFBVNIRA|QF_AUFBVNIA'
 
-valid=0; holey=0; invalid=0; skipped=0
+valid=0; holey=0; invalid=0; skipped=0; noproof=0
 > "$OUT/invalid.txt"
 > "$OUT/holey.txt"
 
@@ -56,6 +56,12 @@ for dir in "$@"; do
             continue
         fi
         echo "$result" | tail -n +2 > "$proof"
+        # cvc5 may answer unsat without a proof (e.g. when a preprocessing pass has no proof
+        # support); those are not checking failures
+        if [ ! -s "$proof" ]; then
+            noproof=$((noproof+1)); echo "$f" >> "$OUT/noproof.txt"
+            continue
+        fi
 
         result=$(timeout "$TIMEOUT" "$CARCARA" check --proof-format cpc --allow-int-real-subtyping \
             --rare-file "$RARE" "$proof" "$problem" 2> "$OUT/$base.err" | tail -1)
@@ -72,4 +78,5 @@ echo "valid: $valid"
 echo "valid with holes: $holey"
 echo "invalid: $invalid"
 echo "skipped (cvc5 did not return unsat in time): $skipped"
+echo "unsat without a proof: $noproof"
 echo "details in $OUT"

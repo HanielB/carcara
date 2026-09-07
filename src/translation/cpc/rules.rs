@@ -1627,9 +1627,25 @@ impl CpcTranslator<'_> {
     /// the kind of `t` as in cvc5's Alethe printer: variables and terms of unhandled kinds are
     /// bitblasted as variables.
     fn bitblast_rule(res: &Rc<Term>) -> &'static str {
-        let Some((t, _)) = match_term!((= t bb) = res) else {
+        let Some((t, bb)) = match_term!((= t bb) = res) else {
             return "bv_bitblast_step_var";
         };
+        // cvc5 bitblasts some terms opaquely, as the bits of the term itself (e.g. an `extract`
+        // of an input variable): `(@bbterm ((_ @bit_of 0) t) ... ((_ @bit_of n) t))`
+        if let Term::Op(Operator::BvBbTerm, bits) = bb.as_ref() {
+            let opaque = bits.iter().enumerate().all(|(i, bit)| {
+                matches!(
+                    bit.as_ref(),
+                    Term::ParamOp { op: ParamOperator::BvBitOf, op_args, args }
+                        if args.len() == 1 && &args[0] == t
+                            && op_args.len() == 1
+                            && op_args[0].as_integer().is_some_and(|j| j == i)
+                )
+            });
+            if opaque {
+                return "bv_bitblast_step_var";
+            }
+        }
         match t.as_ref() {
             Term::Op(op, _) => match op {
                 Operator::BvComp => "bv_bitblast_step_bvcomp",
@@ -1839,6 +1855,15 @@ impl CpcTranslator<'_> {
                     "bv_bitwise_slicing"
                 };
                 self.singleton(id, res, alethe_rule, positions, Vec::new())
+            }
+            // Theory rewrites without a dedicated translation nor a RARE rule (e.g.
+            // `bv-umulo-elim`) are holes, as in cvc5's Alethe printer
+            rule if !self.rules.rules.contains_key(rule) => {
+                log::warn!(
+                    "rewrite rule '{}' is not translated and has no RARE definition, using `hole`",
+                    rule
+                );
+                self.hole(step, res)
             }
             _ => {
                 // A `rare_rewrite` step whose first argument is the rule name, followed by the
