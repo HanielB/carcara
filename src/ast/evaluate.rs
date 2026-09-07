@@ -1,5 +1,5 @@
 use super::{Constant, Operator, ParamOperator, Rc, Sort, Term, pool::TermPool};
-use rug::{Integer, Rational};
+use rug::{Integer, Rational, ops::Pow};
 use std::collections::{HashMap, HashSet};
 
 /// A representation of the value of an SMT-LIB/Alethe term.
@@ -80,6 +80,15 @@ impl Value {
         match self {
             Value::String(s) => Some(s),
             _ => None,
+        }
+    }
+
+    /// Returns `true` if the value is the integer or real number zero.
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Value::Integer(i) => i.is_zero(),
+            Value::Real(r) => r.is_zero(),
+            _ => false,
         }
     }
 
@@ -316,6 +325,15 @@ fn eval_op(pool: &mut dyn TermPool, op: Operator, arg_terms: &[Rc<Term>]) -> Opt
         },
         Operator::Sub => arith_op!(-, args),
         Operator::Mult => arith_op!(*, args),
+        // Division and modulo by zero are underspecified in SMT-LIB, so these terms are not
+        // evaluatable
+        Operator::IntDiv | Operator::RealDiv | Operator::Mod
+            if args[1..]
+                .iter()
+                .any(|a| a.as_ref().is_some_and(Value::is_zero)) =>
+        {
+            return None;
+        }
         Operator::IntDiv => arith_op!(/, args),
         Operator::RealDiv => arith_op!(/, args, "real"),
         Operator::Mod => Value::Integer(args[0].as_ref()?.as_int()? % args[1].as_ref()?.as_int()?),
@@ -324,6 +342,24 @@ fn eval_op(pool: &mut dyn TermPool, op: Operator, arg_terms: &[Rc<Term>]) -> Opt
             Value::Real(r) => Value::Real(r.clone().abs()),
             _ => return None,
         },
+        Operator::Pow => {
+            // We only evaluate powers with non-negative integer exponents
+            let exponent = match args[1].as_ref()? {
+                Value::Integer(i) => i.clone(),
+                Value::Real(r) if r.is_integer() => r.numer().clone(),
+                _ => return None,
+            };
+            let exponent = if exponent >= 0 {
+                exponent.to_u32()?
+            } else {
+                return None;
+            };
+            match args[0].as_ref()? {
+                Value::Integer(base) => Value::Integer(base.clone().pow(exponent)),
+                Value::Real(base) => Value::Real(base.clone().pow(exponent)),
+                _ => return None,
+            }
+        }
         Operator::Pow2 => {
             let v = args[0].as_ref()?.as_int()?;
             if v < 0 {
@@ -745,6 +781,12 @@ fn eval_param_op(op: ParamOperator, op_args: &[Rc<Term>], args: &[Rc<Term>]) -> 
                 result += value;
             }
             Value::new_bitvec(result, w * i)
+        }
+        ParamOperator::Iand => {
+            let w = op_args[0].as_int()?.to_usize().unwrap();
+            let a = args[0].as_int()?;
+            let b = args[1].as_int()?;
+            Value::Integer((a & b).keep_bits(w as u32))
         }
         ParamOperator::IntToBv => {
             let w = op_args[0].as_int()?.to_usize().unwrap();

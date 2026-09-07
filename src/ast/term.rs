@@ -203,6 +203,9 @@ pub enum Operator {
     /// The `int.log2` operator.
     Log2,
 
+    /// The `^` (power) operator.
+    Pow,
+
     // Transcendentals
     //
     // These operators are from cvc5's "Transcendentals" theory extension, see:
@@ -747,6 +750,7 @@ impl Operator {
             | Operator::Pow2
             | Operator::IsPow2
             | Operator::Log2
+            | Operator::Pow
             | Operator::RareList => None,
 
             // Clausal
@@ -808,6 +812,10 @@ pub enum ParamOperator {
     /// The `int_to_bv` operator.
     IntToBv,
 
+    /// The `iand` operator, returning the bitwise `and` of the two arguments when interpreted as
+    /// bitvectors of the given width.
+    Iand,
+
     /// The `re.^` operator.
     RePower,
 
@@ -853,6 +861,7 @@ impl_str_conversion_traits!(Operator {
     Pow2: "int.pow2",
     IsPow2: "int.ispow2",
     Log2: "int.log2",
+    Pow: "^",
 
     RealPi: "real.pi",
     Sqrt: "sqrt",
@@ -988,6 +997,7 @@ impl_str_conversion_traits!(ParamOperator {
     BvConst: "bv",
 
     IntToBv: "int_to_bv",
+    Iand: "iand",
 
     RePower: "re.^",
     ReLoop: "re.loop",
@@ -1003,7 +1013,7 @@ impl ParamOperator {
         use ParamOperator::*;
         match self {
             BvBitOf | BvIntOf | ZeroExtend | SignExtend | RotateLeft | RotateRight | Repeat
-            | IntToBv | RePower | Tester | TupleSelect => 1,
+            | IntToBv | Iand | RePower | Tester | TupleSelect => 1,
             BvExtract | BvConst | ReLoop => 2,
         }
     }

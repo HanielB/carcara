@@ -155,6 +155,21 @@ pub struct ParsingOptions {
 }
 
 #[derive(ValueEnum, Clone, Copy, PartialEq, Eq)]
+pub enum ProofFormat {
+    Alethe,
+    Cpc,
+}
+
+#[derive(Args, Clone, Copy)]
+pub struct ProofFormatOption {
+    /// The format of the proof file. The "cpc" format is the format produced by cvc5 by default
+    /// when passing `--dump-proofs`. Note that CPC proofs must be produced with the cvc5 option
+    /// `--proof-print-conclusion`.
+    #[clap(value_enum, long, default_value = "alethe")]
+    pub proof_format: ProofFormat,
+}
+
+#[derive(ValueEnum, Clone, Copy, PartialEq, Eq)]
 pub enum CheckGranularity {
     Normal,
     Elaborated,
@@ -249,6 +264,13 @@ pub struct ParseCommandOptions {
 
     #[clap(flatten)]
     pub parsing: ParsingOptions,
+
+    #[clap(flatten)]
+    pub format: ProofFormatOption,
+
+    /// When parsing a CPC proof, translate it to Alethe before printing.
+    #[clap(long)]
+    pub translate: bool,
 }
 
 #[derive(Args)]
@@ -261,6 +283,9 @@ pub struct CheckCommandOptions {
 
     #[clap(flatten)]
     pub checking: CheckingOptions,
+
+    #[clap(flatten)]
+    pub format: ProofFormatOption,
 
     #[clap(flatten)]
     pub tools: ToolOptions,

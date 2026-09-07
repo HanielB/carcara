@@ -94,6 +94,7 @@ impl fmt::Display for CliError {
                 );
                 pretty_error(f, inner, file, None, Some(info))
             }
+            CliError::CarcaraError(Error::Translation(e)) => write!(f, "{}", e),
             CliError::CantInferProblemFile(p) => {
                 write!(f, "can't infer problem file: {}", p.display())
             }

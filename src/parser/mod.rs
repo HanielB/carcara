@@ -1,10 +1,13 @@
 //! A parser for the SMT-LIB and Alethe formats.
 
+mod cpc;
 mod datatypes;
 mod error;
 mod lexer;
 mod rare;
 pub(crate) mod tests;
+
+pub use cpc::parse_cpc_instance;
 
 use crate::{
     CarcaraResult, Error,
@@ -183,6 +186,18 @@ struct FunctionDef {
 
 impl FunctionDef {
     fn apply(&self, p: &mut PrimitivePool, args: Vec<Rc<Term>>) -> Result<Rc<Term>, ParserError> {
+        // In CPC proofs, function definitions are printed as nullary definitions whose body is a
+        // lambda term. If such a definition is applied to arguments, we beta-reduce
+        if self.params.is_empty() && !args.is_empty() {
+            if let Term::Binder(Binder::Lambda, bindings, inner) = self.body.as_ref() {
+                let def = FunctionDef {
+                    params: bindings.0.clone(),
+                    body: inner.clone(),
+                };
+                return def.apply(p, args);
+            }
+        }
+
         assert_num_args(&args, self.params.len())?;
         if args.is_empty() {
             return Ok(self.body.clone());
@@ -260,6 +275,10 @@ pub struct Parser<'p, 's> {
     state: ParserState,
     is_real_only_logic: bool,
     problem: Option<Problem>,
+
+    /// If `true`, the parser is parsing a proof in the CPC (Eunoia) format, which changes how some
+    /// terms are parsed (e.g. `@var`, `@list`, and binders applied to variable lists).
+    cpc_mode: bool,
 }
 
 impl<'p, 's> Parser<'p, 's> {
@@ -282,6 +301,7 @@ impl<'p, 's> Parser<'p, 's> {
             state: ParserState::default(),
             is_real_only_logic: false,
             problem: None,
+            cpc_mode: false,
         })
     }
 
@@ -504,6 +524,17 @@ impl<'p, 's> Parser<'p, 's> {
 
                 // All the arguments must be either Int or Real. Also, if we are not allowing
                 // Int/Real subtyping, all arguments must have the same sort
+                if self.config.allow_int_real_subtyping {
+                    for s in sorts {
+                        self.check_sort_one_of(&[Sort::Int, Sort::Real], &s)?;
+                    }
+                } else {
+                    self.check_sort_one_of(&[Sort::Int, Sort::Real], &sorts[0])?;
+                    self.check_sort_all_eq(&sorts)?;
+                }
+            }
+            Operator::Pow => {
+                assert_num_args(&args, 2)?;
                 if self.config.allow_int_real_subtyping {
                     for s in sorts {
                         self.check_sort_one_of(&[Sort::Int, Sort::Real], &s)?;
@@ -1662,6 +1693,12 @@ impl<'p, 's> Parser<'p, 's> {
             (Token::Decimal(r), _) => Term::new_real(r),
             (Token::String(s), _) => Term::new_string(s),
             (Token::Symbol(s), pos) => {
+                // In CPC proofs, a bare `@list` symbol denotes the empty list
+                if self.cpc_mode && s == "@list" {
+                    return self
+                        .make_op(Operator::RareList, Vec::new())
+                        .map_err(|err| self.err(err, pos));
+                }
                 // Check to see if there is a nullary function defined with this name
                 return if let Some(func) = self.state.function_defs.get(&s) {
                     func.apply(self.pool, Vec::new())
@@ -1694,6 +1731,11 @@ impl<'p, 's> Parser<'p, 's> {
     /// Parses a binder term. This method assumes that the `(` and binder tokens were
     /// already consumed.
     fn parse_binder(&mut self, binder: Binder) -> CarcaraResult<Rc<Term>> {
+        // In CPC proofs, `forall`, `exists` and `lambda` binders are applied to a list of
+        // variables (e.g. `(forall (@list (@var "x" Int)) ...)`) instead of a binding list
+        if self.cpc_mode && matches!(binder, Binder::Forall | Binder::Exists | Binder::Lambda) {
+            return self.parse_cpc_binder(binder);
+        }
         self.expect_token(Token::OpenParen)?;
         self.push_scope();
         let bindings = if binder == Binder::Choice {
@@ -1723,6 +1765,33 @@ impl<'p, 's> Parser<'p, 's> {
     /// Parses a `let` term. This method assumes that the `(` and `let` tokens were already
     /// consumed.
     fn parse_let_term(&mut self) -> CarcaraResult<Rc<Term>> {
+        // In CPC proofs, `let` bindings are only used for term sharing, so we expand them eagerly
+        // by registering each binding as a nullary definition while parsing the body. This avoids
+        // substituting after the fact, which could rename variables when the values are variable
+        // terms (e.g. `(let ((_let_1 (@var "k" Int))) (lambda (@list _let_1) ...))`)
+        if self.cpc_mode {
+            self.expect_token(Token::OpenParen)?;
+            let names = self.parse_sequence(
+                |p| {
+                    p.expect_token(Token::OpenParen)?;
+                    let name = p.expect_symbol()?;
+                    let value = p.parse_term()?;
+                    p.expect_token(Token::CloseParen)?;
+                    p.state.function_defs.insert(
+                        name.clone(),
+                        FunctionDef { params: Vec::new(), body: value },
+                    );
+                    Ok(name)
+                },
+                true,
+            )?;
+            let inner = self.parse_term()?;
+            self.expect_token(Token::CloseParen)?;
+            for name in names {
+                self.state.function_defs.remove(&name);
+            }
+            return Ok(inner);
+        }
         self.expect_token(Token::OpenParen)?;
 
         // Since the let binding semantics is *simultaneous*, we first parse all bindings, and only
@@ -1742,7 +1811,7 @@ impl<'p, 's> Parser<'p, 's> {
         for (name, value) in &bindings {
             let sort = self.pool.sort(value);
             self.declare_symbol(name.clone(), sort);
-            if self.config.expand_lets {
+            if self.config.expand_lets || self.cpc_mode {
                 // Bind the value in the let-value table so occurrences of the name resolve to it
                 // directly in `make_var`; the parsed body then already is the expanded term, with
                 // no substitution pass over it (see `ParserState::let_value_table`)
@@ -1757,7 +1826,9 @@ impl<'p, 's> Parser<'p, 's> {
 
         self.pop_scope();
 
-        if self.config.expand_lets {
+        // In CPC proofs, `let` bindings are only used for term sharing, and must always be expanded
+        // so that terms match the problem's
+        if self.config.expand_lets || self.cpc_mode {
             Ok(inner)
         } else {
             Ok(self.pool.add(Term::Let(BindingList(bindings), inner)))
@@ -1932,6 +2003,14 @@ impl<'p, 's> Parser<'p, 's> {
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
+            ParamOperator::Iand => {
+                assert_num_args(&op_args, 1)?;
+                assert_num_args(&args, 2)?;
+                self.check_sort_eq(&Sort::Int, &op_sorts[0])?;
+                self.check_sort_eq(&Sort::Int, &sorts[0])?;
+                self.check_sort_all_eq(&sorts)?;
+                assert_indexed_op_args_value(&op_args, 1..)?;
+            }
             ParamOperator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
@@ -1999,6 +2078,11 @@ impl<'p, 's> Parser<'p, 's> {
                 self.next_token()?;
                 match reserved {
                     Reserved::Underscore => {
+                        // In CPC proofs, `_` is also used for higher-order function application,
+                        // e.g. `(_ f x)`
+                        if self.cpc_mode && !self.current_is_indexed_op() {
+                            return self.parse_cpc_ho_apply();
+                        }
                         let (op, op_args) = self.parse_indexed_operator()?;
                         self.make_indexed_op(op, op_args, Vec::new())
                             .map_err(|err| self.err(err, head_pos))
@@ -2046,6 +2130,11 @@ impl<'p, 's> Parser<'p, 's> {
                         head_pos,
                     )),
                 }
+            }
+            // In CPC proofs, cvc5 internal symbols like `@list`, `@var` and `@purify` can appear
+            // as the head of applications, and need special handling
+            Token::Symbol(s) if self.cpc_mode && self.is_cpc_special_head(s) => {
+                self.parse_cpc_application()
             }
             // Here, I would like to use an `if let` guard, like:
             //
@@ -2122,11 +2211,13 @@ impl<'p, 's> Parser<'p, 's> {
                 let args = self.parse_sequence(Self::parse_term, true)?;
                 let func = &self.state.function_defs[&func_name];
 
-                if func.params.is_empty() && !args.is_empty() {
+                if func.params.is_empty() && !args.is_empty() && !self.cpc_mode {
                     // A `:named` abbreviation is registered as a nullary definition, but the
                     // term it names may itself be a function (e.g. a `lambda` shared by the
                     // printer into application-head position); applying the name is applying
-                    // that term
+                    // that term. In CPC proofs, `define`s of functions are also nullary with a
+                    // `lambda` body, but there they are macros and must be beta-reduced, so that
+                    // terms match the (expanded) problem's
                     let body = func.body.clone();
                     self.make_app(body, args)
                         .map_err(|err| self.err(err, head_pos))

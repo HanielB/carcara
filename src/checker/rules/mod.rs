@@ -174,7 +174,7 @@ pub(super) mod quantifier;
 pub(super) mod rare;
 pub(super) mod reflexivity;
 pub(super) mod resolution;
-pub(super) mod simplification;
+pub(crate) mod simplification;
 pub(super) mod strings;
 pub mod subproof;
 pub(super) mod tautology;

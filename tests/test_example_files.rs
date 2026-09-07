@@ -104,6 +104,7 @@ fn test_file(proof_path: &str) {
             Error::Elaborator { rule, step, .. } => {
                 format!("elaborator error at '{}' ({})", step, rule)
             }
+            Error::Translation(_) => format!("{}", e),
         };
         panic!(
             "\"{}\" returned error: {}",

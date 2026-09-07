@@ -6,10 +6,7 @@ use crate::{
     parser::{ParserError, Source},
 };
 use rug::{Integer, Rational, ops::Pow};
-use std::{
-    path::Path,
-    str::FromStr,
-};
+use std::{path::Path, str::FromStr};
 
 /// A token in the SMT-LIB and Alethe formats.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -93,6 +90,15 @@ pub enum Reserved {
     /// The `anchor` reserved word.
     Anchor,
 
+    /// The `assume-push` reserved word, used in CPC proofs.
+    AssumePush,
+
+    /// The `step-pop` reserved word, used in CPC proofs.
+    StepPop,
+
+    /// The `define` reserved word, used in CPC proofs.
+    Define,
+
     /// The `declare-fun` reserved word.
     DeclareFun,
 
@@ -150,6 +156,9 @@ impl_str_conversion_traits!(Reserved {
     Assume: "assume",
     Step: "step",
     Anchor: "anchor",
+    AssumePush: "assume-push",
+    StepPop: "step-pop",
+    Define: "define",
     DeclareFun: "declare-fun",
     DeclareDatatype: "declare-datatype",
     DeclareDatatypes: "declare-datatypes",
@@ -351,9 +360,7 @@ impl<'s> Lexer<'s> {
             Some(b) if b.is_ascii_digit() => self.read_number(false),
             Some(b) if SYMBOL_BYTE[b as usize] => Ok(self.read_simple_symbol()),
             None => Ok(Token::Eof),
-            Some(_) => Err(self.err(ParserError::UnexpectedChar(
-                self.current_char().unwrap(),
-            ))),
+            Some(_) => Err(self.err(ParserError::UnexpectedChar(self.current_char().unwrap()))),
         }?;
         Ok((token, start_position))
     }
@@ -407,9 +414,7 @@ impl<'s> Lexer<'s> {
             Some(b'x') => (16, 4),
             None => return Err(self.err(ParserError::EmptyBitvector)),
             Some(_) => {
-                return Err(self.err(ParserError::UnexpectedChar(
-                    self.current_char().unwrap(),
-                )));
+                return Err(self.err(ParserError::UnexpectedChar(self.current_char().unwrap())));
             }
         };
         self.bump();

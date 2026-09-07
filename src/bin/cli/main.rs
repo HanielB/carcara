@@ -8,7 +8,8 @@ use app::*;
 use carcara::{
     ast::{self, Proof, rare_rules::Rules},
     benchmarking::OnlineBenchmarkResults,
-    check, check_and_elaborate, check_parallel, generate_lia_smt_instances, parser, slice,
+    check, check_and_elaborate, check_cpc, check_parallel, generate_lia_smt_instances, parser,
+    slice,
     translation::{self, ProofPrinter, Translator},
 };
 use error::{CliError, CliResult};
@@ -147,12 +148,30 @@ fn parse_command(
     options: ParseCommandOptions,
 ) -> CliResult<(ast::Problem, ast::Proof, Rules, ast::pool::PrimitivePool)> {
     let instance = get_instance(&options.input)?;
-    let result = parser::parse_instance(
-        instance.problem(),
-        instance.proof(),
-        instance.rules(),
-        options.parsing.into_config(),
-    )?;
+    let result = match options.format.proof_format {
+        ProofFormat::Alethe => parser::parse_instance(
+            instance.problem(),
+            instance.proof(),
+            instance.rules(),
+            options.parsing.into_config(),
+        )?,
+        ProofFormat::Cpc if options.translate => {
+            let (problem, proof, pool) = carcara::translate_cpc(
+                instance.problem(),
+                instance.proof(),
+                instance.rules(),
+                options.parsing.into_config(),
+            )?;
+            let empty_rules = Rules { rules: Default::default() };
+            (problem, proof, empty_rules, pool)
+        }
+        ProofFormat::Cpc => parser::parse_cpc_instance(
+            instance.problem(),
+            instance.proof(),
+            instance.rules(),
+            options.parsing.into_config(),
+        )?,
+    };
     Ok(result)
 }
 
@@ -162,7 +181,15 @@ fn check_command(options: CheckCommandOptions) -> CliResult<carcara::Status> {
     let checker_config = (options.checking, options.tools).into_config();
 
     let collect_stats = options.stats.stats;
-    if options.num_threads == 1 {
+    if options.format.proof_format == ProofFormat::Cpc {
+        check_cpc(
+            instance.problem(),
+            instance.proof(),
+            instance.rules(),
+            parser_config,
+            checker_config,
+        )
+    } else if options.num_threads == 1 {
         check(
             instance.problem(),
             instance.proof(),
@@ -231,7 +258,10 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         (options.elaboration, options.tools, options.checking).into_config();
     let rare_file = match &options.rare_file {
         Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
-            CliError::CarcaraError(carcara::Error::Io { inner: e, file: path.as_str().into() })
+            CliError::CarcaraError(carcara::Error::Io {
+                inner: e,
+                file: path.as_str().into(),
+            })
         })?),
         None => None,
     };

@@ -1,6 +1,6 @@
 use super::{
-    assert_clause_len, assert_eq, assert_is_bool_constant, CheckerError, EqualityError, RuleArgs,
-    RuleResult,
+    CheckerError, EqualityError, RuleArgs, RuleResult, assert_clause_len, assert_eq,
+    assert_is_bool_constant,
 };
 use crate::{
     ast::*,
@@ -720,7 +720,7 @@ pub fn comp_simplify(args: RuleArgs) -> RuleResult {
     generic_simplify_rule(args.conclusion, args.pool, comp_simplify_step)
 }
 
-fn apply_ac_simp(
+pub(crate) fn apply_ac_simp(
     pool: &mut dyn TermPool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
     term: &Rc<Term>,

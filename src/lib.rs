@@ -155,6 +155,10 @@ pub enum Error {
         /// The proof file path.
         file: PathBuf,
     },
+
+    /// An error while translating a proof from another format into Alethe.
+    #[error("translation error: {0}")]
+    Translation(#[from] translation::cpc::TranslationError),
 }
 
 /// Parses and checks an Alethe proof against an SMT-LIB problem.
@@ -217,6 +221,39 @@ pub fn check<'s>(
     } else {
         checker.check(&problem, &proof)
     }
+}
+
+/// Checks a CPC proof (the format produced by cvc5 by default with `--dump-proofs`), by first
+/// translating it into an Alethe proof and then checking it with the Alethe checker.
+///
+/// Note that the proof must have been produced with the cvc5 option `--proof-print-conclusion`.
+pub fn check_cpc<'s>(
+    problem: parser::Source<'s>,
+    proof: parser::Source<'s>,
+    rules: Option<parser::Source<'s>>,
+    parser_config: parser::Config,
+    checker_config: checker::Config,
+) -> Result<Status, Error> {
+    let (problem, proof, rules, mut pool) =
+        parser::parse_cpc_instance(problem, proof, rules, parser_config)?;
+
+    let proof = translation::cpc::cpc_to_alethe(&proof, &mut pool, &rules)?;
+
+    let mut checker = checker::ProofChecker::new(&mut pool, &rules, checker_config);
+    checker.check(&problem, &proof)
+}
+
+/// Parses and translates a CPC proof into an Alethe proof, without checking it.
+pub fn translate_cpc<'s>(
+    problem: parser::Source<'s>,
+    proof: parser::Source<'s>,
+    rules: Option<parser::Source<'s>>,
+    parser_config: parser::Config,
+) -> Result<(ast::Problem, ast::Proof, ast::pool::PrimitivePool), Error> {
+    let (problem, proof, rules, mut pool) =
+        parser::parse_cpc_instance(problem, proof, rules, parser_config)?;
+    let proof = translation::cpc::cpc_to_alethe(&proof, &mut pool, &rules)?;
+    Ok((problem, proof, pool))
 }
 
 /// Parses and checks an Alethe proof against an SMT-LIB problem, checking steps in parallel.
@@ -360,9 +397,12 @@ pub fn check_and_elaborate<'s>(
     } else {
         elaborator::prune(node)
     };
-    let (elaborated, pipeline_durations) =
-        elaborator::Elaborator::new(&mut pool, &problem, elaborator_config)
-            .elaborate_with_stats(node, &proof.filename, pipeline)?;
+    let (elaborated, pipeline_durations) = elaborator::Elaborator::new(
+        &mut pool,
+        &problem,
+        elaborator_config,
+    )
+    .elaborate_with_stats(node, &proof.filename, pipeline)?;
     let commands = if keep_unused {
         elaborated.into_commands()
     } else {

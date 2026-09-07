@@ -218,7 +218,10 @@ impl PrimitivePool {
                             // appear here transiently when a rule's list parameter is
                             // instantiated with an empty list, before meta-rewriting
                             // flattens the application away
-                            (Sort::BitVec(_) | Sort::ParamBitVec, Sort::ParamBitVec | Sort::Var(_))
+                            (
+                                Sort::BitVec(_) | Sort::ParamBitVec,
+                                Sort::ParamBitVec | Sort::Var(_),
+                            )
                             | (Sort::ParamBitVec, Sort::BitVec(_)) => Sort::ParamBitVec,
                             _ => unreachable!(),
                         },
@@ -228,7 +231,7 @@ impl PrimitivePool {
                 Operator::BvIte => self.compute_sort(&args[1]).clone(),
                 Operator::Ite => self.compute_sort(&args[1]).clone(),
                 Operator::Abs => self.compute_sort(&args[0]).clone(),
-                Operator::Add | Operator::Sub | Operator::Mult => {
+                Operator::Add | Operator::Sub | Operator::Mult | Operator::Pow => {
                     let s = if args
                         .iter()
                         .any(|a| self.compute_sort(a).as_ref() == &Sort::Real)
@@ -469,6 +472,7 @@ impl PrimitivePool {
             }
             ParamOperator::BvBitOf | ParamOperator::Tester => Sort::Bool,
             ParamOperator::BvIntOf => Sort::Int,
+            ParamOperator::Iand => Sort::Int,
             ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
             ParamOperator::TupleSelect => {
                 let i = op_args[0].as_integer()?.to_usize().unwrap();
