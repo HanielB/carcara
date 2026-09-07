@@ -63,10 +63,25 @@ unchanged on 120 regressions and the test suite).
   these are valid for ethos and Alethe, so they are the one translation gap left in the
   corpus (also the biggest hole class of the cvc5 regressions).
 
+## Follow-up (same day): the congruence holes and the RF-00 rejection
+
+Both fixed on `cpcCheck-bv` (`7053cdcf`). cvc5 treats a `define-fun` as a symbol equal to its
+definition (a lambda for functions): CPC proofs apply the symbol, justify `(= f (lambda ...))`
+by `refl`, and rewrite with `ho_cong` + `beta-reduce`; cvc5's Alethe printer emits that
+equation as an assumption. The CPC parser now leaves definitions unexpanded on both sides
+(`apply_function_defs = false`, as the Alethe pipeline's carcara run), keeps the proof's
+nullary `define` of a declared symbol as the symbol, keeps lambda applications as
+applications, and the translator turns such `refl` steps into references to an `assume` of the
+definition (top level, once per definition, `symm` when flipped). `contra` now rebuilds a
+premise `F` concluded as a clause into `(cl (or ...))` like `resolution` does; RF-00 checks
+valid in 4 s. Regression sweep with this binary: regress0 442/27/6, regress1 104/14/1 (from
+439/29/7 and 98/20/1); no `cong`/`ho_cong` holes remain (38 of 41 holey files are trust-only,
+3 are rewrites without RARE definitions); `proofs/issue11750` (higher-order partial
+application) is valid too. Run 2 of the full evaluation with this binary (job `cpccall2`,
+results `cpcCarcaraEval/all2`, the `all2` submission script in `~/exp/cpcCarcaraEval`) is
+pending.
+
 ## Open items
 
-1. The congruence-over-defines holes (29 corpus files, 113 regression steps): translate
-   `cong`/`ho_cong` over defined functions without relying on the beta-reduced shape.
-2. Reproduce the RF-00 pivot failure.
-3. Parsing is the largest share of the CPC + carcara time; the CPC file carries the
+1. Parsing is the largest share of the CPC + carcara time; the CPC file carries the
    conclusions and `define` sharing that carcara resolves at parse time.
