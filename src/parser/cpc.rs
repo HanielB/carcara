@@ -624,6 +624,22 @@ impl Parser<'_, '_> {
         let head_pos = self.current_position;
         let func = self.parse_term()?;
         let args = self.parse_sequence(Self::parse_term, true)?;
+        // A curried application of a first-order function, e.g. `(_ (f a) b)` for `f` of sort
+        // `(-> A B C)`, is flattened into `(f a b)`, as cvc5's Alethe printer does
+        let (func, args) = match func.as_ref() {
+            Term::App(f, previous)
+                if matches!(
+                    self.pool.sort(f).as_ref(),
+                    Sort::Function(sorts) if sorts.len() - 1 >= previous.len() + args.len()
+                ) =>
+            {
+                (
+                    f.clone(),
+                    previous.iter().cloned().chain(args).collect::<Vec<_>>(),
+                )
+            }
+            _ => (func, args),
+        };
         if let Term::Binder(Binder::Lambda, bindings, inner) = func.as_ref() {
             let def = FunctionDef {
                 params: bindings.0.clone(),
