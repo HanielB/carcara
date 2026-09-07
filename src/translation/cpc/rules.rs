@@ -50,15 +50,12 @@ impl CpcTranslator<'_> {
                     if lhs == rhs {
                         return Ok(self.singleton(id, res, "refl", Vec::new(), Vec::new()));
                     }
-                    // A congruence over binders becomes a `bind` subproof in Alethe, whose only
-                    // step re-states the equality of the bodies from the original premise
+                    // A congruence over binders becomes a `bind` subproof in Alethe, whose
+                    // steps derive the equality of the bodies from the original premises. This
+                    // includes congruences over cvc5 skolem functions that are converted into
+                    // choice terms (e.g. `@int_div_by_zero`), whose bodies embed the arguments
                     if matches!(lhs.as_ref(), Term::Binder(..)) {
-                        return self.push_bind_subproof(
-                            id,
-                            res,
-                            "trans",
-                            vec![premises[0].position],
-                        );
+                        return self.push_bind_subproof_cong(id, res, &premises);
                     }
                     // The conversion (in particular the beta-reduction of applications of
                     // defined functions) may change the structure of the terms in a way that no
@@ -1565,7 +1562,9 @@ impl CpcTranslator<'_> {
         clause: Vec<Rc<Term>>,
     ) -> (usize, usize) {
         if let Some((position, folded)) = self.scope_implication.get(&premise) {
-            if *folded == clause {
+            // The recorded step must still be in an open frame with that clause: positions
+            // are reused when frames are popped and pushed again
+            if *folded == clause && self.step_at(*position).is_some_and(|s| s.clause == clause) {
                 return *position;
             }
         }

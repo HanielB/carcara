@@ -482,6 +482,18 @@ impl Parser<'_, '_> {
                     .map_err(|err| self.err(err, head_pos))
             }
 
+            // An abstract constant, e.g. `(@const 0 (_ BitVec 4))`: an uninterpreted constant of
+            // the given sort, named after its index
+            "@const" => {
+                let index = self.parse_term()?;
+                let sort = self.parse_sort()?;
+                self.expect_token(Token::CloseParen)?;
+                let Some(index) = index.as_integer() else {
+                    return Err(self.err(ParserError::UnsupportedCpcSymbol(head), head_pos));
+                };
+                Ok(self.pool.add(Term::Var(format!("@const_{}", index), sort)))
+            }
+
             // A variable, e.g. `(@var "x" Int)`
             "@var" => {
                 let name = match self.next_token()? {

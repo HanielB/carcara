@@ -1170,6 +1170,134 @@ impl<'a> CpcTranslator<'a> {
         })
     }
 
+    /// Builds an Alethe `bind` subproof concluding `(cl (= lhs rhs))` for a congruence over binder
+    /// terms, deriving the equality of the bodies from the premises by congruence (see
+    /// `derive_equality`).
+    fn push_bind_subproof_cong(
+        &mut self,
+        id: String,
+        res: Rc<Term>,
+        premises: &[ResPremise],
+    ) -> Result<Info> {
+        let invalid = |reason: &str| TranslationError::InvalidStep {
+            id: id.clone(),
+            rule: "bind".to_owned(),
+            reason: reason.to_owned(),
+        };
+        let Some((lhs, rhs)) = match_term!((= l r) = res) else {
+            return Err(invalid("conclusion must be an equality"));
+        };
+        let (Term::Binder(_, x_bindings, f), Term::Binder(_, y_bindings, g)) =
+            (lhs.as_ref(), rhs.as_ref())
+        else {
+            return Err(invalid("conclusion must equate two binder terms"));
+        };
+        if x_bindings.len() != y_bindings.len() {
+            return Err(invalid("binders must have the same number of variables"));
+        }
+        let mut args: Vec<_> = y_bindings
+            .iter()
+            .map(|var| AnchorArg::Variable(var.clone()))
+            .collect();
+        for (x_var, y_var) in x_bindings.iter().zip(y_bindings.iter()) {
+            let y_term = self.pool.add(y_var.clone().into());
+            args.push(AnchorArg::Assign(x_var.clone(), y_term));
+        }
+        let (f, g) = (f.clone(), g.clone());
+
+        self.out.push(Vec::new());
+        let depth = self.out.len() - 1;
+        match self.derive_equality(&id, &f, &g, premises) {
+            // The `bind` step uses the previous step of the subproof as its premise, so an
+            // equality that is directly a premise outside the subproof is re-stated inside it
+            Some(position) if position.0 != depth => {
+                let body_eq = self.build_op(Operator::Equals, vec![f, g]);
+                let aux = self.aux_id(&id);
+                self.push_step(aux, vec![body_eq], "trans", vec![position], Vec::new());
+            }
+            Some(_) => {}
+            None => {
+                log::warn!(
+                    "could not derive the body equality of a congruence over binders, using `hole`"
+                );
+                let body_eq = self.build_op(Operator::Equals, vec![f, g]);
+                let aux = self.aux_id(&id);
+                self.push_step(aux, vec![body_eq], "hole", Vec::new(), Vec::new());
+            }
+        }
+        self.push_step(id, vec![res.clone()], "bind", Vec::new(), Vec::new());
+
+        let commands = self.out.pop().unwrap();
+        let context_id = self.next_context_id;
+        self.next_context_id += 1;
+        let position = self.push_command(ProofCommand::Subproof(Subproof {
+            commands,
+            args,
+            context_id,
+        }));
+        Ok(Info {
+            position,
+            clause: vec![res.clone()],
+            term: Some(res),
+            original: None,
+        })
+    }
+
+    /// Derives `(= a b)` from the given premise equalities: directly if `a` and `b` are equal
+    /// (`refl`) or a premise equates them (in either direction), otherwise by congruence over
+    /// applications of the same head, deriving the equalities of the differing arguments
+    /// recursively. Returns the position of the step concluding `(= a b)`, or `None` if the
+    /// equality cannot be derived this way.
+    fn derive_equality(
+        &mut self,
+        id: &str,
+        a: &Rc<Term>,
+        b: &Rc<Term>,
+        premises: &[ResPremise],
+    ) -> Option<(usize, usize)> {
+        if a == b {
+            let eq = self.build_op(Operator::Equals, vec![a.clone(), a.clone()]);
+            let aux = self.aux_id(id);
+            return Some(self.push_step(aux, vec![eq], "refl", Vec::new(), Vec::new()));
+        }
+        for premise in premises {
+            if let Some((x, y)) = premise.term.as_ref().and_then(|t| match_term!((= x y) = t)) {
+                if (x == a && y == b) || (x == b && y == a) {
+                    return Some(premise.position);
+                }
+            }
+        }
+        let (a_args, b_args) = match (a.as_ref(), b.as_ref()) {
+            (Term::App(f, a_args), Term::App(g, b_args)) if f == g => (a_args, b_args),
+            (Term::Op(f, a_args), Term::Op(g, b_args)) if f == g => (a_args, b_args),
+            (
+                Term::ParamOp {
+                    op: f,
+                    op_args: f_op_args,
+                    args: a_args,
+                },
+                Term::ParamOp {
+                    op: g,
+                    op_args: g_op_args,
+                    args: b_args,
+                },
+            ) if f == g && f_op_args == g_op_args => (a_args, b_args),
+            _ => return None,
+        };
+        if a_args.len() != b_args.len() {
+            return None;
+        }
+        let mut positions = Vec::new();
+        for (x, y) in a_args.clone().iter().zip(b_args.clone().iter()) {
+            if x != y {
+                positions.push(self.derive_equality(id, x, y, premises)?);
+            }
+        }
+        let eq = self.build_op(Operator::Equals, vec![a.clone(), b.clone()]);
+        let aux = self.aux_id(id);
+        Some(self.push_step(aux, vec![eq], "cong", positions, Vec::new()))
+    }
+
     //==========================================================================================//
     // Final step
     //==========================================================================================//
