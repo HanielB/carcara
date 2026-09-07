@@ -64,5 +64,7 @@ subproof. The steps these short-circuits bypass are pruned from the translated p
 - cvc5's total division and modulo operators are mapped to the SMT-LIB partial ones, so an
   `evaluate` step over a division by a literal zero (e.g. `(= (div_total 0 0) 0)`) cannot be
   checked.
-- Congruence steps whose terms change structure when applications of defined functions are
-  beta-reduced during parsing are translated as holes.
+- Functions defined in the problem with `define-fun` are not expanded: as in cvc5's own Alethe
+  output, each definition `(= f (lambda ...))` is a premise of the problem, the proof applies
+  the defined symbol, and the `refl` steps with which cvc5 justifies the definition become
+  references to an `assume` of that premise.
