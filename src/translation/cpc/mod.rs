@@ -63,7 +63,7 @@ pub fn cpc_to_alethe(
     let commands = translator.translate_proof(&proof.commands)?;
     // The short-circuits of the translation leave the steps they bypass unreferenced; like
     // cvc5's printer, only the derivation of the final step is kept
-    let commands = ProofNodeForest::from_commands(commands).into_commands_pruned();
+    let commands = prune_unreachable(commands);
     // The constant definitions of the original proof are dropped, since they may reference
     // cvc5-internal symbols that are eliminated by the translation (they are only used for
     // printing, so this only means that printed proofs will not use them for sharing)
@@ -72,6 +72,124 @@ pub fn cpc_to_alethe(
         commands,
         filename: proof.filename.clone(),
     })
+}
+
+/// Keeps only the commands the last command of the proof depends on: the premises and discharged
+/// assumptions of steps, the previous command of the closing step of a subproof (used implicitly
+/// by the `subproof` and `bind` rules) and the whole of any subproof whose closing step is used.
+/// Positions `(depth, index)` are renumbered accordingly.
+fn prune_unreachable(commands: Vec<ProofCommand>) -> Vec<ProofCommand> {
+    if commands.is_empty() {
+        return commands;
+    }
+    let mut stack: Vec<Vec<bool>> = Vec::new();
+    let mut work: Vec<Vec<usize>> = Vec::new();
+    let tree = mark_frame(&commands, &mut stack, &mut work, vec![commands.len() - 1]);
+    let mut remaps: Vec<Vec<usize>> = Vec::new();
+    rebuild_frame(commands, &tree, &mut remaps)
+}
+
+/// The reachability flags of the commands of a frame, and those of its reached subproofs, by
+/// index.
+struct Reached {
+    kept: Vec<bool>,
+    subproofs: Vec<(usize, Reached)>,
+}
+
+/// Marks the commands of a frame reachable from `roots`. `stack` holds the flags of the open
+/// frames (by depth), so that premises in enclosing frames can be marked; the work lists of
+/// the enclosing frames may grow while a nested frame is processed.
+fn mark_frame(
+    commands: &[ProofCommand],
+    stack: &mut Vec<Vec<bool>>,
+    work: &mut Vec<Vec<usize>>,
+    roots: Vec<usize>,
+) -> Reached {
+    let depth = stack.len();
+    stack.push(vec![false; commands.len()]);
+    work.push(Vec::new());
+    for root in roots {
+        if !stack[depth][root] {
+            stack[depth][root] = true;
+            work[depth].push(root);
+        }
+    }
+    let mut subproofs = Vec::new();
+    while let Some(index) = work[depth].pop() {
+        match &commands[index] {
+            ProofCommand::Assume { .. } => {}
+            ProofCommand::Step(step) => {
+                for &(d, i) in step.premises.iter().chain(step.discharge.iter()) {
+                    if d <= depth && !stack[d][i] {
+                        stack[d][i] = true;
+                        work[d].push(i);
+                    }
+                }
+            }
+            ProofCommand::Subproof(subproof) => {
+                // The closing step and the command it implicitly uses, plus every assumption
+                let n = subproof.commands.len();
+                let mut roots: Vec<usize> = (0..n)
+                    .filter(|&i| matches!(subproof.commands[i], ProofCommand::Assume { .. }))
+                    .collect();
+                roots.push(n - 1);
+                if n >= 2 {
+                    roots.push(n - 2);
+                }
+                let reached = mark_frame(&subproof.commands, stack, work, roots);
+                subproofs.push((index, reached));
+            }
+        }
+    }
+    work.pop();
+    let kept = stack.pop().unwrap();
+    Reached { kept, subproofs }
+}
+
+/// Rebuilds a frame from its reachability flags, renumbering the positions of premises and
+/// discharged assumptions. `remaps` holds the old-to-new index maps of the open frames.
+fn rebuild_frame(
+    commands: Vec<ProofCommand>,
+    reached: &Reached,
+    remaps: &mut Vec<Vec<usize>>,
+) -> Vec<ProofCommand> {
+    let mut remap = vec![usize::MAX; commands.len()];
+    let mut next = 0;
+    for (i, &kept) in reached.kept.iter().enumerate() {
+        if kept {
+            remap[i] = next;
+            next += 1;
+        }
+    }
+    remaps.push(remap);
+    let mut result = Vec::with_capacity(next);
+    for (i, command) in commands.into_iter().enumerate() {
+        if !reached.kept[i] {
+            continue;
+        }
+        result.push(match command {
+            ProofCommand::Assume { id, term } => ProofCommand::Assume { id, term },
+            ProofCommand::Step(mut step) => {
+                for (d, j) in step.premises.iter_mut().chain(step.discharge.iter_mut()) {
+                    *j = remaps[*d][*j];
+                }
+                ProofCommand::Step(step)
+            }
+            ProofCommand::Subproof(subproof) => {
+                let Subproof { commands, args, context_id } = subproof;
+                let inner = &reached
+                    .subproofs
+                    .iter()
+                    .find(|(j, _)| *j == i)
+                    .expect("reached subproof without flags")
+                    .1;
+                let commands = rebuild_frame(commands, inner, remaps);
+                ProofCommand::Subproof(Subproof { commands, args, context_id })
+            }
+        });
+    }
+    remaps.pop();
+    result
 }
 
 /// The translation data for a single translated CPC command: the position of the final Alethe
