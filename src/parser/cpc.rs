@@ -464,6 +464,24 @@ impl Parser<'_, '_> {
                     .map_err(|err| self.err(err, head_pos))
             }
 
+            // The `i`-th bit of a bitvector, e.g. `(@bit 3 x)`, which is the indexed operator
+            // application `((_ @bit_of 3) x)`
+            "@bit" => {
+                let index = self.parse_term()?;
+                let arg = self.parse_term()?;
+                self.expect_token(Token::CloseParen)?;
+                self.make_indexed_op(ParamOperator::BvBitOf, vec![index], vec![arg])
+                    .map_err(|err| self.err(err, head_pos))
+            }
+
+            // A bitvector built from its bits, e.g. `(@from_bools b0 b1 b2)`, which is the
+            // bitblasting term `(@bbterm b0 b1 b2)`
+            "@from_bools" => {
+                let args = self.parse_sequence(Self::parse_term, true)?;
+                self.make_op(Operator::BvBbTerm, args)
+                    .map_err(|err| self.err(err, head_pos))
+            }
+
             // A variable, e.g. `(@var "x" Int)`
             "@var" => {
                 let name = match self.next_token()? {

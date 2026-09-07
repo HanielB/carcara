@@ -157,8 +157,17 @@ impl PrimitivePool {
                 | Operator::BvSLe
                 | Operator::BvSGt
                 | Operator::BvSGe
+                | Operator::BvUAddO
+                | Operator::BvSAddO
+                | Operator::BvUMulO
+                | Operator::BvSMulO
+                | Operator::BvUSubO
+                | Operator::BvSSubO
+                | Operator::BvSDivO
+                | Operator::BvNegO
                 | Operator::Cl
                 | Operator::Delete => self.sorts.add(Sort::Bool),
+                Operator::BvRedOr | Operator::BvRedAnd => self.sorts.add(Sort::BitVec(1)),
 
                 Operator::BvSize | Operator::UBvToInt | Operator::SBvToInt => {
                     self.sorts.add(Sort::Int)

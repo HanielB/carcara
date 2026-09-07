@@ -462,6 +462,36 @@ pub enum Operator {
     /// The `bvsge` operator.
     BvSGe,
 
+    /// The `bvuaddo` operator.
+    BvUAddO,
+
+    /// The `bvsaddo` operator.
+    BvSAddO,
+
+    /// The `bvumulo` operator.
+    BvUMulO,
+
+    /// The `bvsmulo` operator.
+    BvSMulO,
+
+    /// The `bvusubo` operator.
+    BvUSubO,
+
+    /// The `bvssubo` operator.
+    BvSSubO,
+
+    /// The `bvsdivo` operator.
+    BvSDivO,
+
+    /// The `bvnego` operator.
+    BvNegO,
+
+    /// The `bvredor` operator.
+    BvRedOr,
+
+    /// The `bvredand` operator.
+    BvRedAnd,
+
     /// The `ubv_to_int` operator.
     UBvToInt,
 
@@ -740,6 +770,16 @@ impl Operator {
             | Operator::BvSLe
             | Operator::BvSGt
             | Operator::BvSGe
+            | Operator::BvUAddO
+            | Operator::BvSAddO
+            | Operator::BvUMulO
+            | Operator::BvSMulO
+            | Operator::BvUSubO
+            | Operator::BvSSubO
+            | Operator::BvSDivO
+            | Operator::BvNegO
+            | Operator::BvRedOr
+            | Operator::BvRedAnd
             | Operator::UBvToInt
             | Operator::SBvToInt
             | Operator::BvPBbTerm
@@ -950,6 +990,16 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
+    BvUAddO: "bvuaddo",
+    BvSAddO: "bvsaddo",
+    BvUMulO: "bvumulo",
+    BvSMulO: "bvsmulo",
+    BvUSubO: "bvusubo",
+    BvSSubO: "bvssubo",
+    BvSDivO: "bvsdivo",
+    BvNegO: "bvnego",
+    BvRedOr: "bvredor",
+    BvRedAnd: "bvredand",
 
     UBvToInt: "ubv_to_int",
     SBvToInt: "sbv_to_int",

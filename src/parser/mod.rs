@@ -714,7 +714,11 @@ impl<'p, 's> Parser<'p, 's> {
                 self.check_sort_eq(&Sort::RegLan, &sorts[1])?;
                 self.check_sort_eq(&Sort::String, &sorts[2])?;
             }
-            Operator::BvNot | Operator::BvNeg => {
+            Operator::BvNot
+            | Operator::BvNeg
+            | Operator::BvNegO
+            | Operator::BvRedOr
+            | Operator::BvRedAnd => {
                 assert_num_args(&args, 1)?;
                 for s in sorts {
                     if !s.is_bitvec() {
@@ -744,7 +748,7 @@ impl<'p, 's> Parser<'p, 's> {
                 self.check_sort_eq(&Sort::Int, &sorts[1])?;
             }
             Operator::BvConcat => {
-                assert_num_args(&args, 2..)?;
+                assert_num_args(&args, if self.cpc_mode { 1.. } else { 2.. })?;
                 for s in sorts {
                     if !s.is_bitvec() {
                         return Err(ParserError::ExpectedBvSort(s));
@@ -761,7 +765,9 @@ impl<'p, 's> Parser<'p, 's> {
             | Operator::BvAnd
             | Operator::BvOr
             | Operator::BvXor => {
-                assert_num_args(&args, 2..)?;
+                // In CPC proofs, a singleton list argument of a RARE rewrite is printed as a unary
+                // application of the list's n-ary operator
+                assert_num_args(&args, if self.cpc_mode { 1.. } else { 2.. })?;
                 if !sorts[0].is_bitvec() {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
                 }
@@ -787,7 +793,14 @@ impl<'p, 's> Parser<'p, 's> {
             | Operator::BvSLt
             | Operator::BvSLe
             | Operator::BvSGt
-            | Operator::BvSGe => {
+            | Operator::BvSGe
+            | Operator::BvUAddO
+            | Operator::BvSAddO
+            | Operator::BvUMulO
+            | Operator::BvSMulO
+            | Operator::BvUSubO
+            | Operator::BvSSubO
+            | Operator::BvSDivO => {
                 assert_num_args(&args, 2)?;
                 if !sorts[0].is_bitvec() {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
@@ -1693,6 +1706,13 @@ impl<'p, 's> Parser<'p, 's> {
             (Token::Decimal(r), _) => Term::new_real(r),
             (Token::String(s), _) => Term::new_string(s),
             (Token::Symbol(s), pos) => {
+                // In CPC proofs, a bare `@bv_empty` symbol denotes the zero-width bitvector, the
+                // neutral element of `concat`
+                if self.cpc_mode && s == "@bv_empty" {
+                    return Ok(self
+                        .pool
+                        .add(Term::Const(Constant::BitVec(rug::Integer::new(), 0))));
+                }
                 // In CPC proofs, a bare `@list` symbol denotes the empty list
                 if self.cpc_mode && s == "@list" {
                     return self
@@ -1702,7 +1722,12 @@ impl<'p, 's> Parser<'p, 's> {
                 // A declared or locally bound symbol (e.g. a quantified variable or a RARE rule
                 // parameter) shadows nullary function definitions (including `:named`
                 // abbreviations) and theory operators of the same name
-                return if self.state.symbol_table.get(&HashCache::new(s.clone())).is_some() {
+                return if self
+                    .state
+                    .symbol_table
+                    .get(&HashCache::new(s.clone()))
+                    .is_some()
+                {
                     self.make_var(s).map_err(|err| self.err(err, pos))
                 } else if let Some(func) = self.state.function_defs.get(&s) {
                     // Check to see if there is a nullary function defined with this name

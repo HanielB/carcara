@@ -112,6 +112,12 @@ impl CpcTranslator<'_> {
             "arith_poly_norm_rel" => {
                 self.singleton(id, res, "poly_simp_rel", positions, Vec::new())
             }
+            "bv_poly_norm" => self.singleton(id, res, "poly_simp", Vec::new(), Vec::new()),
+            "bv_poly_norm_eq" => self.singleton(id, res, "poly_simp_rel", positions, Vec::new()),
+            "bv_bitblast_step" => {
+                let rule = Self::bitblast_rule(&res);
+                self.singleton(id, res, rule, positions, Vec::new())
+            }
             "aci_norm" => self.singleton(id, res, "aci_simp", Vec::new(), Vec::new()),
             "and_elim" => {
                 let args = self.convert_args(&step.args);
@@ -144,7 +150,16 @@ impl CpcTranslator<'_> {
             //==================================================================================//
             // Rules following the clause pattern, with a direct correspondence
             //==================================================================================//
-            "implies_elim" => self.clause(id, res, "implies", positions, Vec::new()),
+            "implies_elim" => {
+                let clause = Self::clause_from_or(&res);
+                let position = self.implies_step(&id, premises[0].position, clause.clone());
+                Info {
+                    position,
+                    clause,
+                    term: Some(res),
+                    original: None,
+                }
+            }
             "equiv_elim1" => self.clause(id, res, "equiv1", positions, Vec::new()),
             "equiv_elim2" => self.clause(id, res, "equiv2", positions, Vec::new()),
             "not_equiv_elim1" => self.clause(id, res, "not_equiv1", positions, Vec::new()),
@@ -158,7 +173,19 @@ impl CpcTranslator<'_> {
             "ite_elim2" => self.clause(id, res, "ite1", positions, Vec::new()),
             "not_ite_elim1" => self.clause(id, res, "not_ite2", positions, Vec::new()),
             "not_ite_elim2" => self.clause(id, res, "not_ite1", positions, Vec::new()),
-            "not_and" => self.clause(id, res, "not_and", positions, Vec::new()),
+            "not_and" => {
+                let clause = Self::clause_from_or(&res);
+                if let Some(position) = self.not_and_shortcut(&id, premises[0].position, &clause) {
+                    Info {
+                        position,
+                        clause,
+                        term: Some(res),
+                        original: None,
+                    }
+                } else {
+                    self.clause(id, res, "not_and", positions, Vec::new())
+                }
+            }
 
             //==================================================================================//
             // CNF rules, all following the clause pattern
@@ -237,14 +264,7 @@ impl CpcTranslator<'_> {
                 // with (P1: F1)
                 let f1 = self.premise_term(&premises[0], &id)?;
                 let not_f1 = self.negate(&f1);
-                let aux = self.aux_id(&id);
-                let vp1 = self.push_step(
-                    aux,
-                    vec![not_f1, res.clone()],
-                    "implies",
-                    vec![premises[1].position],
-                    Vec::new(),
-                );
+                let vp1 = self.implies_step(&id, premises[1].position, vec![not_f1, res.clone()]);
                 self.singleton(
                     id,
                     res,
@@ -748,6 +768,18 @@ impl CpcTranslator<'_> {
         let (l_args, r_args) = match (lhs.as_ref(), rhs.as_ref()) {
             (Term::App(f, l_args), Term::App(g, r_args)) if f == g => (l_args, r_args),
             (Term::Op(f, l_args), Term::Op(g, r_args)) if f == g => (l_args, r_args),
+            (
+                Term::ParamOp {
+                    op: f,
+                    op_args: f_op_args,
+                    args: l_args,
+                },
+                Term::ParamOp {
+                    op: g,
+                    op_args: g_op_args,
+                    args: r_args,
+                },
+            ) if f == g && f_op_args == g_op_args => (l_args, r_args),
             _ => return false,
         };
         if l_args.len() != r_args.len() {
@@ -1321,6 +1353,12 @@ impl CpcTranslator<'_> {
     /// flattened with `ac_simp`, and then simplified to the constant with `or_simplify` or
     /// `and_simplify`.
     fn translate_absorb(&mut self, step: &ProofStep, res: Rc<Term>) -> Result<Info> {
+        // Carcara has a dedicated `absorb` rule, which cvc5's Alethe printer also uses (under the
+        // default `--proof-alethe-absorb`); the expansion through `ac_simp` and `and_simplify` /
+        // `or_simplify` is kept for reference only
+        if !self.expand_absorb {
+            return Ok(self.singleton(step.id.clone(), res, "absorb", Vec::new(), Vec::new()));
+        }
         use crate::checker::rules::simplification::apply_ac_simp;
 
         let id = step.id.clone();
@@ -1382,6 +1420,15 @@ impl CpcTranslator<'_> {
                 return Ok(self.hole(step, res));
             }
         };
+
+        // The elimination of a division or modulo by a possibly-zero divisor,
+        // `(= (op a b) (ite (= b 0) sk (op a b)))`, where the skolem `sk` has been converted into
+        // the choice term for the value of the operator at zero (cvc5's total operators are
+        // mapped to the SMT-LIB partial ones, so both sides of the case split use the same
+        // operator). This is Alethe's `div_by_zero_intro` rule.
+        if op_intro.is_none() && Self::is_div_by_zero_elimination(&op_eq) {
+            return Ok(self.singleton(id, res, "div_by_zero_intro", Vec::new(), Vec::new()));
+        }
 
         // The equality and intro steps depend on the operator being reduced
         let (eq_steps, intro_rule): (Vec<(&str, Vec<Rc<Term>>)>, &str) = match op_term.as_ref() {
@@ -1484,6 +1531,133 @@ impl CpcTranslator<'_> {
             vec![eq_position, intro_position],
             Vec::new(),
         ))
+    }
+
+    /// Returns whether `eq` has the shape `(= (op a b) (ite (= b 0) (choice ...) (op a b)))`, for
+    /// `op` a division or modulo operator.
+    fn is_div_by_zero_elimination(eq: &Rc<Term>) -> bool {
+        let Some((lhs, rhs)) = match_term!((= lhs rhs) = eq) else {
+            return false;
+        };
+        let Term::Op(Operator::IntDiv | Operator::RealDiv | Operator::Mod, args) = lhs.as_ref()
+        else {
+            return false;
+        };
+        let Some((b, zero, choice, else_branch)) = match_term!((ite (= b zero) choice e) = rhs)
+        else {
+            return false;
+        };
+        args.len() == 2
+            && &args[1] == b
+            && zero.as_number().is_some_and(|z| z == 0)
+            && matches!(choice.as_ref(), Term::Binder(Binder::Choice, ..))
+            && else_branch == lhs
+    }
+
+    /// The step concluding the clause `(cl (not A) G)` of an implication `(=> A G)` proved at
+    /// `premise`: when the implication comes from a translated `process_scope`, the folded
+    /// subproof clause is reused directly (the steps deriving the implication become dead);
+    /// otherwise an `implies` step is added.
+    fn implies_step(
+        &mut self,
+        id: &str,
+        premise: (usize, usize),
+        clause: Vec<Rc<Term>>,
+    ) -> (usize, usize) {
+        if let Some((position, folded)) = self.scope_implication.get(&premise) {
+            if *folded == clause {
+                return *position;
+            }
+        }
+        let aux = self.aux_id(id);
+        self.push_step(aux, clause, "implies", vec![premise], Vec::new())
+    }
+
+    /// The conjunction round-trip short-circuit: a `not_and` step whose premise
+    /// `(not (and F1 ... Fn))` was concluded by a resolution over the folded clause
+    /// `(cl (not (and F1 ... Fn)) G)` of a `process_scope` is replaced by the same resolution
+    /// over the subproof clause `(cl (not F1) ... (not Fn) G)`, which concludes the `not_and`
+    /// clause directly. Returns the position of the new step, if the pattern applies.
+    fn not_and_shortcut(
+        &mut self,
+        id: &str,
+        premise: (usize, usize),
+        clause: &[Rc<Term>],
+    ) -> Option<(usize, usize)> {
+        let resolution = self.step_at(premise)?;
+        if resolution.rule != "resolution" || resolution.clause.len() != 1 {
+            return None;
+        }
+        let not_and = resolution.clause[0].clone();
+        let (res_premises, res_args) = (resolution.premises.clone(), resolution.args.clone());
+        let (i, (subproof, subproof_clause)) =
+            res_premises.iter().enumerate().find_map(|(i, p)| {
+                let (subproof, subproof_clause) = self.scope_fold.get(p)?;
+                let folded = &self.step_at(*p)?.clause;
+                // The folded clause has exactly the two literals `(not (and ...))` and `G`, and the
+                // subproof clause has the `not_and` literals plus `G`
+                if folded.len() != 2 || !folded.contains(&not_and) {
+                    return None;
+                }
+                let g = if folded[0] == not_and {
+                    &folded[1]
+                } else {
+                    &folded[0]
+                };
+                let mut expected: Vec<_> =
+                    clause.iter().chain(std::iter::once(g)).cloned().collect();
+                let mut actual = subproof_clause.clone();
+                expected.sort_by_key(|t| Rc::as_ptr(t) as usize);
+                actual.sort_by_key(|t| Rc::as_ptr(t) as usize);
+                (expected == actual).then_some((i, (*subproof, subproof_clause.clone())))
+            })?;
+        let _ = subproof_clause;
+        let mut premises = res_premises;
+        premises[i] = subproof;
+        Some(self.push_step(
+            id.to_owned(),
+            clause.to_vec(),
+            "resolution",
+            premises,
+            res_args,
+        ))
+    }
+
+    /// The Alethe bitblasting rule for a `bv_bitblast_step` step concluding `(= t bb)`, chosen by
+    /// the kind of `t` as in cvc5's Alethe printer: variables and terms of unhandled kinds are
+    /// bitblasted as variables.
+    fn bitblast_rule(res: &Rc<Term>) -> &'static str {
+        let Some((t, _)) = match_term!((= t bb) = res) else {
+            return "bv_bitblast_step_var";
+        };
+        match t.as_ref() {
+            Term::Op(op, _) => match op {
+                Operator::BvComp => "bv_bitblast_step_bvcomp",
+                Operator::BvULt => "bv_bitblast_step_bvult",
+                Operator::BvULe => "bv_bitblast_step_bvule",
+                Operator::BvSLt => "bv_bitblast_step_bvslt",
+                Operator::BvAnd => "bv_bitblast_step_bvand",
+                Operator::BvOr => "bv_bitblast_step_bvor",
+                Operator::BvXor => "bv_bitblast_step_bvxor",
+                Operator::BvXNor => "bv_bitblast_step_bvxnor",
+                Operator::BvNot => "bv_bitblast_step_bvnot",
+                Operator::BvAdd => "bv_bitblast_step_bvadd",
+                Operator::BvNeg => "bv_bitblast_step_bvneg",
+                Operator::BvMul => "bv_bitblast_step_bvmult",
+                Operator::BvConcat => "bv_bitblast_step_concat",
+                Operator::BvUDiv => "bv_bitblast_step_bvudiv",
+                Operator::BvURem => "bv_bitblast_step_bvurem",
+                Operator::BvShl => "bv_bitblast_step_bvshl",
+                Operator::BvLShr => "bv_bitblast_step_bvlshr",
+                Operator::BvAShr => "bv_bitblast_step_bvashr",
+                Operator::Equals => "bv_bitblast_step_bvequal",
+                _ => "bv_bitblast_step_var",
+            },
+            Term::ParamOp { op: ParamOperator::BvExtract, .. } => "bv_bitblast_step_extract",
+            Term::ParamOp { op: ParamOperator::SignExtend, .. } => "bv_bitblast_step_sign_extend",
+            Term::Const(Constant::BitVec(..)) => "bv_bitblast_step_const",
+            _ => "bv_bitblast_step_var",
+        }
     }
 
     /// Translates the `skolemize` rule, which from a premise `(not (forall X F))` concludes
@@ -1655,6 +1829,17 @@ impl CpcTranslator<'_> {
             "quant-miniscope-ite" => {
                 self.singleton(id, res, "miniscope_ite", Vec::new(), Vec::new())
             }
+            // Bitvector rewrites with dedicated Alethe rules
+            "bv-repeat-elim" | "bv-bitwise-slicing" => {
+                let premises = self.resolve_premises(step)?;
+                let positions = premises.iter().map(|p| p.position).collect();
+                let alethe_rule = if step.rule == "bv-repeat-elim" {
+                    "bv_repeat_elim"
+                } else {
+                    "bv_bitwise_slicing"
+                };
+                self.singleton(id, res, alethe_rule, positions, Vec::new())
+            }
             _ => {
                 // A `rare_rewrite` step whose first argument is the rule name, followed by the
                 // rule arguments. Note that some RARE rules have premises.
@@ -1690,6 +1875,11 @@ impl CpcTranslator<'_> {
         if !is_list {
             return arg;
         }
+        // The n-ary operator the list is spliced into, which determines its neutral element
+        let list_op = definition
+            .arguments
+            .get(i)
+            .and_then(|name| Self::list_param_operator(&definition.conclusion, name));
         match arg.as_ref() {
             // Already a list
             Term::Op(Operator::RareList, _) => arg,
@@ -1697,12 +1887,62 @@ impl CpcTranslator<'_> {
             Term::Op(Operator::True | Operator::False, _) => {
                 self.build_op(Operator::RareList, Vec::new())
             }
-            // An n-ary operator application: wrap its arguments
-            Term::Op(Operator::And | Operator::Or | Operator::Add | Operator::Mult, elements) => {
-                self.build_op(Operator::RareList, elements.clone())
+            Term::Const(c) if list_op.is_some_and(|op| Self::is_neutral_element(op, c)) => {
+                self.build_op(Operator::RareList, Vec::new())
             }
+            // An n-ary operator application (possibly unary, for a singleton list): wrap its
+            // arguments
+            Term::Op(
+                Operator::And
+                | Operator::Or
+                | Operator::Add
+                | Operator::Mult
+                | Operator::BvAnd
+                | Operator::BvOr
+                | Operator::BvXor
+                | Operator::BvAdd
+                | Operator::BvMul
+                | Operator::BvConcat,
+                elements,
+            ) => self.build_op(Operator::RareList, elements.clone()),
             // A single element
             _ => self.build_op(Operator::RareList, vec![arg]),
+        }
+    }
+
+    /// Finds the n-ary operator whose arguments include the list parameter `name` in a RARE rule
+    /// term.
+    fn list_param_operator(term: &Rc<Term>, name: &str) -> Option<Operator> {
+        match term.as_ref() {
+            Term::Op(op, args) => {
+                if args.iter().any(|a| a.as_var() == Some(name)) {
+                    return Some(*op);
+                }
+                args.iter().find_map(|a| Self::list_param_operator(a, name))
+            }
+            Term::App(_, args) | Term::ParamOp { args, .. } => {
+                args.iter().find_map(|a| Self::list_param_operator(a, name))
+            }
+            Term::Binder(_, _, body) | Term::Let(_, body) => Self::list_param_operator(body, name),
+            _ => None,
+        }
+    }
+
+    /// Returns whether the constant `c` is the neutral element of the n-ary operator `op`, which
+    /// is how cvc5 prints an empty list argument.
+    fn is_neutral_element(op: Operator, c: &Constant) -> bool {
+        match (op, c) {
+            (Operator::Add, Constant::Integer(v)) => *v == 0,
+            (Operator::Add, Constant::Real(v)) => *v == 0,
+            (Operator::Mult, Constant::Integer(v)) => *v == 1,
+            (Operator::Mult, Constant::Real(v)) => *v == 1,
+            (Operator::BvOr | Operator::BvAdd | Operator::BvXor, Constant::BitVec(v, _)) => *v == 0,
+            (Operator::BvMul, Constant::BitVec(v, _)) => *v == 1,
+            (Operator::BvAnd, Constant::BitVec(v, w)) => {
+                *v == (rug::Integer::from(1) << (*w as u32)) - 1
+            }
+            (Operator::BvConcat, Constant::BitVec(_, w)) => *w == 0,
+            _ => false,
         }
     }
 

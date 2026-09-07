@@ -711,6 +711,18 @@ fn eval_op(pool: &mut dyn TermPool, op: Operator, arg_terms: &[Rc<Term>]) -> Opt
             }
         }
 
+        // Overflow predicates and reductions are not evaluated
+        Operator::BvUAddO
+        | Operator::BvSAddO
+        | Operator::BvUMulO
+        | Operator::BvSMulO
+        | Operator::BvUSubO
+        | Operator::BvSSubO
+        | Operator::BvSDivO
+        | Operator::BvNegO
+        | Operator::BvRedOr
+        | Operator::BvRedAnd => return None,
+
         // TODO: Rare
         Operator::RareList | Operator::Cl | Operator::Delete => return None,
 

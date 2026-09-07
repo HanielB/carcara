@@ -48,14 +48,21 @@ AUFNIRA fragment) and checks every generated proof with Carcara:
 scripts/validate-cpc.sh ~/cvc5/test/regress/cli/regress0
 ```
 
+The translation mirrors cvc5's own Alethe output, including the short-circuits of its
+post-processor: the implication `(=> (and F1 ... Fn) G)` derived from a scope is not rebuilt
+when the consumer only needs the clause `(cl (not (and F1 ... Fn)) G)` again, a `not_and` step
+over such a clause is replaced by a resolution over the scope's subproof clause, and a
+top-level step concluding the same literals as an earlier top-level subproof reuses that
+subproof. The steps these short-circuits bypass are pruned from the translated proof.
+
 ## Known limitations
 
-- The initial target is the AUFNIRA fragment: bitvectors, strings, datatypes, etc. are not yet
+- The supported fragment is AUFBVNIRA: strings, datatypes, floating points, etc. are not yet
   supported.
 - Problems using symbol overloading or higher-order features are not supported (cvc5's own
   Alethe output does not support higher-order logic either).
-- `arith_reduction` steps over partial division and modulo operators (which equate them to a
-  case-split between their total versions and the division-by-zero skolems) are translated as
-  holes, since the equality cannot be justified in SMT-LIB semantics.
+- cvc5's total division and modulo operators are mapped to the SMT-LIB partial ones, so an
+  `evaluate` step over a division by a literal zero (e.g. `(= (div_total 0 0) 0)`) cannot be
+  checked.
 - Congruence steps whose terms change structure when applications of defined functions are
   beta-reduced during parsing are translated as holes.

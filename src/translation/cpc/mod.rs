@@ -61,6 +61,9 @@ pub fn cpc_to_alethe(
 ) -> CarcaraResult<Proof> {
     let mut translator = CpcTranslator::new(pool, rules);
     let commands = translator.translate_proof(&proof.commands)?;
+    // The short-circuits of the translation leave the steps they bypass unreferenced; like
+    // cvc5's printer, only the derivation of the final step is kept
+    let commands = ProofNodeForest::from_commands(commands).into_commands_pruned();
     // The constant definitions of the original proof are dropped, since they may reference
     // cvc5-internal symbols that are eliminated by the translation (they are only used for
     // printing, so this only means that printed proofs will not use them for sharing)
@@ -121,6 +124,29 @@ struct CpcTranslator<'a> {
     /// (converted) assumptions and conclusion of the scope, used by `process_scope`.
     scope_data: HashMap<(usize, usize), (Vec<Rc<Term>>, Rc<Term>)>,
 
+    /// For each step concluding the implication `(cl (=> (and F1 ... Fn) G))` of a translated
+    /// `process_scope`, the position and clause of the folded subproof clause
+    /// `(cl (not (and F1 ... Fn)) G)` it was derived from (the subproof clause itself when
+    /// `n = 1`). Consumers eliminating the implication again use that step directly, mirroring
+    /// the implication round-trip short-circuit of cvc5's Alethe post-processor.
+    scope_implication: HashMap<(usize, usize), ((usize, usize), Vec<Rc<Term>>)>,
+
+    /// For each folded subproof clause `(cl (not (and F1 ... Fn)) G)` of a `process_scope`, the
+    /// position and clause of the subproof step `(cl (not F1) ... (not Fn) G)` it folds, used by
+    /// the conjunction round-trip short-circuit of `not_and` steps.
+    scope_fold: HashMap<(usize, usize), ((usize, usize), Vec<Rc<Term>>)>,
+
+    /// The top-level subproofs, keyed by the sorted literals of their clauses. A later top-level
+    /// subproof, resolution, reordering or contraction concluding the same literals reuses the
+    /// subproof (through a `reordering` step if the order differs), so that the steps rebuilding
+    /// the clause become dead; this mirrors the clause round-trip short-circuit of cvc5's Alethe
+    /// post-processor.
+    subproof_by_literals: HashMap<Vec<Rc<Term>>, ((usize, usize), Vec<Rc<Term>>)>,
+
+    /// Whether `absorb` steps are expanded into `ac_simp` and simplification steps instead of
+    /// using Carcara's dedicated `absorb` rule (kept for reference, always `false`).
+    expand_absorb: bool,
+
     /// Memoization cache for `convert`.
     cache: HashMap<Rc<Term>, Rc<Term>>,
 
@@ -141,6 +167,10 @@ impl<'a> CpcTranslator<'a> {
             out: Vec::new(),
             cpc_frames: Vec::new(),
             scope_data: HashMap::new(),
+            scope_implication: HashMap::new(),
+            scope_fold: HashMap::new(),
+            subproof_by_literals: HashMap::new(),
+            expand_absorb: false,
             cache: HashMap::new(),
             skolem_choice_cache: HashMap::new(),
             next_context_id: 0,
@@ -207,6 +237,30 @@ impl<'a> CpcTranslator<'a> {
         premises: Vec<(usize, usize)>,
         args: Vec<Rc<Term>>,
     ) -> (usize, usize) {
+        // A top-level step rebuilding the clause of an earlier top-level subproof is replaced by
+        // that subproof (see `subproof_by_literals`)
+        if self.out.len() == 1
+            && matches!(rule, "resolution" | "reordering" | "contraction")
+            && !clause.is_empty()
+        {
+            if let Some((position, subproof_clause)) = self
+                .subproof_by_literals
+                .get(&Self::literals_key(&clause))
+                .cloned()
+            {
+                if subproof_clause == clause {
+                    return position;
+                }
+                return self.push_command(ProofCommand::Step(ProofStep {
+                    id,
+                    clause,
+                    rule: "reordering".to_owned(),
+                    premises: vec![position],
+                    args: Vec::new(),
+                    discharge: Vec::new(),
+                }));
+            }
+        }
         self.push_command(ProofCommand::Step(ProofStep {
             id,
             clause,
@@ -215,6 +269,21 @@ impl<'a> CpcTranslator<'a> {
             args,
             discharge: Vec::new(),
         }))
+    }
+
+    /// The literals of a clause as a sorted multiset, used to detect clauses equal up to order.
+    fn literals_key(clause: &[Rc<Term>]) -> Vec<Rc<Term>> {
+        let mut key = clause.to_vec();
+        key.sort_by_key(|t| Rc::as_ptr(t) as usize);
+        key
+    }
+
+    /// The step at an accessible position (in an open frame).
+    fn step_at(&self, (depth, index): (usize, usize)) -> Option<&ProofStep> {
+        match self.out.get(depth)?.get(index)? {
+            ProofCommand::Step(step) => Some(step),
+            _ => None,
+        }
     }
 
     /// Records the translation data for the next command of the current CPC frame.
@@ -271,6 +340,20 @@ impl<'a> CpcTranslator<'a> {
                             self.cache.insert(term.clone(), result.clone());
                             return result;
                         }
+                    }
+                    // The skolems for the value of a division or modulo at a zero divisor are
+                    // converted to the choice terms cvc5's Alethe printer uses:
+                    // `(choice ((y T)) (= y (op a 0)))`
+                    if let Some(op) = match name.as_str() {
+                        "@int_div_by_zero" => Some(Operator::IntDiv),
+                        "@mod_by_zero" => Some(Operator::Mod),
+                        "@div_by_zero" => Some(Operator::RealDiv),
+                        _ => None,
+                    } {
+                        let a = self.convert(&args[0]);
+                        let result = self.build_by_zero_choice(op, &a);
+                        self.cache.insert(term.clone(), result.clone());
+                        return result;
                     }
                     // The array diff skolem is converted to the corresponding choice term:
                     // `(choice ((x I)) (or (= a b) (not (= (select a x) (select b x)))))`
@@ -362,6 +445,38 @@ impl<'a> CpcTranslator<'a> {
         ));
         self.skolem_choice_cache.insert(key, result.clone());
         Some(result)
+    }
+
+    /// Builds the choice term `(choice ((y T)) (= y (op a 0)))` denoting the value of the division
+    /// or modulo operator `op` applied to `a` and a zero divisor, with `y` not free in `a`.
+    fn build_by_zero_choice(&mut self, op: Operator, a: &Rc<Term>) -> Rc<Term> {
+        let (sort, zero) = if op == Operator::RealDiv {
+            (Sort::Real, Constant::Real(rug::Rational::new()))
+        } else {
+            (Sort::Int, Constant::Integer(rug::Integer::new()))
+        };
+        let free_names: Vec<String> = self
+            .pool
+            .free_vars(a)
+            .iter()
+            .filter_map(|v| v.as_var().map(str::to_owned))
+            .collect();
+        let mut name = "y".to_owned();
+        let mut i = 0;
+        while free_names.contains(&name) {
+            name = format!("y{}", i);
+            i += 1;
+        }
+        let sort = self.pool.add_sort(sort);
+        let y = self.pool.add(Term::new_var(name.clone(), sort.clone()));
+        let zero = self.pool.add(Term::Const(zero));
+        let app = self.build_op(op, vec![a.clone(), zero]);
+        let body = self.build_op(Operator::Equals, vec![y, app]);
+        self.pool.add(Term::Binder(
+            Binder::Choice,
+            BindingList(vec![(name, sort)]),
+            body,
+        ))
     }
 
     /// Builds the choice term corresponding to the array diff skolem `(@array_deq_diff a b)`:
@@ -578,7 +693,14 @@ impl<'a> CpcTranslator<'a> {
                 //                            (cl premise)
                 if premise.clause.len() > 1 {
                     let mut res_premises = vec![premise.position];
+                    // Each distinct literal is resolved once, at its first occurrence: with
+                    // explicit pivots a second resolution on the same literal would fail
+                    let mut resolved = Vec::new();
                     for (j, literal) in premise.clause.clone().iter().enumerate() {
+                        if resolved.contains(literal) {
+                            continue;
+                        }
+                        resolved.push(literal.clone());
                         let not_literal = self.negate(literal);
                         let aux = self.aux_id(id);
                         let index_arg = self.new_int(j);
@@ -592,7 +714,7 @@ impl<'a> CpcTranslator<'a> {
                         res_premises.push(position);
                     }
                     let aux = self.aux_id(id);
-                    let repeated = vec![term.clone(); premise.clause.len()];
+                    let repeated = vec![term.clone(); resolved.len()];
                     let resolution =
                         self.push_step(aux, repeated, "resolution", res_premises, Vec::new());
                     let aux = self.aux_id(id);
@@ -748,6 +870,39 @@ impl<'a> CpcTranslator<'a> {
             self.cpc_frames.pop();
         }
         let commands = self.out.pop().unwrap();
+        let assumption_terms: Vec<_> = assumptions.into_iter().map(|(_, _, term)| term).collect();
+
+        // A top-level subproof concluding the same literals as an earlier one is replaced by it
+        // (the whole body of this one becomes dead), through a `reordering` step if the literal
+        // order differs
+        if self.out.len() == 1 {
+            let key = Self::literals_key(&clause);
+            if let Some((existing, existing_clause)) = self.subproof_by_literals.get(&key).cloned()
+            {
+                let position = if existing_clause == clause {
+                    existing
+                } else {
+                    let position = self.push_command(ProofCommand::Step(ProofStep {
+                        id: commands.last().unwrap().id().to_owned(),
+                        clause: clause.clone(),
+                        rule: "reordering".to_owned(),
+                        premises: vec![existing],
+                        args: Vec::new(),
+                        discharge: Vec::new(),
+                    }));
+                    self.scope_data
+                        .insert(position, (assumption_terms, conclusion));
+                    position
+                };
+                return Ok(Info {
+                    position,
+                    clause,
+                    term: None,
+                    original: None,
+                });
+            }
+        }
+
         let context_id = self.next_context_id;
         self.next_context_id += 1;
         let position = self.push_command(ProofCommand::Subproof(Subproof {
@@ -755,8 +910,11 @@ impl<'a> CpcTranslator<'a> {
             args: Vec::new(),
             context_id,
         }));
+        if self.out.len() == 1 {
+            self.subproof_by_literals
+                .insert(Self::literals_key(&clause), (position, clause.clone()));
+        }
 
-        let assumption_terms = assumptions.into_iter().map(|(_, _, term)| term).collect();
         self.scope_data
             .insert(position, (assumption_terms, conclusion));
 
@@ -829,8 +987,11 @@ impl<'a> CpcTranslator<'a> {
             let vp3_clause = vec![not_and.clone(), conclusion.clone()];
             let aux = self.aux_id(id);
             let vp3 = self.push_step(aux, vp3_clause, "contraction", vec![vp2b], Vec::new());
+            self.scope_fold
+                .insert(vp3, (premise_info.position, premise_info.clause.clone()));
             (and_node, vp3)
         };
+        let vp3_clause = vec![self.negate(&and_node), conclusion.clone()];
 
         // (=> (and F1 ... Fn) G)
         let implies_node = self.build_op(
@@ -880,13 +1041,15 @@ impl<'a> CpcTranslator<'a> {
         );
 
         let position = if conclusion != false_node {
-            self.push_step(
+            let position = self.push_step(
                 id.clone(),
                 vec![implies_node],
                 "contraction",
                 vec![vp7],
                 Vec::new(),
-            )
+            );
+            self.scope_implication.insert(position, (vp3, vp3_clause));
+            position
         } else {
             // VP8: (cl (=> (and F1 ... Fn) false))
             let aux = self.aux_id(id);
