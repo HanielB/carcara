@@ -11,8 +11,8 @@ use crate::{
     ast::*,
     checker::error::CheckerError,
     checker::{
-        bool_simplify_step, comp_simplify_step, eq_simplify_step, equiv_simplify_step,
-        implies_simplify_step, ite_simplify_step, not_simplify_step, SimplifyStepFn,
+        SimplifyStepFn, bool_simplify_step, comp_simplify_step, eq_simplify_step,
+        equiv_simplify_step, implies_simplify_step, ite_simplify_step, not_simplify_step,
     },
     elaborator::error::ElaborationError,
 };
@@ -138,7 +138,7 @@ fn and_or_trace(
         _ => {
             return Err(explanation(
                 "left-hand side is not an application of the operator",
-            ))
+            ));
         }
     };
     // The checker compares *argument lists*, reading a non-application right-hand side as a

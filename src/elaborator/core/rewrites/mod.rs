@@ -29,8 +29,8 @@ use super::Builder;
 use crate::{
     ast::rare_rules::Rules,
     ast::*,
-    checker::error::CheckerError,
     checker::RewriteLabel,
+    checker::error::CheckerError,
     elaborator::error::ElaborationError,
     rare::{get_rules, meta_shapes, rewrite_meta_terms},
 };

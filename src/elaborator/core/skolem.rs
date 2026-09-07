@@ -28,9 +28,9 @@
 //! 5. a deep-`cong` transport of `φ_z[z̄↦w̄]` to `ψ` over those equalities, and a final
 //!    `trans`, which closes the anchor keeping the step's id and conclusion.
 
+use super::Builder;
 use super::binder::excluded_middle;
 use super::onepoint::{anchor_points, eq_symmetry, relabel_dropping_previous};
-use super::Builder;
 use crate::{ast::*, elaborator::error::ElaborationError};
 use indexmap::IndexMap;
 

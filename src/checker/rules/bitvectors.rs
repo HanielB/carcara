@@ -650,7 +650,8 @@ fn bitblast_shift_op(
         pool.bool_false()
     };
     for bit in &mut res {
-        *bit = build_term!(pool, (ite {y_ult_size.clone()} {bit.clone()} {out_of_range_bit.clone()}));
+        *bit =
+            build_term!(pool, (ite {y_ult_size.clone()} {bit.clone()} {out_of_range_bit.clone()}));
     }
 
     pool.add(Term::Op(Operator::BvBbTerm, res))
@@ -854,11 +855,11 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
 
     fn as_extract(term: &Rc<Term>) -> Option<(Integer, Integer, &Rc<Term>)> {
         match term.as_ref() {
-            Term::ParamOp { op: ParamOperator::BvExtract, op_args, args } => Some((
-                op_args[0].as_integer()?,
-                op_args[1].as_integer()?,
-                &args[0],
-            )),
+            Term::ParamOp {
+                op: ParamOperator::BvExtract,
+                op_args,
+                args,
+            } => Some((op_args[0].as_integer()?, op_args[1].as_integer()?, &args[0])),
             _ => None,
         }
     }
@@ -919,7 +920,12 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
 pub fn repeat_elim(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (lhs, rhs) = match_term_err!((= l r) = &conclusion[0])?;
-    let Term::ParamOp { op: ParamOperator::Repeat, op_args, args } = lhs.as_ref() else {
+    let Term::ParamOp {
+        op: ParamOperator::Repeat,
+        op_args,
+        args,
+    } = lhs.as_ref()
+    else {
         return Err(CheckerError::Explanation(
             "expected left-hand side to be a repeat application".into(),
         ));

@@ -211,7 +211,8 @@ fn derive_normalization(
             let (rhs, node, flipped) = (rhs.clone(), node.clone(), *flipped);
             let mut node = if flipped { b.symm(&node) } else { node };
             if mode == RewriteMode::Forward {
-                if let Some(rest) = derive_normalization(b, cache, proofs, rewrites, &rhs, mode, true)
+                if let Some(rest) =
+                    derive_normalization(b, cache, proofs, rewrites, &rhs, mode, true)
                 {
                     let last = normal_of(&rest);
                     let clause = vec![build_term!(b.pool, (= {term.clone()} {last}))];
@@ -247,7 +248,9 @@ fn derive_normalization(
     let new_children: Vec<_> = children
         .iter()
         .map(|child| {
-            if let Some(proof) = derive_normalization(b, cache, proofs, rewrites, child, mode, false) {
+            if let Some(proof) =
+                derive_normalization(b, cache, proofs, rewrites, child, mode, false)
+            {
                 let normal_child = match_term!((= a b) = proof.clause()[0]).unwrap().1.clone();
                 cong_premises.push(proof);
                 normal_child
@@ -322,11 +325,17 @@ pub fn ac_simp(
     let mut legacy = PremiseRewrites::new();
     for premise in &step.premises {
         let [equality] = premise.clause() else {
-            log::warn!("ac_simp '{}': premise is not a unit clause, keeping step", step.id);
+            log::warn!(
+                "ac_simp '{}': premise is not a unit clause, keeping step",
+                step.id
+            );
             return Ok(Rc::new(ProofNode::Step(step.clone())));
         };
         let Some((lhs, rhs)) = match_term!((= l r) = equality) else {
-            log::warn!("ac_simp '{}': premise is not an equality, keeping step", step.id);
+            log::warn!(
+                "ac_simp '{}': premise is not an equality, keeping step",
+                step.id
+            );
             return Ok(Rc::new(ProofNode::Step(step.clone())));
         };
         forward
@@ -349,8 +358,15 @@ pub fn ac_simp(
         let mode = RewriteMode::Legacy;
         if ac_normal_form(b.pool, &mut cache, &legacy, &original, mode, false) == flattened {
             let mut proofs = IndexMap::new();
-            match derive_normalization(&mut b, &mut cache, &mut proofs, &legacy, &original, mode, false)
-            {
+            match derive_normalization(
+                &mut b,
+                &mut cache,
+                &mut proofs,
+                &legacy,
+                &original,
+                mode,
+                false,
+            ) {
                 Some(node) => return close(b, step, node),
                 // Degenerate instance concluding `(= t t)`
                 None if original == flattened => {
@@ -387,7 +403,15 @@ pub fn ac_simp(
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
     let mut proofs = IndexMap::new();
-    let dl = derive_normalization(&mut b, &mut cache, &mut proofs, &forward, &original, mode, false);
+    let dl = derive_normalization(
+        &mut b,
+        &mut cache,
+        &mut proofs,
+        &forward,
+        &original,
+        mode,
+        false,
+    );
     if dl.is_none() && original != nl {
         log::warn!(
             "ac_simp '{}': a derived layer would not check, keeping step",
@@ -395,7 +419,15 @@ pub fn ac_simp(
         );
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
-    let dr = derive_normalization(&mut b, &mut cache, &mut proofs, &forward, &flattened, mode, false);
+    let dr = derive_normalization(
+        &mut b,
+        &mut cache,
+        &mut proofs,
+        &forward,
+        &flattened,
+        mode,
+        false,
+    );
     if dr.is_none() && flattened != nr {
         log::warn!(
             "ac_simp '{}': a derived layer would not check, keeping step",

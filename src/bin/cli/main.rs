@@ -188,6 +188,7 @@ fn check_command(options: CheckCommandOptions) -> CliResult<carcara::Status> {
             instance.rules(),
             parser_config,
             checker_config,
+            collect_stats,
         )
     } else if options.num_threads == 1 {
         check(

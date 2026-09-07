@@ -318,7 +318,7 @@ fn epsilon_clause(
             _ => {
                 return Err(explanation(
                     "the ε-clause's quantifier and body do not match",
-                ))
+                ));
             }
         }
         let body_in_context = context.apply(b.pool, body);

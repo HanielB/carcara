@@ -1014,9 +1014,11 @@ impl CpcTranslator<'_> {
     }
 
     /// Translates the `arith_trichotomy` rule, which concludes one of `(= x c)`, `(> x c)` or
-    /// `(< x c)` from premises excluding the other two cases. The translation is based on the
-    /// `la_disequality` rule, with `comp_simplify` steps connecting strict and non-strict
-    /// inequalities.
+    /// `(< x c)` from two premises excluding the other two cases, mirroring cvc5's Alethe
+    /// translation: a `la_disequality` clause `(cl (= x c) (not (<= x c)) (not (<= c x)))` is
+    /// resolved with the premises, each brought to the form of one of its literals through a
+    /// `comp_simplify` equivalence and its `equiv_pos1`/`equiv_pos2` clause when needed, and
+    /// likewise for a strict conclusion.
     fn translate_arith_trichotomy(
         &mut self,
         step: &ProofStep,
@@ -1029,175 +1031,75 @@ impl CpcTranslator<'_> {
             rule: "arith_trichotomy".to_owned(),
             reason: reason.to_owned(),
         };
-        if premises.len() != 2 {
-            return Err(invalid("expected two premises"));
-        }
-        let p0 = self.premise_term(&premises[0], &id)?;
-        let p1 = self.premise_term(&premises[1], &id)?;
-
-        let Term::Op(op, res_args) = res.as_ref() else {
-            return Err(invalid("conclusion must be a comparison"));
+        let Term::Op(op @ (Operator::Equals | Operator::GreaterThan | Operator::LessThan), args) =
+            res.as_ref()
+        else {
+            return Err(invalid(
+                "conclusion must be an equality or a strict comparison",
+            ));
         };
-        let (op, x, c) = (*op, res_args[0].clone(), res_args[1].clone());
+        let (op, x, c) = (*op, args[0].clone(), args[1].clone());
+        let eq = self.build_op(Operator::Equals, vec![x.clone(), c.clone()]);
+        let leq = self.build_op(Operator::LessEq, vec![x.clone(), c.clone()]);
+        let leq_inv = self.build_op(Operator::LessEq, vec![c.clone(), x.clone()]);
+        let not_leq = self.negate(&leq);
+        let not_leq_inv = self.negate(&leq_inv);
 
-        let is_op =
-            |term: &Rc<Term>, op: Operator| matches!(term.as_ref(), Term::Op(o, _) if *o == op);
+        // d1: (cl (or (= x c) (not (<= x c)) (not (<= c x)))); d2: the same as a clause
+        let or_term = self.build_op(
+            Operator::Or,
+            vec![eq.clone(), not_leq.clone(), not_leq_inv.clone()],
+        );
+        let aux = self.aux_id(&id);
+        let d1 = self.push_step(aux, vec![or_term], "la_disequality", Vec::new(), Vec::new());
+        let aux = self.aux_id(&id);
+        let d2 = self.push_step(
+            aux,
+            vec![eq.clone(), not_leq.clone(), not_leq_inv.clone()],
+            "or",
+            vec![d1],
+            Vec::new(),
+        );
+        let mut res_premises = vec![d2];
 
-        // Builds PI_0: `(cl (= x c) (not (<= x c)) (not (<= c x)))`, via `la_disequality`
-        let pi_0 = |translator: &mut Self,
-                    eq: Rc<Term>,
-                    leq: Rc<Term>,
-                    leq_inverted: Rc<Term>|
-         -> (usize, usize) {
-            let not_leq = translator.negate(&leq);
-            let not_leq_inverted = translator.negate(&leq_inverted);
-            let or_term = translator.build_op(
-                Operator::Or,
-                vec![eq.clone(), not_leq.clone(), not_leq_inverted.clone()],
-            );
+        // A premise `(not (> x c))` or `(not (< x c))` is connected to the literal `(not lit)`
+        // it excludes through `(= (op x c) (not lit))`: `equiv_pos1` gives
+        // `(cl (not pa) (op x c) (not (not lit)))`
+        let negated_strict = |translator: &mut Self, strict: Rc<Term>, lit: Rc<Term>| {
+            let not_lit = translator.negate(&lit);
+            let pa = translator.build_op(Operator::Equals, vec![strict.clone(), not_lit.clone()]);
             let aux = translator.aux_id(&id);
-            let la_or =
-                translator.push_step(aux, vec![or_term], "la_disequality", Vec::new(), Vec::new());
-            let aux = translator.aux_id(&id);
-            translator.push_step(
+            let c1 = translator.push_step(
                 aux,
-                vec![eq, not_leq, not_leq_inverted],
-                "or",
-                vec![la_or],
+                vec![pa.clone()],
+                "comp_simplify",
                 Vec::new(),
-            )
+                Vec::new(),
+            );
+            let not_pa = translator.negate(&pa);
+            let not_not_lit = translator.negate(&not_lit);
+            let aux = translator.aux_id(&id);
+            let e1 = translator.push_step(
+                aux,
+                vec![not_pa, strict, not_not_lit],
+                "equiv_pos1",
+                Vec::new(),
+                Vec::new(),
+            );
+            (e1, c1)
         };
 
-        match op {
-            Operator::Equals => {
-                let (leq_premise, geq_premise, leq, geq) = if is_op(&p0, Operator::LessEq) {
-                    (&premises[0], &premises[1], p0, p1)
-                } else {
-                    (&premises[1], &premises[0], p1, p0)
-                };
-                let Term::Op(Operator::GreaterEq, geq_args) = geq.as_ref() else {
-                    return Err(invalid("expected a `>=` premise"));
-                };
-                let leq_inverted = self.build_op(
-                    Operator::LessEq,
-                    vec![geq_args[1].clone(), geq_args[0].clone()],
-                );
-
-                let la_diseq = pi_0(self, res.clone(), leq.clone(), leq_inverted.clone());
-
-                // PI_1: from the `>=` premise, conclude the inverted `<=`
-                let comp_simp =
-                    self.build_op(Operator::Equals, vec![geq.clone(), leq_inverted.clone()]);
-                let aux = self.aux_id(&id);
-                let cs = self.push_step(
-                    aux,
-                    vec![comp_simp.clone()],
-                    "comp_simplify",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let not_comp_simp = self.negate(&comp_simp);
-                let not_geq = self.negate(&geq);
-                let aux = self.aux_id(&id);
-                let ep2 = self.push_step(
-                    aux,
-                    vec![not_comp_simp, not_geq, leq_inverted.clone()],
-                    "equiv_pos2",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let aux = self.aux_id(&id);
-                let pi_1 = self.push_step(
-                    aux,
-                    vec![leq_inverted],
-                    "resolution",
-                    vec![cs, ep2, geq_premise.position],
-                    Vec::new(),
-                );
-
-                let final_premises = vec![leq_premise.position, la_diseq, pi_1];
-                Ok(self.singleton(id, res, "resolution", final_premises, Vec::new()))
-            }
-            Operator::GreaterThan => {
-                let (geq_premise, not_eq_premise, geq, not_eq) = if is_op(&p1, Operator::GreaterEq)
-                    || p1
-                        .remove_negation()
-                        .is_some_and(|t| is_op(t, Operator::LessThan))
-                {
-                    (&premises[1], &premises[0], p1, p0)
-                } else {
-                    (&premises[0], &premises[1], p0, p1)
-                };
-                let Some(eq) = not_eq.remove_negation().cloned() else {
-                    return Err(invalid("expected a negated equality premise"));
-                };
-                let leq = self.build_op(Operator::LessEq, vec![x.clone(), c.clone()]);
-                let leq_inverted = self.build_op(Operator::LessEq, vec![c.clone(), x.clone()]);
-
-                // If the premise is `(not (< x c))` instead of `(>= x c)`, derive `(>= x c)`
-                // from it first
-                let (geq, geq_position) = if is_op(&geq, Operator::GreaterEq) {
-                    (geq, geq_premise.position)
-                } else {
-                    let Some(pb) = geq.remove_negation().cloned() else {
-                        return Err(invalid("expected a `>=` or `(not (< x c))` premise"));
-                    };
-                    let pc = leq_inverted.clone();
-                    let not_pc = self.negate(&pc);
-                    let pa = self.build_op(Operator::Equals, vec![pb.clone(), not_pc.clone()]);
-
-                    // PI_a: conclude `(not (not pc))`
+        for premise in premises {
+            let term = self.premise_term(premise, &id)?;
+            match term.as_ref() {
+                Term::Op(Operator::LessEq, a) if a[0] == x && a[1] == c => {
+                    res_premises.push(premise.position);
+                }
+                Term::Op(Operator::GreaterEq, a) if a[0] == x && a[1] == c => {
+                    // (>= x c) is (<= c x): equiv_pos2 gives (cl (not pd) (not (>= x c)) (<= c x))
+                    let pd = self.build_op(Operator::Equals, vec![term.clone(), leq_inv.clone()]);
                     let aux = self.aux_id(&id);
-                    let cs_a = self.push_step(
-                        aux,
-                        vec![pa.clone()],
-                        "comp_simplify",
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                    let not_pa = self.negate(&pa);
-                    let not_not_pc = self.negate(&not_pc);
-                    let aux = self.aux_id(&id);
-                    let ep1_a = self.push_step(
-                        aux,
-                        vec![not_pa, pb, not_not_pc.clone()],
-                        "equiv_pos1",
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                    let aux = self.aux_id(&id);
-                    let pi_a = self.push_step(
-                        aux,
-                        vec![not_not_pc.clone()],
-                        "resolution",
-                        vec![cs_a, ep1_a, geq_premise.position],
-                        Vec::new(),
-                    );
-
-                    // PI_b: conclude `pc`
-                    let not_not_not_pc = self.negate(&not_not_pc);
-                    let aux = self.aux_id(&id);
-                    let not_not = self.push_step(
-                        aux,
-                        vec![not_not_not_pc, pc.clone()],
-                        "not_not",
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                    let aux = self.aux_id(&id);
-                    let pi_b = self.push_step(
-                        aux,
-                        vec![pc.clone()],
-                        "resolution",
-                        vec![not_not, pi_a],
-                        Vec::new(),
-                    );
-
-                    // PI_c: conclude `(>= x c)`
-                    let geq = self.build_op(Operator::GreaterEq, vec![x.clone(), c.clone()]);
-                    let pd = self.build_op(Operator::Equals, vec![geq.clone(), pc.clone()]);
-                    let aux = self.aux_id(&id);
-                    let cs_c = self.push_step(
+                    let c1 = self.push_step(
                         aux,
                         vec![pd.clone()],
                         "comp_simplify",
@@ -1205,144 +1107,48 @@ impl CpcTranslator<'_> {
                         Vec::new(),
                     );
                     let not_pd = self.negate(&pd);
-                    let not_pc = self.negate(&pc);
+                    let not_geq = self.negate(&term);
                     let aux = self.aux_id(&id);
-                    let ep1_c = self.push_step(
+                    let e2 = self.push_step(
                         aux,
-                        vec![not_pd, geq.clone(), not_pc],
-                        "equiv_pos1",
+                        vec![not_pd, not_geq, leq_inv.clone()],
+                        "equiv_pos2",
                         Vec::new(),
                         Vec::new(),
                     );
-                    let aux = self.aux_id(&id);
-                    let pi_c = self.push_step(
-                        aux,
-                        vec![geq.clone()],
-                        "resolution",
-                        vec![cs_c, ep1_c, pi_b],
-                        Vec::new(),
-                    );
-                    (geq, pi_c)
-                };
-
-                let la_diseq = pi_0(self, eq, leq.clone(), leq_inverted.clone());
-
-                // PI_1: from the `>=` premise, conclude the inverted `<=`
-                let comp_simp =
-                    self.build_op(Operator::Equals, vec![geq.clone(), leq_inverted.clone()]);
-                let aux = self.aux_id(&id);
-                let cs = self.push_step(
-                    aux,
-                    vec![comp_simp.clone()],
-                    "comp_simplify",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let not_comp_simp = self.negate(&comp_simp);
-                let not_geq = self.negate(&geq);
-                let aux = self.aux_id(&id);
-                let ep2 = self.push_step(
-                    aux,
-                    vec![not_comp_simp, not_geq, leq_inverted.clone()],
-                    "equiv_pos2",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let aux = self.aux_id(&id);
-                let pi_1 = self.push_step(
-                    aux,
-                    vec![leq_inverted],
-                    "resolution",
-                    vec![cs, ep2, geq_position],
-                    Vec::new(),
-                );
-
-                // PI_2: `(cl (> x c) (not (not (<= x c))))`
-                let not_leq = self.negate(&leq);
-                let comp_simp_2 =
-                    self.build_op(Operator::Equals, vec![res.clone(), not_leq.clone()]);
-                let aux = self.aux_id(&id);
-                let cs_2 = self.push_step(
-                    aux,
-                    vec![comp_simp_2.clone()],
-                    "comp_simplify",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let not_comp_simp_2 = self.negate(&comp_simp_2);
-                let not_not_leq = self.negate(&not_leq);
-                let aux = self.aux_id(&id);
-                let ep1 = self.push_step(
-                    aux,
-                    vec![not_comp_simp_2, res.clone(), not_not_leq.clone()],
-                    "equiv_pos1",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let aux = self.aux_id(&id);
-                let pi_2 = self.push_step(
-                    aux,
-                    vec![res.clone(), not_not_leq],
-                    "resolution",
-                    vec![cs_2, ep1],
-                    Vec::new(),
-                );
-
-                let final_premises = vec![not_eq_premise.position, la_diseq, pi_1, pi_2];
-                Ok(self.singleton(id, res, "resolution", final_premises, Vec::new()))
-            }
-            Operator::LessThan => {
-                let (leq_premise, not_eq_premise, leq, not_eq) = if is_op(&p0, Operator::LessEq) {
-                    (&premises[0], &premises[1], p0, p1)
-                } else {
-                    (&premises[1], &premises[0], p1, p0)
-                };
-                if !is_op(&leq, Operator::LessEq) {
-                    return Err(invalid("expected a `<=` premise"));
+                    res_premises.extend([e2, premise.position, c1]);
                 }
-                let Some(eq) = not_eq.remove_negation().cloned() else {
-                    return Err(invalid("expected a negated equality premise"));
-                };
-                let leq_inverted = self.build_op(Operator::LessEq, vec![c.clone(), x.clone()]);
-
-                let la_diseq = pi_0(self, eq, leq.clone(), leq_inverted.clone());
-
-                // PI_3: `(cl (< x c) (not (not (<= c x))))`
-                let not_leq_inverted = self.negate(&leq_inverted);
-                let comp_simp = self.build_op(
-                    Operator::Equals,
-                    vec![res.clone(), not_leq_inverted.clone()],
-                );
-                let aux = self.aux_id(&id);
-                let cs = self.push_step(
-                    aux,
-                    vec![comp_simp.clone()],
-                    "comp_simplify",
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let not_comp_simp = self.negate(&comp_simp);
-                let not_not_leq_inverted = self.negate(&not_leq_inverted);
-                let aux = self.aux_id(&id);
-                let ep1 = self.push_step(
-                    aux,
-                    vec![not_comp_simp, res.clone(), not_not_leq_inverted],
-                    "equiv_pos1",
-                    Vec::new(),
-                    Vec::new(),
-                );
-
-                let final_premises = vec![
-                    la_diseq,
-                    not_eq_premise.position,
-                    leq_premise.position,
-                    ep1,
-                    cs,
-                ];
-                Ok(self.singleton(id, res, "resolution", final_premises, Vec::new()))
+                Term::Op(Operator::Not, inner) => match inner[0].as_ref() {
+                    Term::Op(Operator::Equals, a) if a[0] == x && a[1] == c => {
+                        res_premises.push(premise.position);
+                    }
+                    Term::Op(Operator::GreaterThan, a) if a[0] == x && a[1] == c => {
+                        let (e1, c1) = negated_strict(self, inner[0].clone(), leq.clone());
+                        res_premises.extend([e1, premise.position, c1]);
+                    }
+                    Term::Op(Operator::LessThan, a) if a[0] == x && a[1] == c => {
+                        let (e1, c1) = negated_strict(self, inner[0].clone(), leq_inv.clone());
+                        res_premises.extend([e1, premise.position, c1]);
+                    }
+                    _ => return Err(invalid("unsupported premise form")),
+                },
+                _ => return Err(invalid("unsupported premise form")),
             }
-            _ => Err(invalid("conclusion must be `=`, `>` or `<`")),
         }
+
+        // A strict conclusion (> x c) / (< x c) is (not lit) for lit = (<= x c) / (<= c x):
+        // equiv_pos1 gives (cl (not pe) C (not (not lit))), resolved against (not lit) of d2
+        if op != Operator::Equals {
+            let lit = if op == Operator::GreaterThan {
+                leq
+            } else {
+                leq_inv
+            };
+            let (e3, c3) = negated_strict(self, res.clone(), lit);
+            res_premises.extend([e3, c3]);
+        }
+
+        Ok(self.singleton(id, res, "resolution", res_premises, Vec::new()))
     }
 
     /// Translates the `absorb` rule, which concludes `(= t z)` where `z` is the absorbing

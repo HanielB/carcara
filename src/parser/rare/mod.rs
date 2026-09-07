@@ -1,7 +1,7 @@
 use super::{Parser, ParserError, Reserved, SortDef, Token};
-use crate::ast::*;
 use crate::CarcaraResult;
 use crate::ast::rare_rules::*;
+use crate::ast::*;
 
 #[derive(Debug, Clone)]
 enum Body {

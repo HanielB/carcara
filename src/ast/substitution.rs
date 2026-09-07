@@ -1,6 +1,8 @@
 //! Algorithms for creating and applying capture-avoiding substitutions over terms.
 
-use super::{Binder, BindingList, MatchCase, MatchPattern, Rc, Sort, SortedVar, Term, pool::TermPool};
+use super::{
+    Binder, BindingList, MatchCase, MatchPattern, Rc, Sort, SortedVar, Term, pool::TermPool,
+};
 use indexmap::{IndexMap, IndexSet};
 use rapidhash::{HashMapExt, RapidHashMap};
 use thiserror::Error;
@@ -376,8 +378,7 @@ impl Substitution {
                     }
                 }
 
-                let (new_bindings, mut renaming) =
-                    self.rename_binding_list(pool, binding_list);
+                let (new_bindings, mut renaming) = self.rename_binding_list(pool, binding_list);
                 // A `let`'s bound values live in the *enclosing* scope, so the substitution
                 // applies to them as it does to any other subterm
                 let new_bindings = BindingList(

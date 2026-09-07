@@ -18,8 +18,7 @@ use crate::{
     Error,
     ast::{
         ContextStack, Polyeq, Problem, ProofNode, ProofNodeForest, Rc, StepNode, SubproofNode,
-        VisitedNodes,
-        Term, build_term, match_term,
+        Term, VisitedNodes, build_term, match_term,
         pool::{PrimitivePool, TermPool},
     },
     external::{ExternalTool, SatTools},
@@ -198,7 +197,12 @@ fn nested_binds(proof: &ProofNodeForest) -> HashSet<String> {
 /// Debug validation (`CARCARA_VALIDATE_FOREST`): checks that every subproof's
 /// `outbound_premises` lists every premise edge that leaves the scope.
 fn validate_forest(proof: &ProofNodeForest, pass: ElaborationPass) {
-    fn check_scope(sub: &SubproofNode, closing_depth: usize, scope_id: &str, pass: ElaborationPass) {
+    fn check_scope(
+        sub: &SubproofNode,
+        closing_depth: usize,
+        scope_id: &str,
+        pass: ElaborationPass,
+    ) {
         let listed: HashSet<*const ProofNode> =
             sub.outbound_premises.iter().map(Rc::as_ptr).collect();
         let mut seen = HashSet::new();
@@ -325,12 +329,18 @@ impl<'e> Elaborator<'e> {
             let time = Instant::now();
             let result = match pass {
                 ElaborationPass::Prune => Ok(prune::prune(current)),
-                ElaborationPass::Hoist => {
-                    Ok(hoist::hoist(self.pool, current, &self.config.allowed_rules, false))
-                }
-                ElaborationPass::DeepHoist => {
-                    Ok(hoist::hoist(self.pool, current, &self.config.allowed_rules, true))
-                }
+                ElaborationPass::Hoist => Ok(hoist::hoist(
+                    self.pool,
+                    current,
+                    &self.config.allowed_rules,
+                    false,
+                )),
+                ElaborationPass::DeepHoist => Ok(hoist::hoist(
+                    self.pool,
+                    current,
+                    &self.config.allowed_rules,
+                    true,
+                )),
                 ElaborationPass::Polyeq => self.elaborate_polyeq(current),
                 ElaborationPass::Hole => self.elaborate_hole(current),
                 ElaborationPass::Core => {

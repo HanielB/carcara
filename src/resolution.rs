@@ -2,7 +2,7 @@
 
 use crate::ast::{Rc, Term, build_term, pool::TermPool};
 use indexmap::{IndexMap, IndexSet, map::Entry};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use thiserror::Error;
 
 /// Errors related to the resolution checking and elaboration algorithms.
@@ -343,9 +343,7 @@ pub fn set_replay_valid(
     // the same special case `greedy_resolution` accepts
     conclusion.is_empty()
         && current.len() == 1
-        && current
-            .iter()
-            .all(|&(n, t)| n == 0 && t.is_bool_false())
+        && current.iter().all(|&(n, t)| n == 0 && t.is_bool_false())
 }
 
 /// A valid ordered resolution chain reconstructed from a RUP certificate.

@@ -11,7 +11,9 @@ use indexmap::IndexSet;
 use std::collections::{HashMap, VecDeque, hash_map::Entry};
 
 pub fn resolution(rule_args: RuleArgs) -> RuleResult {
-    let RuleArgs { conclusion, premises, args, pool, .. } = rule_args;
+    let RuleArgs {
+        conclusion, premises, args, pool, ..
+    } = rule_args;
 
     // If the rule was given pivot arguments, we first try to replay the hinted chain, which is
     // faster than inferring the pivots. The hints are not obligations, though: the semantics of

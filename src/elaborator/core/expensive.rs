@@ -292,7 +292,7 @@ pub fn aci_simp(pool: &mut PrimitivePool, _: &mut ContextStack, step: &StepNode)
         _ => {
             return Err(explanation(
                 "the ACI reduction needs a semilattice connective on at least one side",
-            ))
+            ));
         }
     };
 

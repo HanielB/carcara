@@ -466,7 +466,9 @@ fn scope_assumes(subproof: &SubproofNode, depth: usize) -> Vec<&Rc<ProofNode>> {
 /// premises, discharges, previous-step chains and subproof closings. Membership in a root list or
 /// an `extra_steps` alone does not keep a node alive. Returns `None` when the forest has no
 /// empty-clause root, so a partial proof is printed in full.
-fn reachable_from_goals(proof: &ProofNodeForest) -> Option<std::collections::HashSet<Rc<ProofNode>>> {
+fn reachable_from_goals(
+    proof: &ProofNodeForest,
+) -> Option<std::collections::HashSet<Rc<ProofNode>>> {
     let goals: Vec<&Rc<ProofNode>> = proof.0.iter().filter(|n| n.clause().is_empty()).collect();
     if goals.is_empty() {
         return None;
@@ -500,7 +502,11 @@ fn proof_nodes_to_list(proof: &ProofNodeForest, prune: bool) -> Vec<ProofCommand
     // With pruning on, only the conclusion's derivation is emitted: a live-node filter guards
     // every push that is driven by membership (roots, extra steps, scope assumes, outbound
     // premises) rather than by an emitted step's own references
-    let reached = if prune { reachable_from_goals(proof) } else { None };
+    let reached = if prune {
+        reachable_from_goals(proof)
+    } else {
+        None
+    };
     let live = |node: &Rc<ProofNode>| reached.as_ref().is_none_or(|r| r.contains(node));
 
     let mut seen: HashMap<&Rc<ProofNode>, (usize, usize)> = HashMap::new();

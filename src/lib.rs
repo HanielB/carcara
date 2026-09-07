@@ -233,14 +233,49 @@ pub fn check_cpc<'s>(
     rules: Option<parser::Source<'s>>,
     parser_config: parser::Config,
     checker_config: checker::Config,
+    collect_stats: bool,
 ) -> Result<Status, Error> {
+    let total = Instant::now();
     let (problem, proof, rules, mut pool) =
         parser::parse_cpc_instance(problem, proof, rules, parser_config)?;
+    let parsing = total.elapsed();
 
+    let translating = Instant::now();
     let proof = translation::cpc::cpc_to_alethe(&proof, &mut pool, &rules)?;
+    let translation = translating.elapsed();
 
+    let checking = Instant::now();
     let mut checker = checker::ProofChecker::new(&mut pool, &rules, checker_config);
-    checker.check(&problem, &proof)
+    if !collect_stats {
+        return checker.check(&problem, &proof);
+    }
+    let mut checker_stats = CheckerStatistics {
+        file_name: "this",
+        polyeq_time: Duration::ZERO,
+        assume_time: Duration::ZERO,
+        assume_core_time: Duration::ZERO,
+        results: OnlineBenchmarkResults::new(),
+    };
+    let res = checker.check_with_stats(&problem, &proof, &mut checker_stats);
+    let checking = checking.elapsed();
+    checker_stats.results.add_run_measurement(
+        &("this".to_owned(), 0),
+        RunMeasurement {
+            parsing,
+            checking,
+            elaboration: Duration::ZERO,
+            scheduling: Duration::ZERO,
+            total: total.elapsed(),
+            polyeq: checker_stats.polyeq_time,
+            assume: checker_stats.assume_time,
+            assume_core: checker_stats.assume_core_time,
+            elaboration_pipeline: Vec::new(),
+        },
+    );
+    // The translation from CPC to Alethe is reported separately from the standard table
+    println!("translation: {:?}", translation);
+    checker_stats.results.print(false);
+    res
 }
 
 /// Parses and translates a CPC proof into an Alethe proof, without checking it.

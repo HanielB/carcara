@@ -35,8 +35,8 @@ pub(crate) use rules::polynomial::poly_simp_equal;
 pub(crate) use rules::quantifier::{conjunctive_normal_form, negation_normal_form, prenex_forall};
 pub(crate) use rules::simplification::aci_simp_equal;
 pub(crate) use rules::simplification::{
-    bool_simplify_step, comp_simplify_step, eq_simplify_step, equiv_simplify_step,
-    implies_simplify_step, ite_simplify_step, not_simplify_step, RewriteLabel, SimplifyStepFn,
+    RewriteLabel, SimplifyStepFn, bool_simplify_step, comp_simplify_step, eq_simplify_step,
+    equiv_simplify_step, implies_simplify_step, ite_simplify_step, not_simplify_step,
 };
 
 /// Runs the `cong` check for a candidate step: the given premise equalities against the conclusion

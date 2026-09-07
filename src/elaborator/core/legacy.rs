@@ -12,8 +12,8 @@
 //!   conjunction of its `2^k` instances: `forall_inst` at each Boolean assignment, `and_neg` to
 //!   repack, and a closing `bind` over the remaining variables.
 
-use super::binder::{close_bind, dummy_choice, instantiate, var_term};
 use super::Builder;
+use super::binder::{close_bind, dummy_choice, instantiate, var_term};
 use crate::checker::{conjunctive_normal_form, negation_normal_form, prenex_forall};
 use crate::{ast::*, elaborator::error::ElaborationError};
 use indexmap::IndexMap;

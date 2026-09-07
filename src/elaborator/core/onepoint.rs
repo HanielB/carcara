@@ -24,8 +24,8 @@
 //! The replacement derivation lives *inside* the original subproof (whose anchor becomes
 //! vacuous), so the surrounding proof structure is untouched.
 
-use super::binder::{close_bind, connective_def_duality, instantiate, var_term};
 use super::Builder;
+use super::binder::{close_bind, connective_def_duality, instantiate, var_term};
 use crate::{
     ast::*, checker::rules::subproof::extract_points, elaborator::error::ElaborationError,
 };

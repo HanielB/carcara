@@ -334,7 +334,7 @@ pub fn poly_simp_rel(
                 "`poly_simp_rel` conclusion relates '{}' and '{}'",
                 op1, op2
             ))
-            .into())
+            .into());
         }
     };
     let (left, right) = (left.clone(), right.clone());
@@ -634,7 +634,7 @@ pub fn la_mult(
             return Err(CheckerError::Explanation(format!(
                 "unsupported comparison operator '{op}'"
             ))
-            .into())
+            .into());
         }
     };
 
