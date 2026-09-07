@@ -1699,8 +1699,13 @@ impl<'p, 's> Parser<'p, 's> {
                         .make_op(Operator::RareList, Vec::new())
                         .map_err(|err| self.err(err, pos));
                 }
-                // Check to see if there is a nullary function defined with this name
-                return if let Some(func) = self.state.function_defs.get(&s) {
+                // A declared or locally bound symbol (e.g. a quantified variable or a RARE rule
+                // parameter) shadows nullary function definitions (including `:named`
+                // abbreviations) and theory operators of the same name
+                return if self.state.symbol_table.get(&HashCache::new(s.clone())).is_some() {
+                    self.make_var(s).map_err(|err| self.err(err, pos))
+                } else if let Some(func) = self.state.function_defs.get(&s) {
+                    // Check to see if there is a nullary function defined with this name
                     func.apply(self.pool, Vec::new())
                         .map_err(|err| self.err(err, pos))
                 } else if let Ok(op) = Operator::from_str(&s) {
@@ -2142,7 +2147,17 @@ impl<'p, 's> Parser<'p, 's> {
             //
             // However, `if let` guards are still nightly only. For more info, see:
             // https://github.com/rust-lang/rust/issues/51114
-            Token::Symbol(s) if Operator::from_str(s).is_ok() => {
+            // A user declaration shadows a theory operator of the same name (e.g. a `set.member`
+            // function declared in a logic without sets)
+            Token::Symbol(s)
+                if Operator::from_str(s).is_ok()
+                    && self
+                        .state
+                        .symbol_table
+                        .get(&HashCache::new(s.clone()))
+                        .is_none()
+                    && !self.state.function_defs.contains_key(s) =>
+            {
                 let operator = Operator::from_str(s).unwrap();
                 self.next_token()?;
                 let args = self.parse_sequence(Self::parse_term, true)?;
