@@ -37,11 +37,13 @@ pub fn parse_cpc_instance<'s>(
     rules: Option<Source<'s>>,
     mut config: Config,
 ) -> CarcaraResult<(Problem, Proof, Rules, PrimitivePool)> {
-    // `let` bindings and function definitions are always expanded when parsing CPC proofs, so
-    // they must also be expanded in the problem for the proof's `assume`s to match the problem's
-    // assertions
+    // `let` bindings are always expanded when parsing CPC proofs, so they must also be expanded
+    // in the problem for the proof's `assume`s to match the problem's assertions. Function
+    // definitions are not expanded: cvc5 treats a `define-fun` as a function symbol equal to a
+    // lambda term, and its CPC proofs justify that equation by reflexivity (see
+    // `CpcTranslator::definition_step`)
     config.expand_lets = true;
-    config.apply_function_defs = true;
+    config.apply_function_defs = false;
     let mut pool = PrimitivePool::new();
     let mut parser = Parser::new(&mut pool, config, problem)?;
     // Some cvc5 internal constants (e.g. `piand`) may also appear in the problem
@@ -196,7 +198,19 @@ impl Parser<'_, '_> {
                     if func_def.params.is_empty() {
                         constant_definitions.push((name.clone(), func_def.body.clone()));
                     }
-                    self.state.function_defs.insert(name, func_def);
+                    // A symbol defined in the problem (`define-fun`) is printed as a nullary
+                    // definition whose body is its definition (a lambda term for a function); it
+                    // stays the symbol declared when parsing the problem, whose definition is
+                    // one of the problem's premises
+                    let defines_declared_symbol = func_def.params.is_empty()
+                        && self
+                            .state
+                            .symbol_table
+                            .get(&HashCache::new(name.clone()))
+                            .is_some();
+                    if !defines_declared_symbol {
+                        self.state.function_defs.insert(name, func_def);
+                    }
                     continue;
                 }
                 Token::ReservedWord(Reserved::Assume) => {
@@ -618,8 +632,7 @@ impl Parser<'_, '_> {
     }
 
     /// Parses a higher-order function application, e.g. `(_ f x)`. This method assumes that the
-    /// `(` and `_` tokens were already consumed. If the function term is a lambda (e.g. introduced
-    /// by a function definition), the application is beta-reduced.
+    /// `(` and `_` tokens were already consumed.
     pub(super) fn parse_cpc_ho_apply(&mut self) -> CarcaraResult<Rc<Term>> {
         let head_pos = self.current_position;
         let func = self.parse_term()?;
@@ -640,17 +653,10 @@ impl Parser<'_, '_> {
             }
             _ => (func, args),
         };
-        if let Term::Binder(Binder::Lambda, bindings, inner) = func.as_ref() {
-            let def = FunctionDef {
-                params: bindings.0.clone(),
-                body: inner.clone(),
-            };
-            def.apply(self.pool, args)
-                .map_err(|err| self.err(err, head_pos))
-        } else {
-            self.make_app(func, args)
-                .map_err(|err| self.err(err, head_pos))
-        }
+        // An application of a lambda term is kept as such (the proof's `beta-reduce` steps
+        // justify its reduction), as in cvc5's Alethe output
+        self.make_app(func, args)
+            .map_err(|err| self.err(err, head_pos))
     }
 
     /// Parses a binder term in the CPC format, e.g. `(forall (@list (@var "x" Int)) <term>)`. This

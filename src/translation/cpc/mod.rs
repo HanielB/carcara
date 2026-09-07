@@ -265,6 +265,10 @@ struct CpcTranslator<'a> {
     /// using Carcara's dedicated `absorb` rule (kept for reference, always `false`).
     expand_absorb: bool,
 
+    /// The `assume` steps introduced for the definitions `(= f (lambda ...))` of the problem's
+    /// defined functions, by defining equation.
+    definition_assumes: HashMap<Rc<Term>, (usize, usize)>,
+
     /// Memoization cache for `convert`.
     cache: HashMap<Rc<Term>, Rc<Term>>,
 
@@ -289,6 +293,7 @@ impl<'a> CpcTranslator<'a> {
             scope_fold: HashMap::new(),
             subproof_by_literals: HashMap::new(),
             expand_absorb: false,
+            definition_assumes: HashMap::new(),
             cache: HashMap::new(),
             skolem_choice_cache: HashMap::new(),
             next_context_id: 0,
@@ -1286,6 +1291,53 @@ impl<'a> CpcTranslator<'a> {
             term: Some(res),
             original: None,
         })
+    }
+
+    /// The step concluding `(= l r)` when one side is a symbol and the other its definition (a
+    /// lambda term for a function, any term for a constant) as a `define-fun` of the problem,
+    /// which is one of the problem's premises: an `assume` of the definition, added once at the
+    /// top level, followed by a `symm` step if the equality is stated the other way around.
+    fn definition_step(
+        &mut self,
+        id: &str,
+        res: &Rc<Term>,
+        l: &Rc<Term>,
+        r: &Rc<Term>,
+    ) -> Option<Info> {
+        let (f, lambda, flipped) = match (l.as_ref(), r.as_ref()) {
+            (Term::Var(..), _) => (l, r, false),
+            (_, Term::Var(..)) => (r, l, true),
+            _ => return None,
+        };
+        let definition = self.build_op(Operator::Equals, vec![f.clone(), lambda.clone()]);
+        let position = match self.definition_assumes.get(&definition) {
+            Some(position) => *position,
+            None => {
+                let n = self.definition_assumes.len();
+                self.out[0].push(ProofCommand::Assume {
+                    id: format!("cpc.def{}", n),
+                    term: definition.clone(),
+                });
+                let position = (0, self.out[0].len() - 1);
+                self.definition_assumes.insert(definition.clone(), position);
+                position
+            }
+        };
+        if !flipped {
+            return Some(Info {
+                position,
+                clause: vec![definition],
+                term: Some(res.clone()),
+                original: None,
+            });
+        }
+        Some(self.singleton(
+            id.to_owned(),
+            res.clone(),
+            "symm",
+            vec![position],
+            Vec::new(),
+        ))
     }
 
     /// Builds an Alethe `bind` subproof concluding `(cl (= lhs rhs))` for a congruence over binder

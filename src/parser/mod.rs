@@ -2251,13 +2251,11 @@ impl<'p, 's> Parser<'p, 's> {
                 let args = self.parse_sequence(Self::parse_term, true)?;
                 let func = &self.state.function_defs[&func_name];
 
-                if func.params.is_empty() && !args.is_empty() && !self.cpc_mode {
+                if func.params.is_empty() && !args.is_empty() {
                     // A `:named` abbreviation is registered as a nullary definition, but the
                     // term it names may itself be a function (e.g. a `lambda` shared by the
                     // printer into application-head position); applying the name is applying
-                    // that term. In CPC proofs, `define`s of functions are also nullary with a
-                    // `lambda` body, but there they are macros and must be beta-reduced, so that
-                    // terms match the (expanded) problem's
+                    // that term
                     let body = func.body.clone();
                     self.make_app(body, args)
                         .map_err(|err| self.err(err, head_pos))

@@ -30,6 +30,17 @@ impl CpcTranslator<'_> {
             // `skolem_intro` equates a term to its purification skolem, whose conversion is the
             // term itself, so the converted conclusion is a reflexivity
             "refl" | "skolem_intro" | "encode_eq_intro" => {
+                // cvc5 justifies `(= f (lambda ...))` for a function `f` defined in the problem
+                // by reflexivity, since the definition is a name for the lambda term. Here the
+                // definition is an assumption of the problem (function definitions are not
+                // expanded), so the step refers to that assumption instead
+                if let Some((l, r)) = match_term!((= l r) = res) {
+                    if l != r {
+                        if let Some(info) = self.definition_step(&id, &res, l, r) {
+                            return Ok(info);
+                        }
+                    }
+                }
                 self.singleton(id, res, "refl", Vec::new(), Vec::new())
             }
             "evaluate" => self.singleton(id, res, "evaluate", Vec::new(), Vec::new()),
@@ -243,7 +254,13 @@ impl CpcTranslator<'_> {
                 self.clause(id, res, "reordering", vec![position], Vec::new())
             }
             "contra" => {
-                let position = self.push_step(id, Vec::new(), "resolution", positions, Vec::new());
+                // F resolved against (not F), with F used as a singleton: as for `resolution`
+                // steps, a premise concluded as a clause `(cl t1 ... tn)` is first rebuilt into
+                // the singleton `(cl (or t1 ... tn))`
+                let f = self.premise_term(&premises[0], &id)?;
+                let cargs = vec![self.pool.bool_true(), f];
+                let fixed = self.fix_resolution_premises(&id, &premises, &cargs);
+                let position = self.push_step(id, Vec::new(), "resolution", fixed, Vec::new());
                 Info {
                     position,
                     clause: Vec::new(),
@@ -687,7 +704,7 @@ impl CpcTranslator<'_> {
     }
 
     /// Adds a step following the singleton pattern, concluding `(cl res)`.
-    fn singleton(
+    pub(super) fn singleton(
         &mut self,
         id: String,
         res: Rc<Term>,
