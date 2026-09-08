@@ -28,11 +28,10 @@ is entirely within the core vocabulary (plus `contraction`, which the chain pipe
 deliberately uses), apart from the unreduced expensive/aggressive-tier steps present in the
 input.
 
-The output can then be checked in elaborated (strict) mode — with the RARE rule set when the
-input contained `ite_intro` steps, whose reduction emits `rare_rewrite` instances:
+The output can then be checked in elaborated (strict) mode:
 
 ```
-carcara check --check-granularity elaborated --rare-file rare-tests/rare/ite-intro.rare example.elab.alethe example.smt2
+carcara check --check-granularity elaborated example.elab.alethe example.smt2
 ```
 
 There used to be a variant, `core-keep-eq-cl`, that skipped the clausal equality reductions — a
@@ -109,11 +108,14 @@ each becomes its paired CNF axiom plus one resolution on the premise formula), a
 rules `and_intro` (→ `and_neg` + resolution) and `eq_mp` (→ `equiv_pos2` + resolution, shared
 with the `local` pass).
 
-**Equality.** `eq_reflexive` (→ `refl`, a rename) and `eq_congruent_pred` (→ `eq_congruent` plus
+**Equality.** `eq_reflexive` (→ `refl`, a rename), `eq_congruent_pred` (→ `eq_congruent` plus
 one `equiv_pos` axiom and a resolution: the predicate rule is the function rule read through an
-equivalence). The other clausal equality rules — `eq_transitive`, `eq_congruent`, `eq_symmetric`,
-`not_symm` — are *expensive* and left alone: their discharge-subproof reductions live in
-`core/equality.rs`, complete and tested, but unregistered.
+equivalence), `eq_symmetric` (→ `refl` + `cong`, the flip being a congruence instance since
+`cong`'s checker tries all four orientations of a two-argument equality pair) and `not_symm` (the
+contraposition of that equivalence). `eq_transitive` and `eq_congruent` are *variants* and left
+alone: Carcara checks them with the very functions `trans` and `cong` call, so eliminating them
+would trade steps for nothing. Their discharge-subproof reductions live in `core/equality.rs`,
+complete and tested, but registered by no regime.
 
 **Arithmetic.** `la_totality` and the binary form of `la_tautology` (→ `la_generic` + the
 `or_intro` packing pattern; the unit form is a coefficient-`[1]` `la_generic` rename), and
@@ -155,14 +157,77 @@ the body from the substituted formula by refuting the trivialized guards (`refl`
 The whole equivalence lives inside the now-vacuous anchor and closes with the generalized
 `bind`.
 
-`ite_intro` derives each ite-subterm's
-selection tautology `(ite c (= s r₁) (= s r₂))` by a two-branch discharge over the condition:
-under the assumed (negated) condition, `equiv_neg1/2` and the `true`/`false` axioms give
-`(= c ⊤)`/`(= c ⊥)`, `cong` lifts that into `s = (ite c r₁ r₂)`, and the term-level branch
-selection is the `rare_rewrite` rule `ite-true-cond`/`ite-false-cond` of the alethe-toolkit
-rule set (shipped as `rare-tests/rare/ite-intro.rare`); the branches are crossed with the
-`ite_neg1/2` axioms and the equivalence is packed by `and_neg`/`and_pos` and the
-iff-introduction pattern.
+**Legacy.** `qnt_cnf` instantiates the premise's quantifier under the conclusion's anchor and
+descends to the conclusion's clause by one CNF-axiom step per connective on the path from the body
+to the clause's literals, the branch choices guided by the checker's own CNF — a linear resolution
+chain, subproof-free but for the closing `bind`.
+
+`bfun_elim` reduces both of the transformations its checker applies, wherever in the premise they
+happen, and in the same order.
+
+The *second step* — an application with a non-constant Boolean argument becoming an `ite` over
+that argument — is an equivalence, derived per `ite` node of the conclusion's tree by two
+subproof-free branches: `equiv_neg1`/`equiv_neg2` and the `true`/`false` axioms give the
+conditional literal `(cl (= c ⊤) ¬c)`, the clausal `eq_congruent` carries it into the application,
+`ite_then_intro`/`ite_else_intro` select the branch out of the `ite`, `eq_transitive` chains the
+two, and the branches resolve on the condition.
+
+The *first step* — a quantifier over Boolean variables becoming the conjunction (or disjunction)
+of its `2^k` instances — comes in two derivations, because what a position needs differs. At the
+**top of the premise** an implication suffices, and that is the cheap one: `forall_inst` at each
+Boolean assignment, `and_neg` to repack, a closing `bind` over the remaining variables. At **any
+other position** a congruence has to carry it, and a congruence only carries an equivalence, so
+the ← direction is derived too: under an anchor over the quantifier's variables, each instance is
+taken out of the packing (`and_pos`) and turned back into the body by a case split on the Boolean
+variables, after which the `2^k` branches resolve on those variables and close with the
+generalized `bind`. That case split *assumes* its hypotheses, in a discharge subproof: it is a
+split on the anchor's own variables, so nothing in it is context-free and the subproof costs no
+sharing, and the unit hypotheses `(= x ⊤)` are what let plain `cong` carry the rewriting up the
+body and the vanilla `bind` carry it through a binder of the body — which the literal-based route
+cannot cross, since neither form of `bind` carries a conditional equality through a quantifier.
+
+An `exists` goes through the quantifier duality: `(∃X.φ)` is `¬(∀X.¬φ)`, and its expansion is the
+same equivalence with the instances packed as `(not (or φ[σ]))` — the shape that turns back into
+`(∃ȳ. (or φ[σ]))` under the duality, with no De Morgan step in between. The packing then reads
+`or_pos`/`or_neg` where the plain case reads `and_neg`/`and_pos`, and nothing else changes.
+
+`cong` carries the equalities to the positions they sit at, `bind` takes them under a quantifier,
+and `equiv_pos2` crosses the whole rewriting with the top-level implication. For one Boolean
+variable, and counting only the steps the reduction adds: **8** for the top-level implication,
+**41** where the equivalence is needed, **60** for an `exists` — which is why the cheap derivation
+is kept for the position that can use it.
+
+What is kept: expansions under a `let` or a `choice`/`lambda` binder — `bind` over the `choice`
+binder is what the core deliberately leaves out — and a conclusion only *polyeq*-equal to the
+expansion, which the `polyeq` pass normalizes upstream. Both are refused explicitly, so the log
+names the reason.
+
+The repeated leaves of a reduction — `refl` on one term, the conditional literal for one
+condition, the `true`/`false` axioms — are built once per step (`Builder::leaf`), at the step's
+own depth where every scope the reduction opens can see them. On a three-argument application,
+whose expansion is a tree of seven `ite`s, that takes the reduction from 147 steps to 99.
+
+The clausal equality rules are what keep those branches subproof-free, and the choice is forced.
+The hypothesis a branch reasons under is available only as a *literal* — `cong` and `trans` take
+their hypotheses as unit premises, so using them would mean assuming the condition and discharging
+it, once per `ite` node. `eq_congruent` and `eq_transitive` state the same judgments as
+premise-free clauses, so the hypothesis stays a literal; and they cost nothing in the
+classification, being *variants* that Carcara checks with the functions `cong`/`trans` call.
+Staying subproof-free is also what makes a *ground* branch shareable at all, since both the `core`
+pass's memo and the `hoist` pass refuse a derivation that reaches an assumption or a subproof.
+Neither picks these up as things stand — the memo is keyed by the *elaborated step's* conclusion,
+and `hoist` runs before `core` in the default pipelines — so collecting them is a matter of a
+`hoist` stage after `core`.
+
+`ite_intro` derives each ite-subterm's selection tautology `(ite c (= s r₁) (= s r₂))` from the
+term-`ite` selection axioms: `ite_then_intro` is `(cl ¬c (= s r₁))` and `ite_else_intro` is
+`(cl c (= s r₂))` outright, and `ite_neg1/2` cross them into the tautology — five steps and no
+subproof, plus `refl` + `cong` (the flip of an equality is a congruence instance) and `equiv_pos2`
+for an equality the rule wrote the other way round, which is veriT's usual orientation. The
+equivalence is then packed by `and_neg`/`and_pos` and the iff-introduction pattern. The earlier
+derivation assumed the condition and selected the branch with the `rare_rewrite` rules
+`ite-true-cond`/`ite-false-cond`, so checking its output needed the RARE file; it does not any
+more, and each tautology went from ~31 steps to 13–20.
 
 Since the convenience rules `equiv_intro` and `or_intro` are proposals not yet checked by
 Carcara, the pass emits their *expansions* (`equiv_neg1/2` + resolutions, `or_neg` × n +
@@ -177,8 +242,14 @@ checking power, so the other regimes keep them. `--pipeline … core-expensive` 
 |---|---|
 | `poly_simp` | two `la_generic` bounds closed by `la_disequality` (linear identities only — a nonlinear one keeps the step) |
 | `aci_simp` | the two clausal directions of the equivalence, over `and_pos`/`and_neg`/`or_pos`/`or_neg`, closed by the iff-introduction pattern |
-| `eq_transitive`, `eq_congruent`, `eq_symmetric` | their discharge-subproof derivations over `trans`/`cong`/`symm` |
-| `sko_ex` | the duality route through `sko_forall` and `qnt_duality` |
+
+Those two are the whole regime (`get_expensive_elaboration_function`), and the rest of the tier is
+deliberately not in it. `eq_transitive` and `eq_congruent` are *variants* rather than reducible
+rules — checked by the very functions `trans` and `cong` call, so eliminating them would trade
+steps for nothing — and `eq_symmetric`/`not_symm` are reduced by the default pass instead, on the
+cheap `cong` route. `sko_ex` is *expensive* but its recipe is complete and lives in
+`core/skolem.rs`; re-enabling it is an entry in `get_elaboration_function`, not a regime of its
+own (see below).
 
 It runs after the regime that handles the other tiers, e.g.
 
@@ -194,7 +265,7 @@ checking time, is measured in the evaluation report.
 
 The pass is best-effort and never rejects a proof: a step whose shape a recipe does not cover
 (e.g. an `exists`-form quantifier rewrite, a `nary_elim` over a chainable operator, a
-`bfun_elim` whose Boolean arguments sit below uninterpreted functions), or whose reduction
+`bfun_elim` whose case split would have to cross a binder), or whose reduction
 fails, is kept unchanged and a warning is logged. In particular the following stay untouched,
 by design:
 

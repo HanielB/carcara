@@ -38,6 +38,7 @@ pub mod skolem;
 
 use crate::{ast::*, elaborator::error::ElaborationError};
 use indexmap::IndexSet;
+use std::collections::HashMap;
 
 /// A helper to build the derivations that the `core` pass emits.
 ///
@@ -49,6 +50,14 @@ pub struct Builder<'a> {
     pub pool: &'a mut PrimitivePool,
     ids: CoreIdHelper,
     depth: usize,
+
+    /// The depth of the step being reduced, where a derivation is visible from every scope the
+    /// reduction opens.
+    base_depth: usize,
+
+    /// The premise-free derivations built at the base depth so far, by conclusion; see
+    /// [`Builder::leaf`].
+    leaves: HashMap<Vec<Rc<Term>>, Rc<ProofNode>>,
 }
 
 /// An id generator for the steps the `core` pass emits. It works like [`IdHelper`], but generates
@@ -95,7 +104,38 @@ impl<'a> Builder<'a> {
             pool,
             ids: CoreIdHelper::new(&step.id),
             depth: step.depth,
+            base_depth: step.depth,
+            leaves: HashMap::new(),
         }
+    }
+
+    /// Builds a premise-free derivation of `clause` at most once per reduction.
+    ///
+    /// The recipes emit the same closed leaves over and over — `refl` on one term, the conditional
+    /// literal `(cl (= c ⊤) ¬c)` for one condition, the `true`/`false` axioms — and a derivation
+    /// that reaches no assumption and no premise proves its clause on its own, so two with the
+    /// same clause are interchangeable. A derivation is memoized only when built at the
+    /// reduction's base depth, where every scope the reduction opens can see it; a deeper one is
+    /// built each time it is asked for (sharing those is the `hoist` pass's job).
+    ///
+    /// `build` must produce a derivation of exactly `clause` whose leaves are premise-free steps.
+    pub fn leaf<F>(
+        &mut self,
+        clause: Vec<Rc<Term>>,
+        build: F,
+    ) -> Result<Rc<ProofNode>, ElaborationError>
+    where
+        F: FnOnce(&mut Self) -> Result<Rc<ProofNode>, ElaborationError>,
+    {
+        if self.depth != self.base_depth {
+            return build(self);
+        }
+        if let Some(node) = self.leaves.get(&clause) {
+            return Ok(node.clone());
+        }
+        let node = build(self)?;
+        self.leaves.insert(clause, node.clone());
+        Ok(node)
     }
 
     /// Builds the term `(not term)`.
@@ -617,9 +657,10 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "la_mult_pos" | "la_mult_neg" => arithmetic::la_mult,
         "poly_simp_rel" => arithmetic::poly_simp_rel,
 
-        // ACI reasoning (`ac_simp` is the one legacy rule with a working fallback: `lia_generic`
-        // is excluded from this pass, `qnt_cnf` is oracle-only, and `ite_intro`/`bfun_elim` need
-        // term-level `ite` axioms outside the core — their classification is *removal*)
+        // ACI reasoning. Every legacy rule but `lia_generic`, which carries no certificate at
+        // all and is the `hole` pass's job, has a fallback: `ac_simp` here, and
+        // `qnt_cnf`/`bfun_elim`/`ite_intro` under "Binder" below. Their classification stays
+        // *removal* all the same — a reduction is not a reason to keep emitting them
         "shuffle" => simplification::shuffle,
         "nary_elim" => simplification::nary_elim,
         "ac_simp" => simplification::ac_simp,
