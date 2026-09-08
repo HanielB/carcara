@@ -77,9 +77,23 @@ premise `F` concluded as a clause into `(cl (or ...))` like `resolution` does; R
 valid in 4 s. Regression sweep with this binary: regress0 442/27/6, regress1 104/14/1 (from
 439/29/7 and 98/20/1); no `cong`/`ho_cong` holes remain (38 of 41 holey files are trust-only,
 3 are rewrites without RARE definitions); `proofs/issue11750` (higher-order partial
-application) is valid too. Run 2 of the full evaluation with this binary (job `cpccall2`,
-results `cpcCarcaraEval/all2`, the `all2` submission script in `~/exp/cpcCarcaraEval`) is
-pending.
+application) is valid too. Run 2 of the full evaluation with this binary is below.
+
+## Full run 2 (batch with carcara `7053cdcf`, results `cpcCarcaraEval/all2`)
+
+**72,645 valid / 3 holey / 2 rejected / 0 checking timeouts** of 74,601 (cvc5 side: 1,788
+unproved, 92 no proof, 71 memouts). The 3 holey are the shared `macro-quant-var-elim-eq` trust;
+the 2 rejections are the `choice`-binder problems (same as the Alethe pipeline). Every other
+printed proof checks: the 29 congruence holes and the RF-00 rejection of run 1 are valid now.
+More proofs valid than the Alethe pipeline (72,609) and than CPC + ethos (71,997).
+- vs CPC + ethos (71,992 common): checking 53,389 s vs 551,777 s, **10.3x** (median 4.5x,
+  faster on 96.2%), bytes 1.12x, steps identical, pipeline 0.62x; unique 653 vs 5.
+- vs Alethe + carcara (72,605 common): checking 80,433 s vs 38,056 s, **2.11x** (median
+  1.17x), bytes 1.81x (median 1.08), steps 0.92x, solve+print 0.91x, pipeline 0.96x; unique
+  40 (38 Alethe printing timeouts) vs 4.
+- Time split (72,645 valid, 78,508 s): parsing 41%, translation 31%, checking 29%.
+The report (`~/exp/cpcCarcaraEval/report/report.pdf`, 5 pages) is on this run; tables
+`all2-tables.{txt,tex}`.
 
 ## Open items
 
