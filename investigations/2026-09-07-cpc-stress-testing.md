@@ -26,6 +26,10 @@ only Ethos, 14 only Carcara, 0 crashes, 14 both reject.
   `--proof-print-conclusion` the CPC printer shares terms with `let`, which Ethos has no
   symbol for ("Could not find symbol let"). Carcara handles them.
 
+Over regress1 (1,151 benchmarks, 411 proved): 183 both accept, 187 only Ethos (same
+unsupported theories), 14 only Carcara (the same `let` parse failures), 27 both reject, and
+**one Carcara crash**, on a valid proof, which is defect 4 below.
+
 **Mutation fuzzing** (`scripts/fuzz-cpc.py`). Takes proofs Carcara accepts as valid, corrupts
 one step at a time — dropping, reordering or restating premises, conclusions, rules and
 arguments, and tampering with assumptions — and requires rejection. Mutations are applied only
@@ -60,7 +64,15 @@ all rejected, no crash.
    reaches a bit-vector rule with a term of another sort aborted the checker
    ("trying to get size of non-bitvector term"). The helper and the four bit-blasting helpers
    that use it are now fallible, and the step is rejected with a new `ExpectedBvTerm` error.
-4. Two harness defects worth recording, since they produced false positives: a premise-drop
+4. **The sort of a tuple selection was computed from the wrong list** (fixed in `c659da7c`).
+   `((_ tuple.select i) t)` indexed the application's arguments with `i`, the *operator's*
+   argument, so any index past the single argument aborted the checker while parsing — the
+   crash the regress1 differential found, on an unmutated proof
+   (`regress1/rels/bv1p.cvc.smt2`). The sort is now the `i`-th component of the argument's
+   tuple sort, and a non-tuple argument or an index out of range leaves the sort undefined.
+   The proof is still rejected, since relations are outside the supported fragment, but with
+   an error rather than a panic.
+5. Two harness defects worth recording, since they produced false positives: a premise-drop
    mutation that re-evaluated its random choice per element (so it often dropped nothing), and
    a problem corruption that dropped or negated a *single* assertion — a proof that uses a
    subset of the assertions legitimately survives that, so the check now corrupts every
