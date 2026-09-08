@@ -1,6 +1,6 @@
 use super::{
     ContextStack,
-    error::{CheckerError, EqualityError},
+    error::{CheckerError, EqualityError, ErrorDisplay},
 };
 use crate::{
     ast::{
@@ -106,7 +106,7 @@ fn assert_operation_len<T: Into<Range>>(op: Operator, args: &[Rc<Term>], range: 
 
 fn assert_eq<T>(a: &T, b: &T) -> RuleResult
 where
-    T: Eq + Clone + TypeName,
+    T: Eq + Clone + TypeName + ErrorDisplay,
     EqualityError<T>: Into<CheckerError>,
 {
     if a != b {
@@ -117,7 +117,7 @@ where
 
 fn assert_is_expected<T>(got: &T, expected: T) -> RuleResult
 where
-    T: Eq + Clone + TypeName,
+    T: Eq + Clone + TypeName + ErrorDisplay,
     EqualityError<T>: Into<CheckerError>,
 {
     if *got != expected {

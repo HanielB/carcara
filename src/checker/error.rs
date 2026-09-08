@@ -308,19 +308,51 @@ pub enum CheckerError {
     UnknownRule,
 }
 
+/// How a value is rendered in an error message. Terms are rendered by
+/// [`printer::format_for_error`], which bounds their size; everything else is rendered by its
+/// `Display`.
+pub trait ErrorDisplay {
+    /// The value as it should appear in an error message.
+    fn error_display(&self) -> String;
+}
+
+impl ErrorDisplay for Rc<Term> {
+    fn error_display(&self) -> String {
+        crate::ast::printer::format_for_error(self)
+    }
+}
+
+macro_rules! plain_error_display {
+    ($($t:ty),* $(,)?) => {
+        $(impl ErrorDisplay for $t {
+            fn error_display(&self) -> String {
+                self.to_string()
+            }
+        })*
+    };
+}
+
+plain_error_display!(
+    Rc<Sort>,
+    Binder,
+    BindingList,
+    BindingList<Rc<Term>>,
+    Integer
+);
+
 /// Errors in which we expected two things to be equal but they weren't.
 #[derive(Debug, Error)]
-pub enum EqualityError<T: TypeName> {
+pub enum EqualityError<T: TypeName + ErrorDisplay> {
     /// The two values were expected to be equal.
     ///
     /// This implies no preference to either value.
-    #[error("expected {}s to be equal: '{}' and '{}'", T::NAME, .0, .1)]
+    #[error("expected {}s to be equal: '{}' and '{}'", T::NAME, .0.error_display(), .1.error_display())]
     ExpectedEqual(T, T),
 
     /// We expected a specific value, but got another.
     ///
     /// This gives preference to `expected` being the 'correct' value.
-    #[error("expected {} '{got}' to be '{expected}'", T::NAME)]
+    #[error("expected {} '{}' to be '{}'", T::NAME, .got.error_display(), .expected.error_display())]
     ExpectedToBe {
         /// The expected value.
         expected: T,

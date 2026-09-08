@@ -558,6 +558,67 @@ fn escape_string(string: &str) -> Cow<'_, str> {
     }
 }
 
+/// The maximum number of bytes of a term rendered for an error message.
+pub const MAX_ERROR_TERM_BYTES: usize = 4096;
+
+/// A writer that discards everything after `limit` bytes, recording whether it did.
+struct BoundedWriter {
+    buf: Vec<u8>,
+    limit: usize,
+    truncated: bool,
+}
+
+impl std::io::Write for BoundedWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len() >= self.limit {
+            // Fail once the limit is reached, so that the printer stops traversing the term:
+            // discarding the bytes but walking on would still take minutes on a term with
+            // millions of nodes
+            self.truncated = true;
+            return Err(std::io::Error::from(std::io::ErrorKind::WriteZero));
+        }
+        let room = self.limit - self.buf.len();
+        self.buf.extend_from_slice(&data[..room.min(data.len())]);
+        self.truncated |= data.len() > room;
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Renders a term for an error message, stopping after [`MAX_ERROR_TERM_BYTES`] bytes and
+/// appending an ellipsis. The printed form of a term can be enormous — the bit-blasting of a
+/// bit-vector operation is a term with millions of nodes — and rendering one in full to report
+/// a rejected step has exhausted memory before the error could be printed.
+pub fn format_for_error(term: &Term) -> String {
+    let use_sharing = USE_SHARING_IN_TERM_DISPLAY.load(Ordering::Relaxed);
+    let mut writer = BoundedWriter {
+        buf: Vec::new(),
+        limit: MAX_ERROR_TERM_BYTES,
+        truncated: false,
+    };
+    let mut pool = PrimitivePool::new();
+    let mut printer = AlethePrinter {
+        pool: &mut pool,
+        inner: &mut writer,
+        term_indices: use_sharing.then(IndexMap::new),
+        term_sharing_variable_prefix: "@p_".to_owned(),
+        global_variables: HashSet::new(),
+        defined_constants: HashMap::new(),
+        smt_lib_strict: false,
+        use_sharing,
+    };
+    let _ = printer.write_raw_term(term);
+    let truncated = writer.truncated;
+    let mut result = String::from_utf8_lossy(&writer.buf).into_owned();
+    if truncated {
+        result.push_str("...");
+    }
+    result
+}
+
 impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // If the alternate flag (`#`) is passed, or the global `USE_SHARING_IN_TERM_DISPLAY` is

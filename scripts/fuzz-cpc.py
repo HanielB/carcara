@@ -67,27 +67,39 @@ def parse(path):
     return [Command(i, l) for i, l in enumerate(lines)]
 
 
+def scopes(commands):
+    """Maps the id of each `step-pop` to the id of the `assume-push` it closes."""
+    stack, closed = [], {}
+    for c in commands:
+        if c.line.startswith('(assume-push'):
+            stack.append(c.id)
+        elif c.line.startswith('(step-pop') and stack:
+            closed[c.id] = stack.pop()
+    return closed
+
+
 def reachable(commands):
-    """The ids of the commands the last step transitively depends on. Scopes are approximated
-    by keeping every command of a scope whose closing `step-pop` is reached."""
+    """The ids of the commands the last step transitively depends on: its premises, and the
+    assumption a reached `step-pop` discharges. Commands outside this set are pruned by the
+    translation, so mutating them is a no-op."""
     by_id = {c.id: c for c in commands if c.id}
+    closed = scopes(commands)
     last = next((c for c in reversed(commands) if c.kind == 'step'), None)
     if last is None:
         return set()
     seen, work = {last.id}, [last.id]
     while work:
-        c = by_id.get(work.pop())
+        current = work.pop()
+        c = by_id.get(current)
         if c is None or c.kind != 'step':
             continue
-        for p in c.premises:
+        needed = list(c.premises)
+        if current in closed:
+            needed.append(closed[current])
+        for p in needed:
             if p not in seen:
                 seen.add(p)
                 work.append(p)
-    # A reached `step-pop` keeps the whole scope it closes
-    if any(c.line.startswith('(step-pop') and c.id in seen for c in commands):
-        for c in commands:
-            if c.id:
-                seen.add(c.id)
     return seen
 
 
@@ -189,18 +201,19 @@ def problem_checks(carcara, rare, proof, problem, tmpdir):
         lines = f.read().splitlines()
     asserts = [i for i, l in enumerate(lines) if l.strip().startswith('(assert')]
     results = []
-    for kind in ('drop', 'negate'):
+    for kind in ('drop-all', 'negate-all'):
         if not asserts:
             break
-        i = asserts[len(asserts) // 2]
+        # Every assertion is corrupted, not just one: a proof that uses only a subset of the
+        # assertions stays valid when an assertion it does not use is dropped or negated
         new_lines = list(lines)
-        if kind == 'drop':
-            del new_lines[i]
+        if kind == 'drop-all':
+            new_lines = [l for i, l in enumerate(lines) if i not in set(asserts)]
         else:
-            body = new_lines[i].strip()
-            if not (body.startswith('(assert ') and body.endswith(')')):
-                continue
-            new_lines[i] = '(assert (not ' + body[len('(assert '):-1] + '))'
+            for i in asserts:
+                body = lines[i].strip()
+                if body.startswith('(assert ') and body.endswith(')'):
+                    new_lines[i] = '(assert (not ' + body[len('(assert '):-1] + '))'
         path = os.path.join(tmpdir, f'problem-{kind}.smt2')
         with open(path, 'w') as f:
             f.write('\n'.join(new_lines) + '\n')
