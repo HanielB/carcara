@@ -72,6 +72,10 @@ pub struct Config {
     /// real derivation by a holey one.
     pub allowed_rules: HashSet<String>,
 
+    /// If `Some`, the `core` passes (`core`, `core-taut`, `core-no-rare`, `core-simp-rare`,
+    /// `core-expensive`) only reduce steps whose rule is in this set; every other step is kept.
+    pub core_rules: Option<HashSet<String>>,
+
     /// The RARE rule set given to the checker (via `--rare-file`). The `core-simp-rare` pass
     /// needs it to emit `rare_rewrite` lemmas when replaying the `*_simplify` rewrite chains.
     pub rare_rules: Option<crate::ast::rare_rules::Rules>,
@@ -454,9 +458,15 @@ impl<'e> Elaborator<'e> {
 
         let mut sharing = core::share::Sharing::new(&proof);
         let rare_rules = self.config.rare_rules.clone();
+        let core_rules = self.config.core_rules.clone();
         let result = proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
+                    if let Some(rules) = &core_rules {
+                        if !rules.contains(&s.rule) {
+                            return Ok(node.clone());
+                        }
+                    }
                     let attempt = if core::rewrites::is_rewrite_rule(&s.rule) {
                         match s.rule.as_str() {
                             // These are *reducible*, so the plain `core` pass reduces them
@@ -579,9 +589,15 @@ impl<'e> Elaborator<'e> {
     ) -> Result<ProofNodeForest, ElaborationErrorAtStep> {
         let mut sharing = core::share::Sharing::new(&proof);
         let deferred = nested_binds(&proof);
+        let core_rules = self.config.core_rules.clone();
         let result = proof.mutate(|context, node, _| {
             match node.as_ref() {
                 ProofNode::Step(s) => {
+                    if let Some(rules) = &core_rules {
+                        if !rules.contains(&s.rule) {
+                            return Ok(node.clone());
+                        }
+                    }
                     if let Some(func) = core::get_expensive_elaboration_function(&s.rule) {
                         match func(self.pool, context, s) {
                             Ok(new_node) => {

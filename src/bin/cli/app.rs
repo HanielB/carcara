@@ -240,6 +240,11 @@ pub struct ElaborationOptions {
         default_values = &["hoist", "polyeq", "hole", "local", "uncrowd", "reordering"]
     )]
     pub pipeline: Vec<ElaborationPass>,
+
+    /// Restrict the `core` passes (`core`, `core-taut`, `core-no-rare`, `core-simp-rare`,
+    /// `core-expensive`) to reducing only the steps with these rules; every other step is kept.
+    #[clap(long, num_args = 1..)]
+    pub core_rules: Option<Vec<String>>,
 }
 
 #[derive(Args)]
@@ -531,6 +536,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
             .hole_solver(t.smt_solver.clone())
             .sat_ref_tools(t.into_config())
             .allowed_rules(c.allowed_rules.unwrap_or_default().into_iter().collect())
+            .core_rules(e.core_rules.clone().map(|v| v.into_iter().collect()))
             .keep_unused(e.keep_unused);
         (config, pipeline)
     }
