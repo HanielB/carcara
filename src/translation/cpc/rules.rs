@@ -5,10 +5,33 @@ use super::{CpcTranslator, Info, ResPremise, Result, TranslationError};
 use crate::ast::*;
 
 impl CpcTranslator<'_> {
+    /// The number of premises and arguments the translation of a rule reads. A step with fewer
+    /// is malformed, and translating it would index past the end of its lists.
+    fn required_arity(rule: &str) -> (usize, usize) {
+        match rule {
+            "modus_ponens" | "eq_resolve" => (2, 0),
+            "implies_elim" | "not_and" | "factoring" | "reordering" | "contra" | "not_not_elim"
+            | "true_intro" | "true_elim" | "false_intro" | "false_elim" | "int_tight_ub"
+            | "int_tight_lb" => (1, 0),
+            "instantiate" => (1, 1),
+            "split" | "arith_reduction" => (0, 1),
+            "chain_resolution" => (0, 2),
+            "chain_m_resolution" => (0, 3),
+            _ => (0, 0),
+        }
+    }
+
     pub(super) fn translate_step(&mut self, step: &ProofStep) -> Result<Info> {
         let id = step.id.clone();
         let rule = step.rule.as_str();
-        let res = self.convert(&step.clause[0]);
+        let Some(conclusion) = step.clause.first() else {
+            return Err(TranslationError::InvalidStep {
+                id,
+                rule: rule.to_owned(),
+                reason: "step has no conclusion".to_owned(),
+            });
+        };
+        let res = self.convert(conclusion);
 
         if rule == "process_scope" {
             return self.translate_process_scope(step, res);
@@ -22,6 +45,21 @@ impl CpcTranslator<'_> {
 
         let premises = self.resolve_premises(step)?;
         let positions: Vec<_> = premises.iter().map(|p| p.position).collect();
+
+        let (min_premises, min_args) = Self::required_arity(rule);
+        if premises.len() < min_premises || step.args.len() < min_args {
+            return Err(TranslationError::InvalidStep {
+                id,
+                rule: rule.to_owned(),
+                reason: format!(
+                    "expected at least {} premises and {} arguments, got {} and {}",
+                    min_premises,
+                    min_args,
+                    premises.len(),
+                    step.args.len()
+                ),
+            });
+        }
 
         let info = match rule {
             //==================================================================================//
