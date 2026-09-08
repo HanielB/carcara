@@ -2,7 +2,7 @@
 
 Looking for valid CPC proofs Carcara breaks on, and invalid ones it accepts, exercising the
 parser, the translation and the checker. Three harnesses, two of them committed
-(`scripts/stress-cpc.sh`, `scripts/fuzz-cpc.py`); branch `cpcCheck-bv`. Four defects were
+(`scripts/stress-cpc.sh`, `scripts/fuzz-cpc.py`); branch `cpcCheck-bv`. Four Carcara defects were
 found and fixed, all of them robustness rather than soundness: no mutant of a valid proof was
 accepted, and no proof was accepted against a problem that does not entail it.
 
