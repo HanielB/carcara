@@ -73,19 +73,30 @@ pub fn qnt_join(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     let (left, right) = match_term_err!((= l r) = &conclusion[0])?;
 
     let (q_1, bindings_1, left) = left.as_quant_err()?;
-    let (q_2, bindings_2, left) = left.as_quant_err()?;
+    let (q_2, bindings_2, mut left) = left.as_quant_err()?;
     let (q_3, bindings_3, right) = right.as_quant_err()?;
 
     assert_eq(&q_1, &q_2)?;
     assert_eq(&q_2, &q_3)?;
+
+    // The left-hand side may nest more than two quantifiers of the same kind (cvc5 joins a whole
+    // prefix at once): every level is merged, in order
+    let mut inner_bindings: Vec<SortedVar> = bindings_2.iter().cloned().collect();
+    while let Some((q, bindings, body)) = left.as_quant() {
+        if q != q_1 || left == right {
+            break;
+        }
+        inner_bindings.extend(bindings.iter().cloned());
+        left = body;
+    }
     assert_eq(left, right)?;
 
-    let combined = bindings_1.iter().chain(bindings_2).dedup();
+    let combined = bindings_1.iter().chain(inner_bindings.iter()).dedup();
     rassert!(
         bindings_3.iter().eq(combined),
         QuantifierError::JoinFailed {
             left_outer: bindings_1.clone(),
-            left_inner: bindings_2.clone(),
+            left_inner: crate::ast::BindingList(inner_bindings.clone()),
             right: bindings_3.clone()
         }
     );
