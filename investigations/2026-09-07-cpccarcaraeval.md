@@ -95,6 +95,15 @@ More proofs valid than the Alethe pipeline (72,609) and than CPC + ethos (71,997
 The report (`~/exp/cpcCarcaraEval/report/report.pdf`, 5 pages) is on this run; tables
 `all2-tables.{txt,tex}`.
 
+## Decision on the by-zero evaluations (Haniel, 2026-09-07)
+
+The two regressions still rejected (`arith/div.01`, `minimal_unsat_core`) are QF_NIA, with a
+variable dividing itself: cvc5's rewriter folds `(div_total 0 0)` in a dead `ite` branch (its
+rules `arith-int-div-total-zero`/`arith-int-mod-total-zero`), a fact with no SMT-LIB meaning.
+There will be no total operators in carcara, and no translation special case: carcara keeps
+rejecting such proofs. The pattern needs a nonlinear division and does not occur in the
+AUFBVLIRA evaluation corpus.
+
 ## Open items
 
 1. Parsing is the largest share of the CPC + carcara time; the CPC file carries the
