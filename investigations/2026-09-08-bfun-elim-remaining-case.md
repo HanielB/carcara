@@ -182,3 +182,35 @@ its outcome is a pipeline decision rather than a recipe.
   the local `benchmarks/` tree; the count of duplicate leaves across steps, and the effect of a
   `hoist` stage after `core`, need the veriT UF/UFLIA arm on the cluster. Local evidence is the
   generated proofs only, where a second `hoist` has nothing left to find after `Builder::leaf`.
+
+## Corpus verification (same day)
+
+The two veriT arms of `~/exp/results/alethe-core` (`verit-smtlib`, `verit-smtlib2`; identical on
+this point) have 28 proofs with `bfun_elim` — 10 in `QF_UF/2018-Goel-hwbench`, 18 in
+`UF/20170428-Barrett/cdt-cade2015`. In **11** of them the step survived the `core` config:
+all ten `QF_UF` ones (2–24 steps each, always alongside `ite_intro` — the ite form on ground
+Boolean arguments to uninterpreted functions) and one `UF` (`bird_tree/…1019201`, 4 steps). The
+other 17 were the top-level `forall` form, reduced already.
+
+The runner keeps no proofs, so they were regenerated locally — the local
+`verit-2026.05/veriT-static` is byte-identical (md5) to the cluster's `runs/alethe-core/bin/veriT`,
+and the runner's flags (`--proof-with-sharing --proof-prune --proof-merge`) were used — and run
+through arm A's `core` config (`hoist polyeq local core core reordering`, elaborated
+granularity) and arm B's `bcore` (`core core`, default granularity) with the new binary:
+
+- **all 11 survivors reduce to zero `bfun_elim` (and zero `ite_intro`) in both arms, and check**;
+- the 17 already-reduced ones stay at zero, with one arm-B exception: `bird_tree/…1014381`
+  keeps its step under `core core`, as it did on the cluster (`bcore bfun_elim: 1` in the
+  record). Its conclusion has the equalities flipped relative to the expansion — the
+  *polyeq*-only case — and arm A, which runs `polyeq` first, reduces it;
+- five `UF` proofs check **invalid** — with the new binary, with the previous one, and as
+  emitted: the cluster's own `orig` verdict for `…983654`, `…1037844`, `…1096601`, `…1130425`,
+  `…1132283` is `invalid`, on an `and_simplify` step of veriT's (`(not (= (of_bool$ false)
+  (of_bool$ true)))` where the rule wants an `and`). Not a `bfun_elim` matter.
+
+Two reporting gaps surfaced on the way. A step a recipe *keeps* was silent: `keep()` returns
+`Ok`, and the pass only logs on `Err` — so the record's `warns=0` for the survivors was not
+evidence of anything. `bfun_elim` now returns `Inapplicable` when the rewriting does not reach the
+conclusion, which the pass logs. And the runner counts warnings with `grep -c "^warn"`, while
+Carcara's logger prefixes `[WARN]`; that grep matches nothing and `warns` is always 0 in every
+record of these arms — to fix in `~/exp/alethe-core/run-arms.sh` before the next round.

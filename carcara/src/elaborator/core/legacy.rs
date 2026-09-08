@@ -461,20 +461,23 @@ pub fn bfun_elim(
         None => (premise, premise_term),
     };
 
-    // Everything below it, as an equivalence between the expanded premise and the conclusion
+    // Everything below it, as an equivalence between the expanded premise and the conclusion. A
+    // conclusion the rewriting does not reach — only *polyeq*-equal to the expansion, or with
+    // something to expand under a `let`/`choice`/`lambda` — is reported, so that the kept step
+    // is logged rather than silently left
     let rewriting = if first_term == conclusion {
         None
     } else {
         match rewrite(&mut b, &first_term)? {
             Some((node, target)) if target == conclusion => Some(node),
-            _ => return keep(),
+            _ => return Err(ElaborationError::Inapplicable),
         }
     };
 
     let node = match rewriting {
         // The expansion concludes on its own; with no expansion either, there is nothing to reduce
         None if expansion.is_some() => first,
-        None => return keep(),
+        None => return Err(ElaborationError::Inapplicable),
         Some(rewriting) => {
             let equality = build_term!(b.pool, (= {first_term.clone()} {conclusion.clone()}));
             let not_equality = b.not(&equality);
