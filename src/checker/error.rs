@@ -249,6 +249,10 @@ pub enum CheckerError {
     #[error("division or modulo by zero")]
     DivOrModByZero,
 
+    /// A term was expected to be a bit-vector.
+    #[error("expected term '{}' to be a bit-vector", .0.error_display())]
+    ExpectedBvTerm(Rc<Term>),
+
     // Equality errors
     /// Two terms were expected to be equal.
     #[error(transparent)]

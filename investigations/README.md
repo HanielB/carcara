@@ -40,6 +40,7 @@ result can be reviewed without re-running the experiment.
 | 2026-09-06 | [CPC checking on the bv-fixes base: port, sweep and status](./2026-09-06-cpc-port.md) | `cpcCheck-bv` | port of `cpcCheck` (6 CPC commits) onto `bv-fixes`; regress0 142/27/4, regress1 67/21/1; exponential skolem-choice construction memoized; parser shadowing fix |
 | 2026-09-07 | [CPC checking: bit-vector logics and cvc5's reworked Alethe translation](./2026-09-07-cpc-bitvectors-and-reworks.md) | `cpcCheck-bv` | regress0 439/29/7, regress1 98/20/1 (328 BV files: 315/9/3); arith_reduction holes gone; short-circuits -15% steps; cpcCarcaraEval runner prepared |
 | 2026-09-07 | [cpcCarcaraEval: CPC + carcara against CPC + ethos and Alethe + carcara](./2026-09-07-cpccarcaraeval.md) | `cpcCheck-bv` | 74,601 benchmarks: 72,613 valid / 32 holey / 3 rejected; 10.4x faster than ethos on the same proofs, 2.1x slower than native Alethe checking (median 1.17x), pipeline 0.96x; time split parse 41 / translate 31 / check 29 |
+| 2026-09-07 | [Stress testing the CPC checking pipeline](./2026-09-07-cpc-stress-testing.md) | `cpcCheck-bv` | differential against ethos over all of regress0, mutation and text fuzzing: 4 robustness defects fixed (two panics, an 8 GB error print, a bit-vector panic); no mutant accepted, no unsound acceptance |
 
 Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecore-eval` (see its
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by

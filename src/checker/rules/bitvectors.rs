@@ -8,21 +8,23 @@ use crate::{
 };
 use rug::Integer;
 
-fn bitvector_size(pool: &mut dyn TermPool, term: &Rc<Term>) -> usize {
+/// The width of a bit-vector term. A step whose terms are not bit-vectors is rejected, rather
+/// than aborting the checker: the rules are reached with whatever a proof states.
+fn bitvector_size(pool: &mut dyn TermPool, term: &Rc<Term>) -> Result<usize, CheckerError> {
     if let Sort::BitVec(size) = pool.sort(term).as_ref() {
-        *size
+        Ok(*size)
     } else {
-        panic!("trying to get size of non-bitvector term: {}", term)
+        Err(CheckerError::ExpectedBvTerm(term.clone()))
     }
 }
 
-fn get_term_bits(term: &Rc<Term>, pool: &mut dyn TermPool) -> Vec<Rc<Term>> {
+fn get_term_bits(term: &Rc<Term>, pool: &mut dyn TermPool) -> Result<Vec<Rc<Term>>, CheckerError> {
     if let Some((Operator::BvBbTerm, args_x)) = term.as_op() {
-        args_x.to_vec()
+        Ok(args_x.to_vec())
     } else if let Term::Const(Constant::BitVec(value, width)) = term.as_ref() {
         // The bits of a constant are boolean constants, matching cvc5's bitblaster, which
         // constant-folds `@bit_of` applications on constants
-        (0..*width)
+        Ok((0..*width)
             .map(|i| {
                 if value.get_bit(i as u32) {
                     pool.bool_true()
@@ -30,9 +32,9 @@ fn get_term_bits(term: &Rc<Term>, pool: &mut dyn TermPool) -> Vec<Rc<Term>> {
                     pool.bool_false()
                 }
             })
-            .collect()
+            .collect())
     } else {
-        (0..bitvector_size(pool, term))
+        Ok((0..bitvector_size(pool, term)?)
             .map(|i| {
                 let op_args = vec![pool.add(Term::new_int(i))];
                 pool.add(Term::ParamOp {
@@ -41,7 +43,7 @@ fn get_term_bits(term: &Rc<Term>, pool: &mut dyn TermPool) -> Vec<Rc<Term>> {
                     args: vec![term.clone()],
                 })
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -78,10 +80,14 @@ fn ripple_carry_adder(
     (res, carries.pop().unwrap())
 }
 
-fn shift_add_multiplier(x: &Rc<Term>, y: &Rc<Term>, pool: &mut dyn TermPool) -> Rc<Term> {
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+fn shift_add_multiplier(
+    x: &Rc<Term>,
+    y: &Rc<Term>,
+    pool: &mut dyn TermPool,
+) -> Result<Rc<Term>, CheckerError> {
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let false_term = pool.bool_false();
     let shift: Vec<Vec<_>> = (0..size)
@@ -136,7 +142,7 @@ fn shift_add_multiplier(x: &Rc<Term>, y: &Rc<Term>, pool: &mut dyn TermPool) -> 
                       }).collect());
     }
 
-    pool.add(Term::Op(Operator::BvBbTerm, res[size - 1].clone()))
+    Ok(pool.add(Term::Op(Operator::BvBbTerm, res[size - 1].clone())))
 }
 
 pub fn value(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
@@ -186,7 +192,7 @@ pub fn var(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
             x
         ))
     );
-    let x = get_term_bits(x, pool);
+    let x = get_term_bits(x, pool)?;
 
     assert_eq(&pool.add(Term::Op(Operator::BvBbTerm, x)), res)
 }
@@ -195,15 +201,15 @@ pub fn and(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (bvand_args, res) = match_term_err!((= (bvand ...) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, &bvand_args[0]);
+    let size = bitvector_size(pool, &bvand_args[0])?;
 
     // the conjunction is build left-to-right
     let mut i = 1;
     let mut expected_res = bvand_args[0].clone();
 
     while i < bvand_args.len() {
-        let x = get_term_bits(&expected_res, pool);
-        let y = get_term_bits(&bvand_args[i], pool);
+        let x = get_term_bits(&expected_res, pool)?;
+        let y = get_term_bits(&bvand_args[i], pool)?;
 
         let res_args: Vec<_> = (0..size)
             .map(|i| {
@@ -224,15 +230,15 @@ pub fn or(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (bvor_args, res) = match_term_err!((= (bvor ...) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, &bvor_args[0]);
+    let size = bitvector_size(pool, &bvor_args[0])?;
 
     // the disjunction is build left-to-right
     let mut i = 1;
     let mut expected_res = bvor_args[0].clone();
 
     while i < bvor_args.len() {
-        let x = get_term_bits(&expected_res, pool);
-        let y = get_term_bits(&bvor_args[i], pool);
+        let x = get_term_bits(&expected_res, pool)?;
+        let y = get_term_bits(&bvor_args[i], pool)?;
 
         let res_args: Vec<_> = (0..size)
             .map(|i| {
@@ -253,15 +259,15 @@ pub fn xor(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (bvxor_args, res) = match_term_err!((= (bvxor ...) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, &bvxor_args[0]);
+    let size = bitvector_size(pool, &bvxor_args[0])?;
 
     // the conjunction is build left-to-right
     let mut i = 1;
     let mut expected_res = bvxor_args[0].clone();
 
     while i < bvxor_args.len() {
-        let x = get_term_bits(&expected_res, pool);
-        let y = get_term_bits(&bvxor_args[i], pool);
+        let x = get_term_bits(&expected_res, pool)?;
+        let y = get_term_bits(&bvxor_args[i], pool)?;
 
         let res_args: Vec<_> = (0..size)
             .map(|i| {
@@ -282,9 +288,9 @@ pub fn xnor(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvxnor x y) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let res_args: Vec<_> = (0..size)
         .map(|i| {
@@ -304,8 +310,8 @@ pub fn not(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, res) = match_term_err!((= (bvnot x) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
 
     let res_args: Vec<_> = (0..size)
         .map(|i| {
@@ -322,10 +328,14 @@ pub fn not(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
 }
 
 /// Bitblasts `(bvult x y)`
-fn bitblast_ult(pool: &mut dyn TermPool, x: &Rc<Term>, y: &Rc<Term>) -> Rc<Term> {
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+fn bitblast_ult(
+    pool: &mut dyn TermPool,
+    x: &Rc<Term>,
+    y: &Rc<Term>,
+) -> Result<Rc<Term>, CheckerError> {
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let mut res = build_term!(pool, (and (not {x[0].clone()}) {y[0].clone()}));
 
@@ -336,14 +346,14 @@ fn bitblast_ult(pool: &mut dyn TermPool, x: &Rc<Term>, y: &Rc<Term>) -> Rc<Term>
                 (and (not {x[i].clone()}) {y[i].clone()}))
         );
     }
-    res
+    Ok(res)
 }
 
 pub fn ult(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvult x y) res) = &conclusion[0])?;
 
-    let expected = bitblast_ult(pool, x, y);
+    let expected = bitblast_ult(pool, x, y)?;
 
     assert_eq(&expected, res)
 }
@@ -352,9 +362,9 @@ pub fn slt(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvslt x y) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     // if size is 1, check directly if x, whose only bit is its LSB,
     // is negative (i.e., first bit is 1) and y positive (i.e., it is
@@ -394,11 +404,11 @@ pub fn add(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let (add_args, res) = match_term_err!((= (bvadd ...) res) = &conclusion[0])?;
 
     let mut i = 1;
-    let mut expected_res = get_term_bits(&add_args[0], pool);
+    let mut expected_res = get_term_bits(&add_args[0], pool)?;
     while i < add_args.len() {
         expected_res = ripple_carry_adder(
             &expected_res,
-            &get_term_bits(&add_args[i], pool),
+            &get_term_bits(&add_args[i], pool)?,
             None,
             pool,
         )
@@ -416,7 +426,7 @@ pub fn mult(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let mut i = 1;
     let mut expected_res = mult_args[0].clone();
     while i < mult_args.len() {
-        expected_res = shift_add_multiplier(&expected_res, &mult_args[i], pool);
+        expected_res = shift_add_multiplier(&expected_res, &mult_args[i], pool)?;
         i += 1;
     }
     assert_eq(&expected_res, res)
@@ -426,8 +436,8 @@ pub fn neg(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, res) = match_term_err!((= (bvneg x) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
 
     let mut carries = vec![pool.bool_true()];
 
@@ -457,9 +467,9 @@ pub fn equality(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (= x y) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let expected_res_args: Vec<_> = (0..size)
         .map(|i| {
@@ -482,9 +492,9 @@ pub fn comp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvcomp x y) res) = &conclusion[0])?;
 
-    let size = bitvector_size(pool, x);
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+    let size = bitvector_size(pool, x)?;
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let expected_res_args: Vec<_> = (0..size)
         .map(|i| {
@@ -539,13 +549,16 @@ pub fn concat(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (concat_args, res_args) = match_term_err!((= (concat ...) (bbterm ...)) = &conclusion[0])?;
 
-    let mut size = bitvector_size(pool, &concat_args[concat_args.len() - 1]);
-    let mut expected_res = get_term_bits(&concat_args[concat_args.len() - 1], pool);
+    let mut size = bitvector_size(pool, &concat_args[concat_args.len() - 1])?;
+    let mut expected_res = get_term_bits(&concat_args[concat_args.len() - 1], pool)?;
 
     let mut i = 1;
     while i < concat_args.len() {
-        let size_i = bitvector_size(pool, &concat_args[concat_args.len() - 1 - i]);
-        expected_res.extend(get_term_bits(&concat_args[concat_args.len() - 1 - i], pool));
+        let size_i = bitvector_size(pool, &concat_args[concat_args.len() - 1 - i])?;
+        expected_res.extend(get_term_bits(
+            &concat_args[concat_args.len() - 1 - i],
+            pool,
+        )?);
 
         size += size_i;
         i += 1;
@@ -573,8 +586,8 @@ pub fn sign_extend(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
         return assert_eq(x, res);
     }
 
-    let size = bitvector_size(pool, x);
-    let mut x = get_term_bits(x, pool);
+    let size = bitvector_size(pool, x)?;
+    let mut x = get_term_bits(x, pool)?;
 
     for _j in 0..i {
         x.push(x[size - 1].clone());
@@ -590,15 +603,15 @@ fn bitblast_shift_op(
     op: Operator,
     x: &Rc<Term>,
     y: &Rc<Term>,
-) -> Rc<Term> {
-    let size = bitvector_size(pool, x);
+) -> Result<Rc<Term>, CheckerError> {
+    let size = bitvector_size(pool, x)?;
 
     // First, we will need to bitblast a term that corresponds to `(bvult y size)`
     let size_term = pool.add(Term::new_bv(size, size));
-    let y_ult_size = bitblast_ult(pool, y, &size_term);
+    let y_ult_size = bitblast_ult(pool, y, &size_term)?;
 
-    let x = get_term_bits(x, pool);
-    let y = get_term_bits(y, pool);
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let sign_bit = x.last().unwrap().clone();
     let mut res = x;
@@ -654,14 +667,14 @@ fn bitblast_shift_op(
             build_term!(pool, (ite {y_ult_size.clone()} {bit.clone()} {out_of_range_bit.clone()}));
     }
 
-    pool.add(Term::Op(Operator::BvBbTerm, res))
+    Ok(pool.add(Term::Op(Operator::BvBbTerm, res)))
 }
 
 pub fn shl(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvshl x y) res) = &conclusion[0])?;
 
-    let expected = bitblast_shift_op(pool, Operator::BvShl, x, y);
+    let expected = bitblast_shift_op(pool, Operator::BvShl, x, y)?;
 
     assert_eq(&expected, res)
 }
@@ -670,7 +683,7 @@ pub fn lshr(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvlshr x y) res) = &conclusion[0])?;
 
-    let expected = bitblast_shift_op(pool, Operator::BvLShr, x, y);
+    let expected = bitblast_shift_op(pool, Operator::BvLShr, x, y)?;
 
     assert_eq(&expected, res)
 }
@@ -679,7 +692,7 @@ pub fn ashr(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvashr x y) res) = &conclusion[0])?;
 
-    let expected = bitblast_shift_op(pool, Operator::BvAShr, x, y);
+    let expected = bitblast_shift_op(pool, Operator::BvAShr, x, y)?;
 
     assert_eq(&expected, res)
 }
@@ -754,8 +767,9 @@ fn bitblast_udiv_urem(
     pool: &mut dyn TermPool,
     x: &Rc<Term>,
     y: &Rc<Term>,
-) -> (Vec<Rc<Term>>, Vec<Rc<Term>>) {
-    let [x, y] = [x, y].map(|t| get_term_bits(t, pool));
+) -> Result<(Vec<Rc<Term>>, Vec<Rc<Term>>), CheckerError> {
+    let x = get_term_bits(x, pool)?;
+    let y = get_term_bits(y, pool)?;
 
     let (quot, rem) = bitblast_udiv_urem_rec(pool, &x, &y, x.len());
 
@@ -776,14 +790,14 @@ fn bitblast_udiv_urem(
         .zip(x)
         .map(|(ri, xi)| build_term!(pool, (ite {y_is_zero.clone()} {xi} {ri})))
         .collect();
-    (quot, rem)
+    Ok((quot, rem))
 }
 
 pub fn udiv(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvudiv x y) res) = &conclusion[0])?;
 
-    let (expected, _) = bitblast_udiv_urem(pool, x, y);
+    let (expected, _) = bitblast_udiv_urem(pool, x, y)?;
     let expected = pool.add(Term::Op(Operator::BvBbTerm, expected));
 
     assert_eq(&expected, res)
@@ -793,7 +807,7 @@ pub fn urem(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (x, y, res) = match_term_err!((= (bvurem x y) res) = &conclusion[0])?;
 
-    let (_, expected) = bitblast_udiv_urem(pool, x, y);
+    let (_, expected) = bitblast_udiv_urem(pool, x, y)?;
     let expected = pool.add(Term::Op(Operator::BvBbTerm, expected));
 
     assert_eq(&expected, res)
@@ -873,7 +887,7 @@ pub fn bitwise_slicing(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResul
     })?;
     let (a, c) = (&a, &c);
 
-    let width = bitvector_size(pool, c);
+    let width = bitvector_size(pool, c)?;
     let mut done: Integer = width.into();
     for slice in slices {
         let (slice_op, left, right) = as_bitwise_op(slice).ok_or_else(|| {
