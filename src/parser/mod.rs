@@ -80,7 +80,7 @@ pub struct Config {
     /// If `true`, the parser will eliminate `let` bindings from terms during parsing. This is done
     /// by replacing any occurrence of a variable bound in the `let` binding with its corresponding
     /// value.
-    expand_lets: bool,
+    pub expand_lets: bool,
 
     /// If `true`, this relaxes the type checking rules in Carcara to allow `Int`-`Real` subtyping.
     /// That is, terms of sort `Int` will be allowed in arithmetic operations where a `Real` term

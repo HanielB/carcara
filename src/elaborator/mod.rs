@@ -2,12 +2,14 @@
 
 mod core;
 pub mod error;
+mod expanded_lets;
 mod growth;
 mod hoist;
 mod hole;
 mod local;
 mod polyeq;
 mod prune;
+pub use expanded_lets::trivialize_let_steps;
 pub use prune::prune;
 mod reordering;
 mod sat_refutation;

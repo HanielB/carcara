@@ -176,8 +176,11 @@ pub fn check<'s>(
 
     // Parsing
     let total = Instant::now();
-    let (problem, proof, rules, mut pool) =
+    let (problem, mut proof, rules, mut pool) =
         parser::parse_instance(problem, proof, rules, parser_config)?;
+    if parser_config.expand_lets {
+        elaborator::trivialize_let_steps(&mut pool, &mut proof);
+    }
     run_measures.parsing = total.elapsed();
 
     // Checking
@@ -313,8 +316,11 @@ pub fn check_and_elaborate<'s>(
 
     // Parsing (Complete rare rules)
     let total = Instant::now();
-    let (problem, proof, rules, mut pool) =
+    let (problem, mut proof, rules, mut pool) =
         parser::parse_instance(problem, proof, rules, parser_config)?;
+    if parser_config.expand_lets {
+        elaborator::trivialize_let_steps(&mut pool, &mut proof);
+    }
     run.parsing = total.elapsed();
 
     let mut stats = OnlineBenchmarkResults::new();
