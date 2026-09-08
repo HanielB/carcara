@@ -176,6 +176,7 @@ pub fn parse_instance_with_pool<'s>(
 }
 
 /// A function definition, from a `define-fun` command.
+#[derive(Clone)]
 struct FunctionDef {
     params: Vec<SortedVar>,
     body: Rc<Term>,
@@ -232,6 +233,11 @@ struct SortDef {
 #[derive(Default)]
 struct ParserState {
     symbol_table: HashMapStack<HashCache<String>, Rc<Sort>>,
+
+    /// Scopes of `let_value_table` below this height are suspended (their bindings are not
+    /// expanded by `make_var`): the term of a `:named` annotation under `let` scopes is parsed
+    /// open in the enclosing let-bound variables, see `parse_annotated_term`.
+    let_suspend: usize,
 
     /// When let bindings are being expanded, maps each let-bound name to its value term, so that
     /// occurrences resolve to the value directly while the body is parsed. This makes the
@@ -442,6 +448,7 @@ impl<'p, 's> Parser<'p, 's> {
             Some((depth, s)) => {
                 if let Some((let_depth, value)) = self.state.let_value_table.get_with_depth(&cached)
                     && let_depth == depth
+                    && let_depth >= self.state.let_suspend
                 {
                     return Ok(value.clone());
                 }
@@ -450,6 +457,19 @@ impl<'p, 's> Parser<'p, 's> {
             None => return Err(ParserError::UndefinedIden(cached.unwrap())),
         };
         Ok(self.pool.add(Term::Var(cached.unwrap(), sort)))
+    }
+
+    /// The current value of a let-bound variable for applying a named macro (see
+    /// `parse_annotated_term`): its binding if it is expanded here, else the variable itself
+    /// (bindings suspended while a named term is parsed open, or no binding at all).
+    fn let_value_or_var(&mut self, name: &str, sort: &Rc<Sort>) -> Rc<Term> {
+        let cached = HashCache::new(name.to_owned());
+        if let Some((depth, value)) = self.state.let_value_table.get_with_depth(&cached) {
+            if depth >= self.state.let_suspend {
+                return value.clone();
+            }
+        }
+        self.pool.add(Term::new_var(name, sort.clone()))
     }
 
     /// Return whether we should interpret integer constants as `Real`s.
@@ -1662,9 +1682,15 @@ impl<'p, 's> Parser<'p, 's> {
             (Token::Decimal(r), _) => Term::new_real(r),
             (Token::String(s), _) => Term::new_string(s),
             (Token::Symbol(s), pos) => {
-                // Check to see if there is a nullary function defined with this name
-                return if let Some(func) = self.state.function_defs.get(&s) {
-                    func.apply(self.pool, Vec::new())
+                // Check to see if there is a nullary function defined with this name (a named
+                // term open in let-bound variables is applied to their current values, see
+                // `parse_annotated_term`)
+                return if let Some(func) = self.state.function_defs.get(&s).cloned() {
+                    let mut args = Vec::with_capacity(func.params.len());
+                    for (name, sort) in &func.params {
+                        args.push(self.let_value_or_var(name, sort));
+                    }
+                    func.apply(self.pool, args)
                         .map_err(|err| self.err(err, pos))
                 } else if let Ok(op) = Operator::from_str(&s) {
                     let args = Vec::new();
@@ -1770,18 +1796,59 @@ impl<'p, 's> Parser<'p, 's> {
     /// The two supported attributes are `:named` and `:pattern`, though the latter is ignored. If
     /// any other attribute is present, an error will be returned.
     fn parse_annotated_term(&mut self) -> CarcaraResult<Rc<Term>> {
-        let inner = self.parse_term()?;
+        // veriT (with `--proof-with-sharing`) names terms inside `let` scopes that mention the
+        // let-bound variables, and reuses the names under other bindings of the same variables.
+        // Under `--expand-let-bindings` such a name is therefore a macro over the let-bound
+        // variables the term mentions: it is registered as a function definition over them, and
+        // every occurrence is applied to the values the variables have there (see `make_var`'s
+        // counterpart in `parse_term`). Closed named terms, and parsing without let expansion, are
+        // unaffected.
+        let pos = self.current_position;
+        let in_let = self.config.expand_lets && !self.state.let_value_table.is_empty();
+        let (inner, open_def) = if in_let {
+            // parse the term with the enclosing let bindings suspended (lets nested in the term
+            // still expand), so that it is open in exactly the enclosing let-bound variables
+            let saved = self.state.let_suspend;
+            self.state.let_suspend = self.state.let_value_table.height();
+            let parsed = self.parse_term();
+            self.state.let_suspend = saved;
+            let open = parsed?;
+            let free_vars: Vec<Rc<Term>> = self.pool.free_vars(&open).iter().cloned().collect();
+            let mut params: Vec<SortedVar> = Vec::new();
+            let mut args: Vec<Rc<Term>> = Vec::new();
+            for v in &free_vars {
+                if let Term::Var(name, sort) = v.as_ref() {
+                    if self.state.let_value_table.get(&HashCache::new(name.clone())).is_some() {
+                        params.push((name.clone(), sort.clone()));
+                        args.push(self.let_value_or_var(name, sort));
+                    }
+                }
+            }
+            if params.is_empty() {
+                (open, None)
+            } else {
+                let def = FunctionDef { params, body: open };
+                let applied = def.apply(self.pool, args).map_err(|err| self.err(err, pos))?;
+                (applied, Some(def))
+            }
+        } else {
+            (self.parse_term()?, None)
+        };
         self.parse_sequence(
             |p| {
                 let attribute = p.expect_keyword()?;
                 match attribute.as_str() {
                     "named" => {
                         // If the term has a `:named` attribute, we introduce a new nullary function
-                        // definition that maps the name to the term
+                        // definition that maps the name to the term (or, for a term open in
+                        // let-bound variables, a definition over those variables)
                         let name = p.expect_symbol()?;
-                        let func_def = FunctionDef {
-                            params: Vec::new(),
-                            body: inner.clone(),
+                        let func_def = match &open_def {
+                            Some(def) => def.clone(),
+                            None => FunctionDef {
+                                params: Vec::new(),
+                                body: inner.clone(),
+                            },
                         };
                         p.state.function_defs.insert(name, func_def);
                         Ok(())
