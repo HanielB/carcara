@@ -29,6 +29,10 @@ pub struct RuleArgs<'a> {
     pub(super) discharge: &'a [&'a ProofCommand],
 
     pub(super) polyeq_time: &'a mut Duration,
+
+    /// Whether the proof is checked as an elaborated proof (`--check-granularity elaborated`):
+    /// rules that otherwise compare modulo the reordering of equalities compare strictly.
+    pub(super) elaborated: bool,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

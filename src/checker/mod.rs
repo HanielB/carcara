@@ -69,6 +69,7 @@ pub(crate) fn cong_equal(
         previous_command: None,
         discharge: &[],
         polyeq_time: &mut polyeq_time,
+        elaborated: false,
     })
 }
 
@@ -101,6 +102,7 @@ pub(crate) fn check_premise_free_rule(
         previous_command: None,
         discharge: &[],
         polyeq_time: &mut polyeq_time,
+        elaborated: false,
     })
 }
 
@@ -402,6 +404,7 @@ impl<'c> ProofChecker<'c> {
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
             rare_rules: self.rare_rules,
+            elaborated: self.config.elaborated,
         };
 
         // Use shared core logic

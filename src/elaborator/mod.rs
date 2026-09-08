@@ -403,6 +403,10 @@ impl<'e> Elaborator<'e> {
             })
         }
 
+        // Skolem witnesses that are only alpha-equivalent (modulo the reordering of equalities)
+        // to what the skolemization rules expect are rewritten to the expected terms first
+        let proof = polyeq::canonicalize_skolems(self.pool, proof);
+
         proof.mutate(|context, node, _| match node.as_ref() {
             ProofNode::Assume { id, depth, term }
                 if context.is_empty() && !self.problem.premises.contains(term) =>

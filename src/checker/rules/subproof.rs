@@ -443,6 +443,7 @@ fn generic_skolemization_rule(
         context,
         previous_command,
         polyeq_time,
+        elaborated,
         ..
     }: RuleArgs,
 ) -> RuleResult {
@@ -513,7 +514,14 @@ fn generic_skolemization_rule(
             let binding_list = BindingList(vec![x.clone()]);
             pool.add(Term::Binder(Binder::Choice, binding_list, inner))
         };
-        if !alpha_equiv(t, &expected, polyeq_time) {
+        // An elaborated proof binds exactly the expected term (up to the names of bound
+        // variables); otherwise the reordering of equalities inside the witness is tolerated
+        let matches = if elaborated {
+            Polyeq::new().alpha_equiv(true).eq_with_time(t, &expected, polyeq_time)
+        } else {
+            alpha_equiv(t, &expected, polyeq_time)
+        };
+        if !matches {
             return Err(EqualityError::ExpectedEqual(t.clone(), expected).into());
         }
 

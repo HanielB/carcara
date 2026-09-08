@@ -4,6 +4,9 @@ pub mod reflexivity;
 pub mod subproof;
 pub mod tautology;
 
+mod skolems;
+pub use skolems::canonicalize_skolems;
+
 use super::*;
 use crate::{
     ast::*,

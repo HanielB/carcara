@@ -422,6 +422,7 @@ impl<'c> ParallelProofChecker<'c> {
             discharge: &discharge,
             polyeq_time: &mut polyeq_time,
             rare_rules: &self.rare_rules,
+            elaborated: self.config.elaborated,
         };
 
         // Use shared core logic
