@@ -484,8 +484,13 @@ impl PrimitivePool {
             ParamOperator::Iand => Sort::Int,
             ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
             ParamOperator::TupleSelect => {
-                let i = op_args[0].as_integer()?.to_usize().unwrap();
-                return Some(self.compute_sort(&args[i]).clone());
+                // The index is an operator argument, and selects a component of the sort of the
+                // (single) argument, which must be a tuple
+                let i = op_args[0].as_integer()?.to_usize()?;
+                let Sort::Tuple(components) = self.compute_sort(args.first()?).as_ref() else {
+                    return None;
+                };
+                return Some(components.get(i)?.clone());
             }
         };
         Some(self.add_sort(res))
