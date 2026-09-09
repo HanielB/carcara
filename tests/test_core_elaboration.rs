@@ -492,3 +492,277 @@ fn nested_rewriting_bind_is_reduced() {
     assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 0);
     assert!(rules.iter().any(|r| r == "forall_inst"));
 }
+
+/// `bfun_elim`'s second step, on its own: the premise has no Boolean bindings, and the conclusion
+/// only replaces the applications of a non-constant Boolean argument by their `ite` expansion.
+/// The branches are subproof-free — `eq_congruent` and `eq_transitive` take the conditional
+/// hypothesis as a literal, where `cong`/`trans` would want a unit premise and a discharge.
+#[test]
+fn bfun_elim_second_step() {
+    let definitions = "
+        (declare-fun f (Bool) Bool)
+        (declare-fun a () Bool)
+    ";
+    let proof = "
+        (assume h1 (f a))
+        (step t1 (cl (ite a (f true) (f false))) :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert!(rules.iter().any(|r| r == "ite_then_intro"));
+    assert!(rules.iter().any(|r| r == "ite_else_intro"));
+    assert!(rules.iter().any(|r| r == "eq_congruent"));
+    assert!(rules.iter().any(|r| r == "eq_transitive"));
+    // No discharge subproof: the reduction never assumes the condition
+    assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 0);
+}
+
+/// An application with several Boolean arguments expands into a *tree* of `ite`s, one level per
+/// argument, and the reduction recurses with it: each level's branches chain through the level
+/// below by `eq_transitive`.
+#[test]
+fn bfun_elim_nested_expansion() {
+    let definitions = "
+        (declare-fun g (Bool Bool Bool) Bool)
+        (declare-fun a () Bool)
+        (declare-fun b () Bool)
+        (declare-fun c () Bool)
+    ";
+    let proof = "
+        (assume h1 (g a b c))
+        (step t1 (cl (ite a
+            (ite b
+                (ite c (g true true true) (g true true false))
+                (ite c (g true false true) (g true false false)))
+            (ite b
+                (ite c (g false true true) (g false true false))
+                (ite c (g false false true) (g false false false)))
+        )) :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    // One `refl` per untouched argument of each `eq_congruent`, which needs a literal for each
+    assert!(rules.iter().any(|r| r == "refl"));
+    assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 0);
+}
+
+/// Both steps at once: the Boolean bindings expand into the conjunction of the instances, and the
+/// applications in the instances then expand into `ite`s. The implication of the first step and
+/// the equivalence of the second are crossed by `equiv_pos2`.
+#[test]
+fn bfun_elim_both_steps() {
+    let definitions = "
+        (declare-fun g (Bool Bool Bool) Bool)
+        (declare-fun a () Bool)
+    ";
+    let proof = "
+        (assume h1 (forall ((x Bool) (y Bool)) (g x a y)))
+        (step t1 (cl (and
+            (ite a (g false true false) (g false false false))
+            (ite a (g true true false) (g true false false))
+            (ite a (g false true true) (g false false true))
+            (ite a (g true true true) (g true false true))
+        )) :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 4);
+    assert!(rules.iter().any(|r| r == "and_neg"));
+    assert!(rules.iter().any(|r| r == "equiv_pos2"));
+    assert!(rules.iter().any(|r| r == "ite_then_intro"));
+}
+
+/// An expansion under a quantifier: the argument mentions the bound variable, so the equality
+/// cannot be derived outside, and the congruence crosses the binder with a `bind` subproof.
+#[test]
+fn bfun_elim_expansion_under_a_quantifier() {
+    let definitions = "
+        (declare-fun f (Bool) Bool)
+        (declare-fun p (Int) Bool)
+    ";
+    let proof = "
+        (assume h1 (forall ((x Int)) (f (p x))))
+        (step t1 (cl (forall ((x Int)) (ite (p x) (f true) (f false))))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "bind").count(), 1);
+}
+
+/// A Boolean quantifier *below a connective*: the first step is not at the top of the premise, so
+/// it is derived as an equivalence and carried to its position by `cong`.
+#[test]
+fn bfun_elim_below_a_connective() {
+    let definitions = "
+        (declare-fun p (Int Bool) Bool)
+        (declare-fun q () Bool)
+    ";
+    let proof = "
+        (assume h1 (or q (forall ((x Bool)) (p 1 x))))
+        (step t1 (cl (or q (and (p 1 false) (p 1 true)))) :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    // The equivalence: the → direction instantiates, the ← direction case splits and closes
+    assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 2);
+    assert!(rules.iter().any(|r| r == "and_pos"));
+    assert!(rules.iter().any(|r| r == "bind"));
+}
+
+/// A Boolean quantifier nested under a non-Boolean one: the expansion happens under the outer
+/// binder, so the equivalence is carried through it by `bind`.
+#[test]
+fn bfun_elim_nested_quantifier() {
+    let definitions = "
+        (declare-fun p (Int Bool) Bool)
+    ";
+    let proof = "
+        (assume h1 (forall ((y Int)) (forall ((x Bool)) (p y x))))
+        (step t1 (cl (forall ((y Int)) (and (p y false) (p y true))))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert!(rules.iter().filter(|r| *r == "bind").count() >= 2);
+}
+
+/// An `exists` premise expands through the quantifier duality: the instances are packed as
+/// `(not (or …))` on the `forall` side, which is what turns back into a disjunction with no De
+/// Morgan step in between.
+#[test]
+fn bfun_elim_exists_premise() {
+    let definitions = "
+        (declare-fun f (Bool) Bool)
+    ";
+    let proof = "
+        (assume h1 (exists ((x Bool)) (f x)))
+        (step t1 (cl (or (f false) (f true))) :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert!(rules.iter().any(|r| r == "connective_def"));
+    assert!(rules.iter().any(|r| r == "or_pos"));
+    assert!(rules.iter().any(|r| r == "or_neg"));
+}
+
+/// The same, with a non-Boolean variable left behind: the disjunction stays under an `exists`, so
+/// both dualities are real quantifier ones.
+#[test]
+fn bfun_elim_exists_with_a_remaining_variable() {
+    let definitions = "
+        (declare-fun r (Int Bool) Bool)
+    ";
+    let proof = "
+        (assume h1 (exists ((y Int) (x Bool)) (r y x)))
+        (step t1 (cl (exists ((y Int)) (or (r y false) (r y true))))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    assert_eq!(rules.iter().filter(|r| *r == "connective_def").count(), 2);
+}
+
+/// A Boolean quantifier below the top whose variable occurs *under a binder* of its body. The
+/// case split's hypotheses are assumed, so the rewriting is a unit congruence, and the vanilla
+/// `bind` carries it through the inner quantifier.
+#[test]
+fn bfun_elim_case_split_under_a_binder() {
+    let definitions = "
+        (declare-fun p (Int Bool) Bool)
+        (declare-fun q () Bool)
+    ";
+    let proof = "
+        (assume h1 (or q (forall ((x Bool)) (forall ((z Int)) (p z x)))))
+        (step t1 (cl (or q (and (forall ((z Int)) (p z false)) (forall ((z Int)) (p z true)))))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    // The ← direction's case split is a discharge subproof now, one per branch
+    assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 2);
+    assert!(rules.iter().any(|r| r == "not_not"));
+}
+
+/// The same, with the inner quantifier itself Boolean: the crossing is followed by a nested first
+/// step on what the expansion produced.
+#[test]
+fn bfun_elim_case_split_under_a_boolean_binder() {
+    let definitions = "
+        (declare-fun p (Bool Bool) Bool)
+        (declare-fun q () Bool)
+    ";
+    let proof = "
+        (assume h1 (or q (forall ((x Bool)) (forall ((y Bool)) (p x y)))))
+        (step t1 (cl (or q (and (and (p false false) (p false true))
+                                (and (p true false) (p true true)))))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+}
+
+/// A Boolean binding that does not occur in the body makes two assignments produce the *same*
+/// instance. The conjunction the rule builds keeps both, but resolution reads a clause as a set,
+/// so the repacking discharges each distinct instance once.
+#[test]
+fn bfun_elim_repeated_instances() {
+    let definitions = "
+        (declare-fun p (Int Bool) Bool)
+    ";
+    let proof = "
+        (assume h1 (forall ((x Bool) (z Bool)) (p 1 x)))
+        (step t1 (cl (and (p 1 false) (p 1 true) (p 1 false) (p 1 true)))
+            :rule bfun_elim :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert_eq!(rules.iter().filter(|r| *r == "bfun_elim").count(), 0);
+    // Two distinct instances, so two instantiations rather than four
+    assert_eq!(rules.iter().filter(|r| *r == "forall_inst").count(), 2);
+}
+
+/// `ite_intro`'s selection tautologies come straight from the term-`ite` selection axioms: no
+/// discharge subproof, and no `rare_rewrite` — so the output checks without a RARE file. veriT
+/// writes the equalities with the `ite` on the right, which is the flipped orientation.
+#[test]
+fn ite_intro_on_the_selection_axioms() {
+    let definitions = "
+        (declare-fun f (Int) Int)
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Bool)
+    ";
+    let flipped = "
+        (assume h1 (= (f (ite c a b)) 0))
+        (step t1 (cl (= (= (f (ite c a b)) 0)
+                        (and (= (f (ite c a b)) 0) (ite c (= a (ite c a b)) (= b (ite c a b))))))
+            :rule ite_intro)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let direct = "
+        (assume h1 (= (f (ite c a b)) 0))
+        (step t1 (cl (= (= (f (ite c a b)) 0)
+                        (and (= (f (ite c a b)) 0) (ite c (= (ite c a b) a) (= (ite c a b) b)))))
+            :rule ite_intro)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    for proof in [flipped, direct] {
+        let rules = run_core_pass(definitions, proof);
+        assert_eq!(rules.iter().filter(|r| *r == "ite_intro").count(), 0);
+        assert_eq!(rules.iter().filter(|r| *r == "rare_rewrite").count(), 0);
+        assert_eq!(rules.iter().filter(|r| *r == "subproof").count(), 0);
+        assert!(rules.iter().any(|r| r == "ite_then_intro"));
+        assert!(rules.iter().any(|r| r == "ite_else_intro"));
+    }
+}

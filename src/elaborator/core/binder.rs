@@ -459,7 +459,10 @@ pub(super) fn connective_def_duality(
 }
 
 /// The equivalence `(= (not (not phi)) phi)`: `not_not` one way, the excluded middle the other.
-fn double_negation(b: &mut Builder, phi: &Rc<Term>) -> Result<Rc<ProofNode>, ElaborationError> {
+pub(super) fn double_negation(
+    b: &mut Builder,
+    phi: &Rc<Term>,
+) -> Result<Rc<ProofNode>, ElaborationError> {
     let not_phi = b.not(phi);
     let not_not_phi = b.not(&not_phi);
     let triple = b.not(&not_not_phi);

@@ -54,6 +54,9 @@ pub enum ElaborationError {
     /// arguments.
     #[error("cannot uncrowd resolution without pivots being provided")]
     UncrowdMissingPivots,
+
+    #[error("the reduction does not apply to this step's shape")]
+    Inapplicable,
 }
 
 impl ElaborationError {
