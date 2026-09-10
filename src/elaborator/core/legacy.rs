@@ -738,7 +738,7 @@ fn case_split_substitution(
     body: &Rc<Term>,
     assignment: &IndexMap<Rc<Term>, Rc<Term>>,
 ) -> Result<Option<(Rc<ProofNode>, Rc<Term>)>, ElaborationError> {
-    let free = b.pool.free_vars_ref(body).clone();
+    let free = b.pool.free_vars(body).into_owned();
     let split: Vec<(Rc<Term>, Rc<Term>)> = assignment
         .iter()
         .filter(|(var, _)| free.contains(*var))
@@ -800,8 +800,11 @@ fn unit_substitution(
     if let Some((value, unit)) = units.get(term) {
         return Ok(Some((unit.clone(), value.clone())));
     }
-    let free = b.pool.free_vars_ref(term);
-    if !units.keys().any(|var| free.contains(var)) {
+    let mentions_unit = {
+        let free = b.pool.free_vars(term);
+        units.keys().any(|var| free.contains(var))
+    };
+    if !mentions_unit {
         return Ok(None);
     }
 
