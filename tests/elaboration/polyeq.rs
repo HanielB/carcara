@@ -145,3 +145,56 @@ fn bfun_elim() {
         }
     }
 }
+
+#[test]
+fn alpha_bind() {
+    test_cases! {
+        pipeline = Polyeq,
+        problem =  "
+            (declare-fun p (Int) Bool)
+            (declare-fun q (Int Int) Bool)
+            (declare-const a Int)
+        ",
+        "Identity substitution" {
+            "(anchor :step t1 :args ((x Int) (:= (x Int) x)))
+            (step t1.t1 (cl (= (p x) (p x))) :rule refl)
+            (step t1 (cl (= (forall ((x Int)) (p x)) (forall ((x Int)) (p x)))) :rule bind)"
+            ->
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (forall ((x Int)) (p x)))) :rule refl)",
+        }
+        "Renaming" {
+            "(anchor :step t1 :args ((y Int) (:= (x Int) y)))
+            (step t1.t1 (cl (= (p x) (p y))) :rule refl)
+            (step t1 (cl (= (forall ((x Int)) (p x)) (forall ((y Int)) (p y)))) :rule bind)"
+            ->
+            "(step t1 (cl (= (forall ((x Int)) (p x)) (forall ((y Int)) (p y)))) :rule refl)",
+        }
+        "Renaming under an existential, used by a later step" {
+            "(anchor :step t1 :args ((y Int) (:= (x Int) y)))
+            (step t1.t1 (cl (= (q x a) (q y a))) :rule refl)
+            (step t1 (cl (= (exists ((x Int)) (q x a)) (exists ((y Int)) (q y a)))) :rule bind)
+            (step t2 (cl (= (exists ((y Int)) (q y a)) (exists ((x Int)) (q x a)))) :rule symm :premises (t1))"
+            ->
+            "(step t1 (cl (= (exists ((x Int)) (q x a)) (exists ((y Int)) (q y a)))) :rule refl)
+            (step t2 (cl (= (exists ((y Int)) (q y a)) (exists ((x Int)) (q x a)))) :rule symm :premises (t1))",
+        }
+        "Not a renaming: kept" {
+            "(anchor :step t1 :args ((x Int) (:= (x Int) x)))
+            (step t1.t1 (cl (= (q x a) (q a x))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (q x a)) (forall ((x Int)) (q a x)))) :rule bind)"
+            ->
+            "(anchor :step t1 :args ((x Int) (:= (x Int) x)))
+            (step t1.t1 (cl (= (q x a) (q a x))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (q x a)) (forall ((x Int)) (q a x)))) :rule bind)",
+        }
+        "Flipped equality is not a renaming: kept" {
+            "(anchor :step t1 :args ((y Int) (:= (x Int) y)))
+            (step t1.t1 (cl (= (= x a) (= a y))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (= x a)) (forall ((y Int)) (= a y)))) :rule bind)"
+            ->
+            "(anchor :step t1 :args ((y Int) (:= (x Int) y)))
+            (step t1.t1 (cl (= (= x a) (= a y))) :rule hole)
+            (step t1 (cl (= (forall ((x Int)) (= x a)) (forall ((y Int)) (= a y)))) :rule bind)",
+        }
+    }
+}

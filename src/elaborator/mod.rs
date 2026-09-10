@@ -104,7 +104,9 @@ pub enum ElaborationPass {
     /// The `hoist` pass, additionally replacing every lemma scope whose discharged clause a
     /// premise-free rule proves outright by that single step.
     DeepHoist,
-    /// Elaborates away all uses of polyequality in the proof.
+    /// Elaborates away all uses of polyequality in the proof. Also replaces every `bind`
+    /// subproof whose two sides are alpha-equivalent — a renaming of bound variables, or an
+    /// identity substitution — by a single `refl` step, dropping the subproof.
     Polyeq,
     /// Fills holes in the proof using an external solver.
     Hole,
@@ -441,6 +443,10 @@ impl<'e> Elaborator<'e> {
                     Ok(node.clone())
                 }
             }
+            // A `bind` whose two sides are the same formula up to the names of the bound
+            // variables is a `refl`: `refl` holds modulo renaming of bound variables, and the
+            // subproof is dead weight
+            ProofNode::Subproof(_) => Ok(polyeq::subproof::alpha_bind_to_refl(node)),
             _ => Ok(node.clone()),
         })
     }
