@@ -82,7 +82,7 @@ fn apply_naive_resolution<'a>(
     Ok(current)
 }
 
-fn check_clauses_are_compatible(
+pub(super) fn check_clauses_are_compatible(
     got: &[Rc<Term>],
     target: &[Rc<Term>],
 ) -> Result<(), ResolutionError> {
@@ -244,7 +244,7 @@ fn add_partial_resolution_step<'a>(
     }
 }
 
-fn get_weakening_clause(
+pub(super) fn get_weakening_clause(
     current: &[Rc<Term>],
     target: &[Rc<Term>],
 ) -> Result<Vec<Rc<Term>>, ResolutionError> {

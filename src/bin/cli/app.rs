@@ -214,6 +214,7 @@ pub enum ElaborationPass {
     CoreTaut,
     Local,
     Uncrowd,
+    Budget,
     Reordering,
     SatRefutation,
 }
@@ -245,6 +246,11 @@ pub struct ElaborationOptions {
     /// `core-expensive`) to reducing only the steps with these rules; every other step is kept.
     #[clap(long, num_args = 1..)]
     pub core_rules: Option<Vec<String>>,
+
+    /// The most premises a `resolution` step may have before the `budget` pass splits it into a
+    /// chain of shorter resolutions.
+    #[clap(long, default_value_t = 64)]
+    pub resolution_budget: usize,
 }
 
 #[derive(Args)]
@@ -525,6 +531,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
                 ElaborationPass::CoreTaut => elaborator::ElaborationPass::CoreTaut,
                 ElaborationPass::Local => elaborator::ElaborationPass::Local,
                 ElaborationPass::Uncrowd => elaborator::ElaborationPass::Uncrowd,
+                ElaborationPass::Budget => elaborator::ElaborationPass::Budget,
                 ElaborationPass::Reordering => elaborator::ElaborationPass::Reordering,
                 ElaborationPass::SatRefutation => elaborator::ElaborationPass::SatRefutation,
             })
@@ -533,6 +540,7 @@ impl IntoConfig for (ElaborationOptions, ToolOptions, CheckingOptions) {
         let config = elaborator::Config::new()
             .lia_solver(t.smt_solver.clone())
             .uncrowd_rotation(e.uncrowd_rotate)
+            .resolution_budget(e.resolution_budget)
             .hole_solver(t.smt_solver.clone())
             .sat_ref_tools(t.into_config())
             .allowed_rules(c.allowed_rules.unwrap_or_default().into_iter().collect())

@@ -57,6 +57,10 @@ pub enum ElaborationError {
 
     #[error("the reduction does not apply to this step's shape")]
     Inapplicable,
+
+    /// The `budget` pass split a resolution whose pieces do not reach the stated conclusion.
+    #[error("splitting resolution {0} does not reach its stated clause")]
+    BudgetConclusionMismatch(String),
 }
 
 impl ElaborationError {

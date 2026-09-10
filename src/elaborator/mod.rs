@@ -1,5 +1,6 @@
 //! An elaborator for Alethe proofs
 
+mod budget;
 mod core;
 pub mod error;
 mod expanded_lets;
@@ -56,6 +57,10 @@ pub struct Config {
     /// Enables an optimization that reorders premises when uncrowding resolution steps, in order to
     /// further minimize the number of `contraction` steps added.
     uncrowd_rotation: bool,
+
+    /// The most premises a `resolution` step may have before the `budget` pass splits it; `0`
+    /// leaves every step alone.
+    resolution_budget: usize,
 
     /// If `Some`, enables the elaboration of `all_simplify` and `rare_rewrite` steps using an
     /// external solver, inserting the solver's proof in the place of those steps.
@@ -133,6 +138,9 @@ pub enum ElaborationPass {
     /// Uncrowds `resolution` steps, removing the implicit removal of duplicates by adding
     /// `contraction` steps.
     Uncrowd,
+    /// Splits `resolution` chains longer than `Config::resolution_budget` premises into chains of
+    /// shorter resolutions, for consumers that check a step as one proof term.
+    Budget,
     /// Removes `reordering` steps from the proof, recomputing the conclusions of order-sensitive
     /// steps when necessary.
     Reordering,
@@ -363,6 +371,19 @@ impl<'e> Elaborator<'e> {
                     }
                     _ => Ok(node.clone()),
                 }),
+                ElaborationPass::Budget => {
+                    let budget = self.config.resolution_budget;
+                    current.mutate(|_, node, _| match node.as_ref() {
+                        ProofNode::Step(s)
+                            if budget > 0
+                                && (s.rule == "resolution" || s.rule == "th_resolution")
+                                && s.premises.len() > budget =>
+                        {
+                            budget::split_resolution(self.pool, s, budget).map_err(|e| e.at(s))
+                        }
+                        _ => Ok(node.clone()),
+                    })
+                }
                 ElaborationPass::Reordering => reordering::remove_reorderings(current),
                 ElaborationPass::SatRefutation => {
                     if self.config.sat_ref_tools.is_some() {

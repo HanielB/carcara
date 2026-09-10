@@ -83,6 +83,7 @@ impl fmt::Display for CliError {
                     ElaborationPass::CoreTaut => "core-taut",
                     ElaborationPass::Local => "local",
                     ElaborationPass::Uncrowd => "uncrowd",
+                    ElaborationPass::Budget => "budget",
                     ElaborationPass::Reordering => "reordering",
                     ElaborationPass::SatRefutation => "sat-refutation",
                 };
