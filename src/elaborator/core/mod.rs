@@ -12,6 +12,7 @@
 // The elaboration functions must all match the `ElaborationFunc` signature, so some of them
 // return a `Result` they never fail with
 #[allow(clippy::unnecessary_wraps)]
+pub mod ac;
 pub mod arithmetic;
 #[allow(clippy::unnecessary_wraps)]
 pub mod bind;
@@ -664,6 +665,13 @@ pub fn get_elaboration_function(rule: &str) -> Option<super::ElaborationFunc> {
         "shuffle" => simplification::shuffle,
         "nary_elim" => simplification::nary_elim,
         "ac_simp" => simplification::ac_simp,
+        // The legacy names of the structural AC rules: `aci_simp` lumps the bounded
+        // semilattices, the exponent-two groups, the free monoids and the commutative rings
+        // under one normal form, and `absorb` names the semilattices' annihilator law on its own.
+        // Both are relabeled to the structural rule of their operator (`semilattice_simp`,
+        // `boolean_group_simp`, `assoc_simp`, `poly_simp`), which is what a consumer checks with
+        // the matching verified normalizer
+        "aci_simp" | "absorb" => ac::relabel,
 
         // Binder
         "qnt_simplify" => binder::qnt_simplify,
@@ -698,7 +706,10 @@ pub fn get_expensive_elaboration_function(rule: &str) -> Option<super::Elaborati
         // `sko_forall` through the duality is what would make `bind` over the `choice` binder
         // necessary — see the classification's divergence 5
         "poly_simp" => expensive::poly_simp,
-        "aci_simp" => expensive::aci_simp,
+        // the clausal reduction of the semilattice connectives (`and`/`or`); `aci_simp` is
+        // relabeled to `semilattice_simp` by the core pass, so the expensive regime sees the
+        // structural name, and the legacy one only when run on its own
+        "aci_simp" | "semilattice_simp" => expensive::aci_simp,
 
         _ => return None,
     })

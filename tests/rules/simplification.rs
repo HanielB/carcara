@@ -887,3 +887,112 @@ fn poly_simp_subsumes_aci_simp_on_ring_operators() {
         }
     }
 }
+
+#[test]
+fn semilattice_simp() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun q () Bool)
+            (declare-fun r () Bool)
+            (declare-fun a () (_ BitVec 4))
+            (declare-fun b () (_ BitVec 4))
+        ",
+        "Associativity, commutativity, idempotence" {
+            "(step t1 (cl (= (and (and p q) (and r p)) (and r q p))) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (or p (or q r)) (or r q p))) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (bvand a (bvand b a)) (bvand b a))) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (and p q) (and p r))) :rule semilattice_simp)": false,
+        }
+        "Unit" {
+            "(step t1 (cl (= (and p true q) (and q p))) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (or p false) p)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (and true true) true)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (bvor a #b0000) a)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (bvand a #b1111) a)) :rule semilattice_simp)": true,
+        }
+        "Annihilator (what `absorb` checked)" {
+            "(step t1 (cl (= (and p false q) false)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (or p (or true q)) true)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (bvand a #b0000 b) #b0000)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (bvor a #b1111) #b1111)) :rule semilattice_simp)": true,
+            // the annihilator dominates the unit and the atoms
+            "(step t1 (cl (= (and true p false) false)) :rule semilattice_simp)": true,
+            "(step t1 (cl (= (and p false) p)) :rule semilattice_simp)": false,
+        }
+        "Only one layer; nested different connectives are atoms" {
+            "(step t1 (cl (= (or p (and (and q r) p)) (or p (and q r p)))) :rule semilattice_simp)": false,
+        }
+        "Not a semilattice operator" {
+            "(step t1 (cl (= (+ 1 2) (+ 2 1))) :rule semilattice_simp)": false,
+            "(step t1 (cl (= (bvxor a b) (bvxor b a))) :rule semilattice_simp)": false,
+        }
+    }
+}
+
+#[test]
+fn boolean_group_simp() {
+    test_cases! {
+        definitions = "
+            (declare-fun p () Bool)
+            (declare-fun q () Bool)
+            (declare-fun r () Bool)
+            (declare-fun a () (_ BitVec 4))
+            (declare-fun b () (_ BitVec 4))
+        ",
+        "Associativity and commutativity" {
+            "(step t1 (cl (= (xor p (xor q r)) (xor r q p))) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (bvxor a (bvxor b a) b) (bvxor a a b b))) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (xor p q) (xor p r))) :rule boolean_group_simp)": false,
+        }
+        "Unit" {
+            "(step t1 (cl (= (xor p false) p)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (bvxor a #b0000) a)) :rule boolean_group_simp)": true,
+        }
+        "Self-inverse: pairs cancel (parity), not idempotence" {
+            "(step t1 (cl (= (xor p p) false)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (xor p p q) q)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (xor p q p) q)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (bvxor a b a) b)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (xor p p p) p)) :rule boolean_group_simp)": true,
+            "(step t1 (cl (= (xor p p) p)) :rule boolean_group_simp)": false,
+            "(step t1 (cl (= (bvxor a a) a)) :rule boolean_group_simp)": false,
+        }
+        "Not an exponent-two operator" {
+            "(step t1 (cl (= (and p p) p)) :rule boolean_group_simp)": false,
+            "(step t1 (cl (= (bvadd a a) a)) :rule boolean_group_simp)": false,
+        }
+    }
+}
+
+#[test]
+fn assoc_simp() {
+    test_cases! {
+        definitions = "
+            (declare-fun a () (_ BitVec 4))
+            (declare-fun b () (_ BitVec 4))
+            (declare-fun c () (_ BitVec 4))
+            (declare-fun s () String)
+            (declare-fun t () String)
+            (declare-fun p () Bool)
+        ",
+        "Associativity, order kept" {
+            "(step t1 (cl (= (concat (concat a b) c) (concat a b c))) :rule assoc_simp)": true,
+            "(step t1 (cl (= (concat a (concat b c)) (concat a b c))) :rule assoc_simp)": true,
+            "(step t1 (cl (= (str.++ (str.++ s t) s) (str.++ s t s))) :rule assoc_simp)": true,
+            // not commutative
+            "(step t1 (cl (= (concat (concat a b) c) (concat a (concat c b)))) :rule assoc_simp)": false,
+            // not idempotent (a bitvector `(concat a a)` is not even the sort of `a`, so the
+            // string case carries the check)
+            "(step t1 (cl (= (str.++ s s) s)) :rule assoc_simp)": false,
+        }
+        "Unit of string concatenation" {
+            "(step t1 (cl (= (str.++ s \"\" t) (str.++ s t))) :rule assoc_simp)": true,
+            "(step t1 (cl (= (str.++ s \"\") s)) :rule assoc_simp)": true,
+        }
+        "Not a free-monoid operator" {
+            "(step t1 (cl (= (and p p) p)) :rule assoc_simp)": false,
+            "(step t1 (cl (= (bvadd a b) (bvadd b a))) :rule assoc_simp)": false,
+        }
+    }
+}

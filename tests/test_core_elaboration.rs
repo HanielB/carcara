@@ -766,3 +766,69 @@ fn ite_intro_on_the_selection_axioms() {
         assert!(rules.iter().any(|r| r == "ite_else_intro"));
     }
 }
+
+/// The legacy AC names are relabeled to the structural rule of their operator: `aci_simp` and
+/// `absorb` become `semilattice_simp`, `boolean_group_simp`, `assoc_simp` or `poly_simp`, and
+/// none of the legacy names survives the core pass.
+#[test]
+fn legacy_ac_rules_become_structural() {
+    let definitions = "
+        (declare-const p Bool)
+        (declare-const q Bool)
+        (declare-const r Bool)
+        (declare-const x Int)
+        (declare-const y Int)
+        (declare-const a (_ BitVec 4))
+        (declare-const b (_ BitVec 4))
+    ";
+    let cases: &[(&str, &str, &str)] = &[
+        // (legacy step, expected structural rule, legacy name)
+        ("(step t1 (cl (= (and p (and q r)) (and r q p))) :rule aci_simp)", "semilattice_simp", "aci_simp"),
+        ("(step t1 (cl (= (or p false q) (or q p))) :rule aci_simp)", "semilattice_simp", "aci_simp"),
+        // (a legacy `aci_simp` can only reorder `bvxor`, never cancel a pair — the parity law is
+        // `boolean_group_simp`'s own; so the legacy input is a reordering)
+        ("(step t1 (cl (= (bvxor a (bvxor b a)) (bvxor b a a))) :rule aci_simp)", "boolean_group_simp", "aci_simp"),
+        ("(step t1 (cl (= (bvxor a b) (bvxor b a))) :rule aci_simp)", "boolean_group_simp", "aci_simp"),
+        ("(step t1 (cl (= (concat (concat a b) a) (concat a b a))) :rule aci_simp)", "assoc_simp", "aci_simp"),
+        ("(step t1 (cl (= (+ x (+ y x)) (+ x x y))) :rule aci_simp)", "poly_simp", "aci_simp"),
+        ("(step t1 (cl (= (* x y 1) (* y x))) :rule aci_simp)", "poly_simp", "aci_simp"),
+        ("(step t1 (cl (= (and p false q) false)) :rule absorb)", "semilattice_simp", "absorb"),
+        ("(step t1 (cl (= (or p true) true)) :rule absorb)", "semilattice_simp", "absorb"),
+        ("(step t1 (cl (= (bvand a #b0000) #b0000)) :rule absorb)", "semilattice_simp", "absorb"),
+    ];
+    for (step, expected, legacy) in cases {
+        let proof = format!("{step}\n(step end (cl) :rule hole :premises (t1))");
+        let rules = run_core_pass(definitions, &proof);
+        assert!(
+            rules.iter().any(|r| r == expected),
+            "{legacy} was not relabeled to {expected} for: {step} (got {rules:?})"
+        );
+        assert!(
+            !rules.iter().any(|r| r == legacy),
+            "{legacy} survived for: {step} (got {rules:?})"
+        );
+    }
+}
+
+/// A nested `ac_simp` is decomposed layer by layer, each layer a `semilattice_simp` step lifted by
+/// `cong`, with no legacy AC name left.
+#[test]
+fn ac_simp_layers_are_semilattice_simp() {
+    let definitions = "
+        (declare-const p Bool)
+        (declare-const q Bool)
+        (declare-const r Bool)
+        (declare-const s Bool)
+    ";
+    let proof = "
+        (step t1 (cl (= (or (and (and p q) r) (or s s)) (or (and p q r) s))) :rule ac_simp)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert!(!rules.iter().any(|r| r == "ac_simp"), "ac_simp survived: {rules:?}");
+    assert!(!rules.iter().any(|r| r == "aci_simp"), "aci_simp emitted: {rules:?}");
+    assert!(
+        rules.iter().filter(|r| *r == "semilattice_simp").count() >= 2,
+        "expected a semilattice_simp per changed layer: {rules:?}"
+    );
+}

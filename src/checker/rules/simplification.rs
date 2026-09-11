@@ -833,7 +833,7 @@ fn is_idempotent(op: Operator) -> bool {
 // be relevant.
 fn identity_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Option<Term> {
     match op {
-        Operator::Or => Some(Term::new_bool(false)),
+        Operator::Or | Operator::Xor => Some(Term::new_bool(false)),
         Operator::And => Some(Term::new_bool(true)),
         // TODO modularize this so it's not repeated below
         Operator::Add => match term.as_ref() {
@@ -924,6 +924,264 @@ pub fn aci_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> 
         }
         _ => assert_eq(t11, t22),
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The structural AC rules. `aci_simp` lumps a small algebraic hierarchy under one name and one
+// normal form; these split it by the structure of the operator, so that each rule's normal form
+// is exactly the operator's:
+//
+//   * `semilattice_simp`   — bounded semilattices (`and`, `or`, `bvand`, `bvor`): associative,
+//                            commutative, idempotent, with a unit *and an annihilator*; the
+//                            normal form is the *set* of arguments, collapsing to the annihilator
+//                            when it occurs (which is what `absorb` checked separately);
+//   * `boolean_group_simp` — abelian groups of exponent two (`xor`, `bvxor`): associative,
+//                            commutative, with a unit and every element its own inverse; the
+//                            normal form is the *parity* of the arguments (`x ⊕ x` cancels);
+//   * `assoc_simp`         — free monoids (`concat`, `str.++`): associative with a unit but not
+//                            commutative; the normal form is the flattened *sequence*.
+//
+// The commutative ring operators (`+`, `*`, `bvadd`, `bvmul`, and the finite-field ones) are
+// `poly_simp`'s. As in `aci_simp`, only the top operator's layers are normalized; every other
+// subterm is an atom compared syntactically, and nested layers are the elaborator's job.
+
+fn is_semilattice_op(op: Operator) -> bool {
+    matches!(
+        op,
+        Operator::And | Operator::Or | Operator::BvAnd | Operator::BvOr
+    )
+}
+
+fn is_boolean_group_op(op: Operator) -> bool {
+    matches!(op, Operator::Xor | Operator::BvXor)
+}
+
+fn is_assoc_only_op(op: Operator) -> bool {
+    matches!(op, Operator::BvConcat | Operator::StrConcat)
+}
+
+/// The annihilator (absorbing element) of a bounded-semilattice operator, at the sort of `term`'s
+/// arguments: `false` for `and`, `true` for `or`, zero for `bvand`, all-ones for `bvor`.
+fn absorbing_of_op(pool: &mut dyn TermPool, op: Operator, term: &Rc<Term>) -> Option<Term> {
+    let width = |pool: &mut dyn TermPool| match term.as_ref() {
+        Term::Op(_, args) => match pool.sort(&args[0]).as_ref() {
+            Sort::BitVec(size) => Some(*size),
+            _ => None,
+        },
+        _ => None,
+    };
+    match op {
+        Operator::And => Some(Term::new_bool(false)),
+        Operator::Or => Some(Term::new_bool(true)),
+        Operator::BvAnd => width(pool).map(|w| Term::new_bv(Integer::from(0), w)),
+        Operator::BvOr => width(pool).map(|w| Term::new_bv((Integer::from(1) << w) - 1, w)),
+        _ => None,
+    }
+}
+
+/// The side of the equality headed by an operator `pred` accepts, if any. A rule may equate an
+/// application with an atom (`(= (and p true) p)`), so either side may carry the operator.
+fn structural_side<'a>(
+    t1: &'a Rc<Term>,
+    t2: &'a Rc<Term>,
+    pred: fn(Operator) -> bool,
+) -> Option<(Operator, &'a Rc<Term>)> {
+    [t1, t2].into_iter().find_map(|t| match t.as_ref() {
+        Term::Op(op, _) if pred(*op) => Some((*op, t)),
+        _ => None,
+    })
+}
+
+/// The arguments of the nested `op` layers of `term`, flattened; a term not headed by `op` is a
+/// singleton.
+fn flat_args(op: Operator, term: &Rc<Term>, acc: &mut Vec<Rc<Term>>) {
+    match term.as_ref() {
+        Term::Op(inner, args) if *inner == op => {
+            for arg in args {
+                flat_args(op, arg, acc);
+            }
+        }
+        _ => acc.push(term.clone()),
+    }
+}
+
+/// Rebuilds a normalized argument list as a term: the identity for an empty layer, the argument
+/// itself for a singleton, the application otherwise.
+fn rebuild(
+    pool: &mut dyn TermPool,
+    op: Operator,
+    args: Vec<Rc<Term>>,
+    identity: &Option<Term>,
+) -> Result<Rc<Term>, CheckerError> {
+    match args.len() {
+        0 => identity.clone().map(|t| pool.add(t)).ok_or_else(|| {
+            CheckerError::Explanation(format!("an empty '{op}' layer has no identity to collapse to"))
+        }),
+        1 => Ok(args[0].clone()),
+        _ => Ok(pool.add(Term::Op(op, args))),
+    }
+}
+
+/// The bounded-semilattice normal form of `term` under `op`: the flattened arguments with the
+/// unit dropped and duplicates removed, collapsing to the annihilator when it occurs.
+fn semilattice_normal(
+    pool: &mut dyn TermPool,
+    op: Operator,
+    term: &Rc<Term>,
+    identity: &Option<Term>,
+    zero: &Option<Term>,
+) -> Result<Rc<Term>, CheckerError> {
+    let mut args = Vec::new();
+    flat_args(op, term, &mut args);
+    if let Some(z) = zero {
+        if args.iter().any(|a| a.as_ref() == z) {
+            return Ok(pool.add(z.clone()));
+        }
+    }
+    let args: Vec<_> = args
+        .into_iter()
+        .filter(|a| identity.as_ref().is_none_or(|i| a.as_ref() != i))
+        .dedup()
+        .collect();
+    rebuild(pool, op, args, identity)
+}
+
+/// Compares two normalized layers of a commutative operator as sets, and anything else
+/// structurally.
+fn assert_eq_as_sets(op: Operator, n1: &Rc<Term>, n2: &Rc<Term>) -> RuleResult {
+    match (n1.as_ref(), n2.as_ref()) {
+        (Term::Op(o1, a1), Term::Op(o2, a2)) if *o1 == op && *o2 == op => {
+            let s1: IndexSet<_> = a1.iter().collect();
+            let s2: IndexSet<_> = a2.iter().collect();
+            if s1 == s2 {
+                Ok(())
+            } else {
+                Err(CheckerError::ShuffleArgsNotEqual)
+            }
+        }
+        _ => assert_eq(n1, n2),
+    }
+}
+
+/// The body of the `semilattice_simp` check, exposed so that the elaborator can verify a
+/// candidate step before emitting it.
+pub fn semilattice_simp_equal(
+    pool: &mut dyn TermPool,
+    t1: &Rc<Term>,
+    t2: &Rc<Term>,
+) -> RuleResult {
+    let Some((op, headed)) = structural_side(t1, t2, is_semilattice_op) else {
+        return Err(CheckerError::Explanation(
+            "neither side is headed by a bounded-semilattice operator (and, or, bvand, bvor)"
+                .into(),
+        ));
+    };
+    let identity = identity_of_op(pool, op, headed);
+    let zero = absorbing_of_op(pool, op, headed);
+    let n1 = semilattice_normal(pool, op, t1, &identity, &zero)?;
+    let n2 = semilattice_normal(pool, op, t2, &identity, &zero)?;
+    assert_eq_as_sets(op, &n1, &n2)
+}
+
+/// `(= t u)` where `t` and `u` are equal modulo the laws of a bounded semilattice: associativity,
+/// commutativity, idempotence, the unit and the annihilator of `and`, `or`, `bvand` or `bvor`.
+pub fn semilattice_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    semilattice_simp_equal(pool, t1, t2)
+}
+
+/// The exponent-two normal form of `term` under `op`: the flattened arguments with the unit
+/// dropped and every argument kept iff it occurs an odd number of times.
+fn boolean_group_normal(
+    pool: &mut dyn TermPool,
+    op: Operator,
+    term: &Rc<Term>,
+    identity: &Option<Term>,
+) -> Result<Rc<Term>, CheckerError> {
+    let mut args = Vec::new();
+    flat_args(op, term, &mut args);
+    let mut parity: IndexMap<Rc<Term>, bool> = IndexMap::new();
+    for a in args {
+        if identity.as_ref().is_some_and(|i| a.as_ref() == i) {
+            continue;
+        }
+        let odd = parity.entry(a).or_insert(false);
+        *odd = !*odd;
+    }
+    let args: Vec<_> = parity
+        .into_iter()
+        .filter_map(|(a, odd)| odd.then_some(a))
+        .collect();
+    rebuild(pool, op, args, identity)
+}
+
+/// The body of the `boolean_group_simp` check, exposed for the elaborator.
+pub fn boolean_group_simp_equal(
+    pool: &mut dyn TermPool,
+    t1: &Rc<Term>,
+    t2: &Rc<Term>,
+) -> RuleResult {
+    let Some((op, headed)) = structural_side(t1, t2, is_boolean_group_op) else {
+        return Err(CheckerError::Explanation(
+            "neither side is headed by an exponent-two group operator (xor, bvxor)".into(),
+        ));
+    };
+    let identity = identity_of_op(pool, op, headed);
+    let n1 = boolean_group_normal(pool, op, t1, &identity)?;
+    let n2 = boolean_group_normal(pool, op, t2, &identity)?;
+    assert_eq_as_sets(op, &n1, &n2)
+}
+
+/// `(= t u)` where `t` and `u` are equal modulo the laws of an abelian group of exponent two:
+/// associativity, commutativity, the unit, and `x ⊕ x = unit`, for `xor` or `bvxor`.
+pub fn boolean_group_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    boolean_group_simp_equal(pool, t1, t2)
+}
+
+/// The free-monoid normal form of `term` under `op`: the flattened argument sequence with the
+/// unit dropped, order preserved.
+fn assoc_normal(
+    pool: &mut dyn TermPool,
+    op: Operator,
+    term: &Rc<Term>,
+    identity: &Option<Term>,
+) -> Result<Rc<Term>, CheckerError> {
+    let mut args = Vec::new();
+    flat_args(op, term, &mut args);
+    let args: Vec<_> = args
+        .into_iter()
+        .filter(|a| identity.as_ref().is_none_or(|i| a.as_ref() != i))
+        .collect();
+    if args.is_empty() && identity.is_none() {
+        // a concatenation of nothing: keep the term as it was rather than invent an empty vector
+        return Ok(term.clone());
+    }
+    rebuild(pool, op, args, identity)
+}
+
+/// The body of the `assoc_simp` check, exposed for the elaborator.
+pub fn assoc_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
+    let Some((op, headed)) = structural_side(t1, t2, is_assoc_only_op) else {
+        return Err(CheckerError::Explanation(
+            "neither side is headed by a free-monoid operator (concat, str.++)".into(),
+        ));
+    };
+    let identity = identity_of_op(pool, op, headed);
+    let n1 = assoc_normal(pool, op, t1, &identity)?;
+    let n2 = assoc_normal(pool, op, t2, &identity)?;
+    // sequences: structural equality, order and multiplicity included
+    assert_eq(&n1, &n2)
+}
+
+/// `(= t u)` where `t` and `u` are equal modulo associativity and the unit of a non-commutative
+/// operator (`concat`, `str.++`).
+pub fn assoc_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let (t1, t2) = match_term_err!((= t1 t2) = &conclusion[0])?;
+    assoc_simp_equal(pool, t1, t2)
 }
 
 fn apply_aci_simp(

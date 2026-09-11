@@ -24,32 +24,24 @@ fn is_aci_op(op: Operator) -> bool {
     )
 }
 
-/// `shuffle` is a rename to `aci_simp`: a multiset comparison of the arguments is subsumed by ACI
-/// normalization.
+/// `shuffle` is a rename to the structural AC rule of its operator: a multiset comparison of the
+/// arguments is subsumed by that rule's normalization.
 pub fn shuffle(
     pool: &mut PrimitivePool,
     _: &mut ContextStack,
     step: &StepNode,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
-    if !aci_checkable(pool, &step.clause[0]) {
+    let Some(rule) = super::ac::structural_label(pool, &step.clause[0]) else {
         log::warn!(
-            "shuffle '{}': not an aci_simp instance, keeping step",
+            "shuffle '{}': no structural AC rule accepts it, keeping step",
             step.id
         );
         return Ok(Rc::new(ProofNode::Step(step.clone())));
-    }
+    };
     Ok(Rc::new(ProofNode::Step(StepNode {
-        rule: "aci_simp".to_owned(),
+        rule: rule.to_owned(),
         ..step.clone()
     })))
-}
-
-/// Whether the `aci_simp` checker accepts the given equality — guards the renames and the
-/// `ac_simp` decomposition against edge cases of the ACI normalization (e.g. an identity-only
-/// layer collapsing to a zero-argument operation).
-fn aci_checkable(pool: &mut PrimitivePool, equality: &Rc<Term>) -> bool {
-    match_term!((= t1 t2) = equality)
-        .is_some_and(|(t1, t2)| crate::checker::aci_simp_equal(pool, t1, t2).is_ok())
 }
 
 /// `nary_elim` is a rename to `aci_simp` for the associative-commutative operators: both the
@@ -60,11 +52,11 @@ pub fn nary_elim(
     _: &mut ContextStack,
     step: &StepNode,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
-    let renameable = match_term!((= l r) = &step.clause[0])
+    let label = match_term!((= l r) = &step.clause[0])
         .and_then(|(l, _)| l.as_op())
-        .is_some_and(|(op, _)| is_aci_op(op))
-        && aci_checkable(pool, &step.clause[0]);
-    if !renameable {
+        .filter(|(op, _)| is_aci_op(*op))
+        .and_then(|_| super::ac::structural_label(pool, &step.clause[0]));
+    let Some(rule) = label else {
         // The chainable and non-commutative cases are deliberately left; only an
         // aci-compatible instance that fails the check is worth a warning
         if match_term!((= l r) = &step.clause[0])
@@ -72,14 +64,14 @@ pub fn nary_elim(
             .is_some_and(|(op, _)| is_aci_op(op))
         {
             log::warn!(
-                "nary_elim '{}': aci-headed but not an aci_simp instance, keeping step",
+                "nary_elim '{}': aci-headed but no structural AC rule accepts it, keeping step",
                 step.id
             );
         }
         return Ok(Rc::new(ProofNode::Step(step.clone())));
-    }
+    };
     Ok(Rc::new(ProofNode::Step(StepNode {
-        rule: "aci_simp".to_owned(),
+        rule: rule.to_owned(),
         ..step.clone()
     })))
 }
@@ -268,18 +260,19 @@ fn derive_normalization(
         Some(b.step(clause, "cong", cong_premises, Vec::new()))
     };
 
-    // Then, flatten this layer with one `aci_simp` step, if the layer is not already flat
+    // Then, flatten this layer with one structural AC step (`semilattice_simp` for the `and`/`or`
+    // layers `ac_simp` normalizes), if the layer is not already flat
     let aci_step = if intermediate == normal {
         None
     } else {
         let equality = build_term!(b.pool, (= {intermediate} {normal}));
-        if !aci_checkable(b.pool, &equality) {
+        let Some(rule) = super::ac::structural_label(b.pool, &equality) else {
             if !skip_root {
                 proofs.insert(term.clone(), None);
             }
             return None;
-        }
-        Some(b.step(vec![equality], "aci_simp", Vec::new(), Vec::new()))
+        };
+        Some(b.step(vec![equality], rule, Vec::new(), Vec::new()))
     };
 
     let result = match (cong_step, aci_step) {
