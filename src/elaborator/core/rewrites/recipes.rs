@@ -740,7 +740,8 @@ pub fn rewrite_lemma(b: &mut Builder, name: &str, lhs: &Rc<Term>, rhs: &Rc<Term>
         "implies-contra" => implies_contra(b, lhs, rhs),
         "bool-implies-peirce" => peirce(b, lhs, rhs),
         "bool-implies-uncurry" => uncurry(b, lhs, rhs),
-        "bool-and-mp-r" | "bool-and-mp-l" => and_mp(b, lhs, rhs),
+        "bool-and-mp-r" => and_mp(b, lhs, rhs, 1),
+        "bool-and-mp-l" => and_mp(b, lhs, rhs, 0),
         "bool-implies-de-morgan" => implies_de_morgan(b, lhs, rhs),
         "bool-or-de-morgan" => or_de_morgan(b, lhs, rhs),
         "bool-and-de-morgan" => and_de_morgan(b, lhs, rhs),
@@ -1421,16 +1422,16 @@ fn uncurry(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
 }
 
 /// `(= (and a (=> a b)) (and a b))` and `(= (and (=> a b) a) (and a b))`.
-fn and_mp(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>) -> Res {
+/// `impl_idx` is the position of the modus-ponens implication conjunct, taken from the rewrite
+/// label (`bool-and-mp-r` = 1, `bool-and-mp-l` = 0), not guessed from the term: the *other*
+/// conjunct — the antecedent — may itself be an implication, in which case guessing "the first
+/// conjunct that looks like `(=> _ _)`" picks the wrong one and the recipe fails spuriously.
+fn and_mp(b: &mut Builder, lhs: &Rc<Term>, rhs: &Rc<Term>, impl_idx: usize) -> Res {
     let args = match_term_err!((and ...) = lhs)?.to_vec();
     let [x, y] = args.as_slice() else {
         return Err(explanation("expected binary conjunction"));
     };
-    let (impl_idx, impl_term, a) = if match_term!((=> a b) = x).is_some() {
-        (0, x.clone(), y.clone())
-    } else {
-        (1, y.clone(), x.clone())
-    };
+    let (impl_term, a) = if impl_idx == 0 { (x.clone(), y.clone()) } else { (y.clone(), x.clone()) };
     let (ia, ib) = match_term_err!((=> a b) = &impl_term)?;
     let (ia, ib) = (ia.clone(), ib.clone());
     if ia != a {
