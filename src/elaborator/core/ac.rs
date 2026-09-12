@@ -14,33 +14,31 @@ use crate::{checker, CheckerError};
 
 type Res = Result<Rc<ProofNode>, ElaborationError>;
 
-/// The structural rule whose normal form the equality `(= t1 t2)` is an instance of, decided by
-/// the operator heading either side and confirmed by that rule's checker. `None` when no
-/// structural rule accepts it.
+/// The structural rule whose normal form the equality `(= t1 t2)` is an instance of. `None` when
+/// no structural rule accepts it.
+///
+/// Each rule's checker is asked in turn, and each already looks for its own operator on *either*
+/// side (`structural_side`) before normalizing both. Selecting the rule by the head of one side
+/// instead would miss the equalities whose normalized side is not headed by the operator at all:
+/// `(= (not p) (or (not p) (not p)))`, idempotence read backwards, is headed by `not` on the left,
+/// and cvc5 emits exactly that. The four operator sets are disjoint, so at most one checker can
+/// accept and the order is only for determinism.
 pub fn structural_rule(
     pool: &mut PrimitivePool,
     t1: &Rc<Term>,
     t2: &Rc<Term>,
 ) -> Option<&'static str> {
-    let op = [t1, t2].into_iter().find_map(|t| t.as_op().map(|(op, _)| op))?;
-    let (rule, ok): (&'static str, bool) = match op {
-        Operator::And | Operator::Or | Operator::BvAnd | Operator::BvOr => (
-            "semilattice_simp",
-            checker::semilattice_simp_equal(pool, t1, t2).is_ok(),
-        ),
-        Operator::Xor | Operator::BvXor => (
-            "boolean_group_simp",
-            checker::boolean_group_simp_equal(pool, t1, t2).is_ok(),
-        ),
-        Operator::BvConcat | Operator::StrConcat => {
-            ("assoc_simp", checker::assoc_simp_equal(pool, t1, t2).is_ok())
-        }
-        Operator::Add | Operator::Mult | Operator::BvAdd | Operator::BvMul => {
-            ("poly_simp", checker::poly_simp_equal(pool, t1, t2).is_ok())
-        }
-        _ => return None,
-    };
-    ok.then_some(rule)
+    type Check =
+        fn(&mut dyn crate::ast::TermPool, &Rc<Term>, &Rc<Term>) -> Result<(), CheckerError>;
+    const RULES: [(&str, Check); 4] = [
+        ("semilattice_simp", checker::semilattice_simp_equal),
+        ("boolean_group_simp", checker::boolean_group_simp_equal),
+        ("assoc_simp", checker::assoc_simp_equal),
+        ("poly_simp", checker::poly_simp_equal),
+    ];
+    RULES
+        .into_iter()
+        .find_map(|(rule, accepts)| accepts(pool, t1, t2).is_ok().then_some(rule))
 }
 
 /// The structural rule for a unit-equality clause, if any.
