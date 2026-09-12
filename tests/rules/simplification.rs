@@ -706,6 +706,32 @@ fn ac_simp() {
             "(step t1 (cl (= (and (and p q) (and q r)) (and p q r))) :rule ac_simp)": true,
             "(step t1 (cl (= (and (and p q) (and q r)) (and p q q r))) :rule ac_simp)": false,
         }
+        "veriT's premise-carrying form" {
+            // A premise rewrites a subterm on the way to the normal form
+            "(assume h1 (= p q))
+             (step t1 (cl (= (and (and p r) r) (and q r))) :rule ac_simp :premises (h1))": true,
+
+            // ... and the same step without the premise does not check
+            "(step t1 (cl (= (and (and p r) r) (and q r))) :rule ac_simp)": false,
+
+            // Backwards, which only the both-orientations reading reaches
+            "(assume h1 (= q p))
+             (step t1 (cl (= (and (and p r) r) (and q r))) :rule ac_simp :premises (h1))": true,
+
+            // The premise's replacement is itself not normal: only the meet-in-the-middle
+            // route relates the two sides
+            "(assume h1 (= p (and (and q r) r)))
+             (step t1 (cl (= (and p s) (and q r s))) :rule ac_simp :premises (h1))": true,
+
+            // A premise that does not close the gap
+            "(assume h1 (= p q))
+             (step t1 (cl (= (and (and p r) r) (and q s))) :rule ac_simp :premises (h1))": false,
+
+            // A premise that is not a unit equality is ignored, so the step is read as if it
+            // had none, and its two sides do not match
+            "(assume h1 (or p q))
+             (step t1 (cl (= (and (and p r) r) (and q r))) :rule ac_simp :premises (h1))": false,
+        }
     }
 }
 

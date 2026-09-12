@@ -720,20 +720,57 @@ pub fn comp_simplify(args: RuleArgs) -> RuleResult {
     generic_simplify_rule(args.conclusion, args.pool, comp_simplify_step)
 }
 
+/// The sub-rewrites given by an `ac_simp` step's premises: each premise's left-hand side mapped to
+/// its right-hand side. veriT emits the rule with premises when the flattening of a subterm was
+/// derived earlier — notably a rewrite under a binder, packaged as a `bind` subproof — and the
+/// conclusion is then congruence over those equalities.
+type PremiseRewrites = IndexMap<Rc<Term>, Rc<Term>>;
+
+/// How premise rewrites are applied while the normal form is computed. Mirrors the two routes of
+/// the elaborator's decomposition (`elaborator::core::simplification::ac_simp`), so that what the
+/// checker accepts is what the elaborator knows how to break down.
+#[derive(Clone, Copy, PartialEq)]
+enum AcRewriteMode {
+    /// Both orientations of every premise, and normalization *stops* at a premise's replacement.
+    Legacy,
+    /// Forward orientation only, and normalization *continues* past a premise's replacement.
+    Forward,
+}
+
 fn apply_ac_simp(
     pool: &mut dyn TermPool,
     cache: &mut IndexMap<Rc<Term>, Rc<Term>>,
+    rewrites: &PremiseRewrites,
+    mode: AcRewriteMode,
     term: &Rc<Term>,
+    skip_root: bool,
 ) -> Rc<Term> {
-    if let Some(t) = cache.get(term) {
-        return t.clone();
+    // `skip_root` (only used in `Forward` mode) computes the *structural* normal form of a
+    // premise's replacement: the premise map is not consulted for the term itself, which is what
+    // lets a converse pair of premises terminate, and the cache is bypassed, since its entries
+    // are the full normal forms.
+    if !skip_root {
+        if let Some(t) = cache.get(term) {
+            return t.clone();
+        }
+        if let Some(rhs) = rewrites.get(term) {
+            let result = match mode {
+                AcRewriteMode::Legacy => rhs.clone(),
+                AcRewriteMode::Forward => {
+                    let rhs = rhs.clone();
+                    apply_ac_simp(pool, cache, rewrites, mode, &rhs, true)
+                }
+            };
+            cache.insert(term.clone(), result.clone());
+            return result;
+        }
     }
     let result = match term.as_ref() {
         Term::Op(op @ (Operator::And | Operator::Or), args) => {
             let args: Vec<_> = args
                 .iter()
                 .flat_map(|term| {
-                    let term = apply_ac_simp(pool, cache, term);
+                    let term = apply_ac_simp(pool, cache, rewrites, mode, term, false);
                     match term.as_ref() {
                         Term::Op(inner_op, inner_args) if inner_op == op => inner_args.clone(),
                         _ => vec![term.clone()],
@@ -750,35 +787,86 @@ fn apply_ac_simp(
         Term::Op(op, args) => {
             let args = args
                 .iter()
-                .map(|term| apply_ac_simp(pool, cache, term))
+                .map(|term| apply_ac_simp(pool, cache, rewrites, mode, term, false))
                 .collect();
             Term::Op(*op, args)
         }
         Term::App(func, args) => {
             let args = args
                 .iter()
-                .map(|term| apply_ac_simp(pool, cache, term))
+                .map(|term| apply_ac_simp(pool, cache, rewrites, mode, term, false))
                 .collect();
             Term::App(func.clone(), args)
         }
-        Term::Binder(q, bindings, inner) => {
-            Term::Binder(*q, bindings.clone(), apply_ac_simp(pool, cache, inner))
-        }
-        Term::Let(binding, inner) => Term::Let(binding.clone(), apply_ac_simp(pool, cache, inner)),
+        Term::Binder(q, bindings, inner) => Term::Binder(
+            *q,
+            bindings.clone(),
+            apply_ac_simp(pool, cache, rewrites, mode, inner, false),
+        ),
+        Term::Let(binding, inner) => Term::Let(
+            binding.clone(),
+            apply_ac_simp(pool, cache, rewrites, mode, inner, false),
+        ),
         _ => return term.clone(),
     };
     let result = pool.add(result);
-    cache.insert(term.clone(), result.clone());
+    if !skip_root {
+        cache.insert(term.clone(), result.clone());
+    }
     result
 }
 
-pub fn ac_simp(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
+pub fn ac_simp(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     let (original, flattened) = match_term_err!((= psi phis) = &conclusion[0])?;
-    assert_eq(
-        flattened,
-        &apply_ac_simp(pool, &mut IndexMap::new(), original),
-    )
+
+    // The premises' equalities, indexed by their left-hand side: forward-only for the
+    // meet-in-the-middle route, both orientations for the historical one
+    let mut forward = PremiseRewrites::new();
+    let mut legacy = PremiseRewrites::new();
+    for premise in premises {
+        // A premise that is not a unit equality is ignored rather than rejected, so that a step
+        // carrying one still checks exactly as it did before premises were read at all
+        let [equality] = premise.clause else { continue };
+        let Some((lhs, rhs)) = match_term!((= l r) = equality) else { continue };
+        forward.entry(lhs.clone()).or_insert_with(|| rhs.clone());
+        legacy.entry(lhs.clone()).or_insert_with(|| rhs.clone());
+        legacy.entry(rhs.clone()).or_insert_with(|| lhs.clone());
+    }
+
+    // Route 1, the historical reading: the right-hand side *is* the left-hand side's normal form
+    let mut cache = IndexMap::new();
+    let normal = apply_ac_simp(
+        pool,
+        &mut cache,
+        &legacy,
+        AcRewriteMode::Legacy,
+        original,
+        false,
+    );
+    if *flattened == normal {
+        return Ok(());
+    }
+
+    // Route 2, meet in the middle: both sides have the same normal form. This covers the
+    // instances where the right-hand side is not itself normal, because a premise's replacement
+    // term is less normal than what the conclusion writes at that position. It is only tried for
+    // a step that *has* premises: without them the structural reading above is the definition of
+    // the rule, and reading the conclusion up to a common normal form instead would accept
+    // equalities whose right-hand side is not the flattening of the left.
+    if premises.is_empty() {
+        return assert_eq(flattened, &normal);
+    }
+    let mut cache = IndexMap::new();
+    let mode = AcRewriteMode::Forward;
+    let nl = apply_ac_simp(pool, &mut cache, &forward, mode, original, false);
+    let nr = apply_ac_simp(pool, &mut cache, &forward, mode, flattened, false);
+    if nl == nr {
+        return Ok(());
+    }
+
+    // Report the historical mismatch: it is the one that explains a premise-free instance
+    assert_eq(flattened, &normal)
 }
 
 // Operators considered in aci_simp.
@@ -1015,7 +1103,9 @@ fn rebuild(
 ) -> Result<Rc<Term>, CheckerError> {
     match args.len() {
         0 => identity.clone().map(|t| pool.add(t)).ok_or_else(|| {
-            CheckerError::Explanation(format!("an empty '{op}' layer has no identity to collapse to"))
+            CheckerError::Explanation(format!(
+                "an empty '{op}' layer has no identity to collapse to"
+            ))
         }),
         1 => Ok(args[0].clone()),
         _ => Ok(pool.add(Term::Op(op, args))),
@@ -1065,11 +1155,7 @@ fn assert_eq_as_sets(op: Operator, n1: &Rc<Term>, n2: &Rc<Term>) -> RuleResult {
 
 /// The body of the `semilattice_simp` check, exposed so that the elaborator can verify a
 /// candidate step before emitting it.
-pub fn semilattice_simp_equal(
-    pool: &mut dyn TermPool,
-    t1: &Rc<Term>,
-    t2: &Rc<Term>,
-) -> RuleResult {
+pub fn semilattice_simp_equal(pool: &mut dyn TermPool, t1: &Rc<Term>, t2: &Rc<Term>) -> RuleResult {
     let Some((op, headed)) = structural_side(t1, t2, is_semilattice_op) else {
         return Err(CheckerError::Explanation(
             "neither side is headed by a bounded-semilattice operator (and, or, bvand, bvor)"
