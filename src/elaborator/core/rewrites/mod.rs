@@ -232,21 +232,22 @@ pub fn elaborate_simplify(
     }
 
     // The non-short-circuiting part of `and_simplify`/`or_simplify` — flattening, removing the
-    // neutral element, removing duplicates — is exactly what the `aci_simp` computational
-    // primitive checks, so such a step is a *rename*, like `shuffle` and `nary_elim`: one step,
-    // no growth, an O(n) check. This is what keeps wide conjunctions (hundreds of arguments,
-    // dozens of removed constants) from expanding into linear-per-link chains. The rename is
-    // validated by the `aci_simp` checker itself; the short-circuiting instances (which conclude
-    // a constant) fail it and take the chain path below.
-    if matches!(step.rule.as_str(), "and_simplify" | "or_simplify")
-        && crate::checker::aci_simp_equal(pool, &lhs, &rhs).is_ok()
-    {
-        return Ok(Rc::new(ProofNode::Step(StepNode {
-            rule: "aci_simp".to_owned(),
-            premises: Vec::new(),
-            args: Vec::new(),
-            ..step.clone()
-        })));
+    // neutral element, removing duplicates — is exactly what a structural AC normalizer checks,
+    // so such a step is a *rename*, like `shuffle` and `nary_elim`: one step, no growth, an O(n)
+    // check. This is what keeps wide conjunctions (hundreds of arguments, dozens of removed
+    // constants) from expanding into linear-per-link chains. `and`/`or` are bounded semilattices,
+    // so the name is `semilattice_simp`; `structural_rule` picks it and validates the conclusion
+    // with that rule's own checker, so the short-circuiting instances (which conclude a constant)
+    // fall through to the chain path below.
+    if matches!(step.rule.as_str(), "and_simplify" | "or_simplify") {
+        if let Some(rule) = super::ac::structural_rule(pool, &lhs, &rhs) {
+            return Ok(Rc::new(ProofNode::Step(StepNode {
+                rule: rule.to_owned(),
+                premises: Vec::new(),
+                args: Vec::new(),
+                ..step.clone()
+            })));
+        }
     }
 
     let (links, flipped) = trace::simplify_trace(pool, &step.rule, &lhs, &rhs)?;

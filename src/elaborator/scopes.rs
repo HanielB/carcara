@@ -79,6 +79,9 @@ const CLAUSAL_RULES: &[&str] = &[
     "connective_def",
     "nary_elim",
     "aci_simp",
+    "semilattice_simp",
+    "boolean_group_simp",
+    "assoc_simp",
     "poly_simp",
     "evaluate",
 ];
