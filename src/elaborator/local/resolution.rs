@@ -92,7 +92,20 @@ pub fn resolution(
         Err(first_error) => {
             let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
             let Some(chain) = rup_chain(&step.clause, &premise_clauses, pool) else {
-                return Err(ElaborationError::CouldNotInferPivots(first_error));
+                // Neither the greedy inference nor a RUP certificate yields a chain for this
+                // step. Keeping it is much better than failing the whole elaboration, which
+                // would throw away an otherwise perfectly checkable proof: the `resolution`
+                // checker itself falls back to RUP, so the step still checks, and a consumer
+                // that wants the pivots can search for them per link as it always could. The
+                // steps this happens on are the ones whose chain the greedy algorithm cannot
+                // order --- typically a premise that is a tautology `(cl p (not p))`, whose two
+                // literals both become pivots and leave the wrong one un-eliminated.
+                log::warn!(
+                    "resolution '{}': could not infer pivots ({}), keeping step",
+                    step.id,
+                    first_error
+                );
+                return Ok(Rc::new(ProofNode::Step(step.clone())));
             };
             return Ok(build_rup_chain_step(pool, step, &premises, chain, &mut ids));
         }
