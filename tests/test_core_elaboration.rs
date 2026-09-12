@@ -810,6 +810,29 @@ fn legacy_ac_rules_become_structural() {
     }
 }
 
+/// veriT's premise-carrying `ac_simp`: the step checks by reading its premises as sub-rewrites,
+/// and elaborates into the premise's congruence glued to the structural layers.
+#[test]
+fn ac_simp_with_premises() {
+    let definitions = "
+        (declare-const a Bool)
+        (declare-const b Bool)
+        (declare-const c Bool)
+    ";
+    let proof = "
+        (assume h1 (= a b))
+        (step t1 (cl (= (and (and a c) c) (and b c))) :rule ac_simp :premises (h1))
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert!(!rules.iter().any(|r| r == "ac_simp"), "ac_simp survived: {rules:?}");
+    assert!(rules.iter().any(|r| r == "cong"), "expected the premise to be lifted: {rules:?}");
+    assert!(
+        rules.iter().any(|r| r == "semilattice_simp"),
+        "expected the flattening layer: {rules:?}"
+    );
+}
+
 /// A nested `ac_simp` is decomposed layer by layer, each layer a `semilattice_simp` step lifted by
 /// `cong`, with no legacy AC name left.
 #[test]
