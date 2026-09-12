@@ -693,8 +693,16 @@ fn ac_simp() {
             "(step t1 (cl (= (or (= (and (and p q) r) s) (or p q)) (or (= (and p q r) s) p q)))
                 :rule ac_simp)": true,
 
+            // Under-flattened: the nested `and` under the `=` is left alone on both sides, so
+            // the right-hand side is not the normal form, but the two sides still have the
+            // same one. veriT writes conclusions of this shape, and the meet-in-the-middle
+            // fallback accepts them.
             "(step t1 (cl (= (or (= (and (and p q) r) s) (or p q))
-                (or (= (and (and p q) r) s) p q))) :rule ac_simp)": false,
+                (or (= (and (and p q) r) s) p q))) :rule ac_simp)": true,
+
+            // The two sides do not agree even up to the normal form
+            "(step t1 (cl (= (or (= (and (and p q) r) s) (or p q))
+                (or (= (and (and p q) r) p) p q))) :rule ac_simp)": false,
 
             "(step t1 (cl (= (xor (xor (xor p q) r) s) (xor p q r s))) :rule ac_simp)": false,
 
@@ -704,7 +712,12 @@ fn ac_simp() {
         "Removing duplicates" {
             "(step t1 (cl (= (or p p q r s) (or p q r s))) :rule ac_simp)": true,
             "(step t1 (cl (= (and (and p q) (and q r)) (and p q r))) :rule ac_simp)": true,
-            "(step t1 (cl (= (and (and p q) (and q r)) (and p q q r))) :rule ac_simp)": false,
+            // The duplicate is left in place on the right, so it is not the normal form, but
+            // both sides still normalize to `(and p q r)`
+            "(step t1 (cl (= (and (and p q) (and q r)) (and p q q r))) :rule ac_simp)": true,
+
+            // A duplicate is not the same as a missing conjunct
+            "(step t1 (cl (= (and (and p q) (and q r)) (and p q q))) :rule ac_simp)": false,
         }
         "veriT's premise-carrying form" {
             // A premise rewrites a subterm on the way to the normal form

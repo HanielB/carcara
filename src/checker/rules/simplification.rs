@@ -848,15 +848,14 @@ pub fn ac_simp(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleRes
         return Ok(());
     }
 
-    // Route 2, meet in the middle: both sides have the same normal form. This covers the
-    // instances where the right-hand side is not itself normal, because a premise's replacement
-    // term is less normal than what the conclusion writes at that position. It is only tried for
-    // a step that *has* premises: without them the structural reading above is the definition of
-    // the rule, and reading the conclusion up to a common normal form instead would accept
-    // equalities whose right-hand side is not the flattening of the left.
-    if premises.is_empty() {
-        return assert_eq(flattened, &normal);
-    }
+    // Route 2, meet in the middle: both sides have the same normal form. This is the fallback
+    // for everything route 1 does not read, and it covers two shapes. With premises, the
+    // conclusion's right-hand side is not normal because a premise's replacement term is less
+    // normal than what the conclusion writes at that position. Without them, \verit sometimes
+    // writes a conclusion that is simply under-flattened --- a nested `(and (and a b) c)` left
+    // alone deep inside the term --- which is a true equality that route 1's reading, where the
+    // right-hand side must *be* the normal form, does not accept. Both are decomposed by the
+    // elaborator's matching route into `cong`/`trans` over per-layer structural steps.
     let mut cache = IndexMap::new();
     let mode = AcRewriteMode::Forward;
     let nl = apply_ac_simp(pool, &mut cache, &forward, mode, original, false);

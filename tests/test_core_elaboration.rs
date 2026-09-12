@@ -833,6 +833,31 @@ fn ac_simp_with_premises() {
     );
 }
 
+/// An `ac_simp` whose conclusion veriT left under-flattened: it checks by the meet-in-the-middle
+/// fallback, and elaborates into per-layer structural steps glued by `cong`/`trans`/`symm`, with
+/// no `ac_simp` left for the consumer.
+#[test]
+fn ac_simp_under_flattened_conclusion() {
+    let definitions = "
+        (declare-const p Bool)
+        (declare-const q Bool)
+        (declare-const r Bool)
+        (declare-const s Bool)
+    ";
+    // the nested `(and (and p q) r)` under the `=` is left alone on both sides
+    let proof = "
+        (step t1 (cl (= (or (= (and (and p q) r) s) (or p q))
+                        (or (= (and (and p q) r) s) p q))) :rule ac_simp)
+        (step end (cl) :rule hole :premises (t1))
+    ";
+    let rules = run_core_pass(definitions, proof);
+    assert!(!rules.iter().any(|r| r == "ac_simp"), "ac_simp survived: {rules:?}");
+    assert!(
+        rules.iter().any(|r| r == "semilattice_simp"),
+        "expected the flattening layers: {rules:?}"
+    );
+}
+
 /// A nested `ac_simp` is decomposed layer by layer, each layer a `semilattice_simp` step lifted by
 /// `cong`, with no legacy AC name left.
 #[test]
