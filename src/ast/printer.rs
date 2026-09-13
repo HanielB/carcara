@@ -534,11 +534,13 @@ fn quote_symbol(symbol: &str) -> Cow<'_, str> {
     // - starts with a digit,
     // - is a reserved word, or
     // - contains non-symbol characters
-    // must be quoted
+    // must be quoted. `'` counts as a non-symbol character here even though the lexer accepts it
+    // (see `is_symbol_character`): other SMT-LIB parsers do not, so a symbol like `status'` read
+    // from a quoted `|status'|` must be printed quoted again, or cvc5 will reject the output.
     if symbol.is_empty()
         || symbol.chars().next().unwrap().is_ascii_digit()
         || Reserved::from_str(symbol).is_ok()
-        || symbol.chars().any(|c| !is_symbol_character(c))
+        || symbol.chars().any(|c| c == '\'' || !is_symbol_character(c))
     {
         Cow::Owned(format!("|{}|", symbol))
     } else {
@@ -721,6 +723,20 @@ impl fmt::Display for ProblemPrelude {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_quote_symbol() {
+        assert_eq!(quote_symbol("status"), "status");
+        assert_eq!(quote_symbol("x_1?!"), "x_1?!");
+        assert_eq!(quote_symbol(""), "||");
+        assert_eq!(quote_symbol("1x"), "|1x|");
+        assert_eq!(quote_symbol("assert"), "|assert|");
+        assert_eq!(quote_symbol("a b"), "|a b|");
+        // Accepted by Carcara's lexer for capture-avoidance renames, but not by the SMT-LIB
+        // grammar, so it must come back out quoted
+        assert_eq!(quote_symbol("status'"), "|status'|");
+        assert_eq!(quote_symbol("CVC_V'c'ArbVal'1"), "|CVC_V'c'ArbVal'1|");
+    }
 
     #[test]
     fn test_sharing() {
