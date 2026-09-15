@@ -363,25 +363,35 @@ impl<'e> Elaborator<'e> {
                 }
                 ElaborationPass::CoreExpensive => self.elaborate_core_expensive(current),
                 ElaborationPass::Local => self.elaborate_local(current),
-                ElaborationPass::Uncrowd => current.mutate(|_, node, _| match node.as_ref() {
-                    ProofNode::Step(s)
-                        if (s.rule == "resolution" || s.rule == "th_resolution")
-                            && !s.args.is_empty() =>
-                    {
-                        uncrowding::uncrowd_resolution(self.pool, s, self.config.uncrowd_rotation)
+                ElaborationPass::Uncrowd => {
+                    let taken = std::rc::Rc::new(ids_of(&current));
+                    current.mutate(|_, node, _| match node.as_ref() {
+                        ProofNode::Step(s)
+                            if (s.rule == "resolution" || s.rule == "th_resolution")
+                                && !s.args.is_empty() =>
+                        {
+                            uncrowding::uncrowd_resolution(
+                                self.pool,
+                                s,
+                                self.config.uncrowd_rotation,
+                                taken.clone(),
+                            )
                             .map_err(|e| e.at(s))
-                    }
-                    _ => Ok(node.clone()),
-                }),
+                        }
+                        _ => Ok(node.clone()),
+                    })
+                }
                 ElaborationPass::Budget => {
                     let budget = self.config.resolution_budget;
+                    let taken = std::rc::Rc::new(ids_of(&current));
                     current.mutate(|_, node, _| match node.as_ref() {
                         ProofNode::Step(s)
                             if budget > 0
                                 && (s.rule == "resolution" || s.rule == "th_resolution")
                                 && s.premises.len() > budget =>
                         {
-                            budget::split_resolution(self.pool, s, budget).map_err(|e| e.at(s))
+                            budget::split_resolution(self.pool, s, budget, taken.clone())
+                                .map_err(|e| e.at(s))
                         }
                         _ => Ok(node.clone()),
                     })
@@ -1050,10 +1060,24 @@ where
     Ok(cache[root].clone())
 }
 
+/// Every ID in the proof, for an [`IdHelper`] that must not reuse one.
+fn ids_of(proof: &ProofNodeForest) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    proof.traverse(|node| {
+        ids.insert(node.id().to_owned());
+    });
+    ids
+}
+
 /// A helper for generating unique step IDs from a root ID, by appending numeric suffixes to it.
 pub struct IdHelper {
     root: String,
     stack: Vec<usize>,
+    /// IDs already in the proof, which [`IdHelper::next_id`] skips. A pass that derives IDs from
+    /// a step's ID after an earlier pass has already given that step sub-steps (as `local` does
+    /// when it reduces a premise before the chain, and `budget` then splits the chain) would
+    /// otherwise reuse them.
+    taken: Option<std::rc::Rc<HashSet<String>>>,
 }
 
 impl IdHelper {
@@ -1062,6 +1086,16 @@ impl IdHelper {
         Self {
             root: root.to_owned(),
             stack: vec![0],
+            taken: None,
+        }
+    }
+
+    /// Constructs a new [`IdHelper`] for the given root ID that never returns an ID in `taken`.
+    pub fn avoiding(root: &str, taken: std::rc::Rc<HashSet<String>>) -> Self {
+        Self {
+            root: root.to_owned(),
+            stack: vec![0],
+            taken: Some(taken),
         }
     }
 
@@ -1069,12 +1103,20 @@ impl IdHelper {
     pub fn next_id(&mut self) -> String {
         use std::fmt::Write;
 
-        let mut current = self.root.clone();
-        for i in &self.stack {
-            write!(&mut current, ".t{}", i + 1).unwrap();
+        loop {
+            let mut current = self.root.clone();
+            for i in &self.stack {
+                write!(&mut current, ".t{}", i + 1).unwrap();
+            }
+            *self.stack.last_mut().unwrap() += 1;
+            if !self
+                .taken
+                .as_ref()
+                .is_some_and(|taken| taken.contains(&current))
+            {
+                return current;
+            }
         }
-        *self.stack.last_mut().unwrap() += 1;
-        current
     }
 
     /// Starts a new nesting level.
@@ -1089,5 +1131,20 @@ impl IdHelper {
     pub fn pop(&mut self) {
         assert!(self.stack.len() >= 2, "can't pop last frame from the stack");
         self.stack.pop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IdHelper;
+
+    #[test]
+    fn id_helper_skips_taken_ids() {
+        let taken = ["t1.t1", "t1.t3"].map(str::to_owned).into_iter().collect();
+        let mut ids = IdHelper::avoiding("t1", std::rc::Rc::new(taken));
+        assert_eq!(ids.next_id(), "t1.t2");
+        assert_eq!(ids.next_id(), "t1.t4");
+        ids.push();
+        assert_eq!(ids.next_id(), "t1.t5.t1");
     }
 }

@@ -125,13 +125,16 @@ pub fn split_resolution(
     pool: &mut PrimitivePool,
     step: &StepNode,
     budget: usize,
+    taken: std::rc::Rc<std::collections::HashSet<String>>,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     let budget = budget.max(2);
     let premises = premises_of(step);
     if premises.len() <= budget || step.args.len() != 2 * (premises.len() - 1) {
         return Ok(Rc::new(ProofNode::Step(step.clone())));
     }
-    let mut ids = IdHelper::new(&step.id);
+    // the pieces are named after the step, and an earlier pass may already have named sub-steps
+    // of it the same way
+    let mut ids = IdHelper::avoiding(&step.id, taken);
     let (mut node, mut clause) = piece(pool, &mut ids, step.depth, &premises[..budget]);
     let mut next = budget;
     while next < premises.len() {

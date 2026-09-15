@@ -101,6 +101,7 @@ pub fn uncrowd_resolution(
     pool: &mut PrimitivePool,
     step: &StepNode,
     rotate_premises: bool,
+    taken: std::rc::Rc<std::collections::HashSet<String>>,
 ) -> Result<Rc<ProofNode>, ElaborationError> {
     if step.premises.len() < 2 {
         return Err(CheckerError::WrongNumberOfPremises((2..).into(), step.premises.len()).into());
@@ -137,7 +138,7 @@ pub fn uncrowd_resolution(
     }
 
     let mut previous_cut = 0;
-    let mut ids = IdHelper::new(&step.id);
+    let mut ids = IdHelper::avoiding(&step.id, taken);
 
     for cut in contractions {
         let (node, clause) = add_partial_resolution_step(
@@ -457,7 +458,7 @@ mod tests {
             unreachable!();
         };
 
-        let got = uncrowd_resolution(&mut pool, step, true).unwrap();
+        let got = uncrowd_resolution(&mut pool, step, true, Default::default()).unwrap();
 
         let expected = "
             (step t1 (cl x a b) :rule hole)
