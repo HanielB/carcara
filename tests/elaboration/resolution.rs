@@ -84,3 +84,55 @@ fn edge_cases() {
         }
     }
 }
+
+#[test]
+fn solver_identifies_double_negation_with_atom() {
+    // Both shapes come from a solver whose SAT-level literals know no difference between
+    // `(not (not p))` and `p`: veriT resolves a clause with an equality it never uses, and cvc5
+    // lets one `(not p)` eliminate both `p` and `(not (not p))`. Neither is a chain over
+    // Alethe's syntactic literals, so the elaborator has to write one.
+    test_cases! {
+        pipeline = Local,
+        problem =  "
+            (declare-const p Bool)
+            (declare-const q Bool)
+            (declare-const r Bool)
+            (declare-const s Bool)
+        ",
+        "A premise the step never resolves against: the step goes" {
+            "(step t1 (cl p) :rule hole)
+            (step t2 (cl (= (not (not p)) p)) :rule hole)
+            (step t3 (cl p) :rule th_resolution :premises (t1 t2))
+            (step t4 (cl p q) :rule weakening :premises (t3))"
+            ->
+            "(step t1 (cl p) :rule hole)
+            (step t2 (cl (= (not (not p)) p)) :rule hole)
+            (step t4 (cl p q) :rule weakening :premises (t1))",
+        }
+        "A premise the step never resolves against, weakened and reordered" {
+            "(step t1 (cl p) :rule hole)
+            (step t2 (cl (= (not (not p)) p)) :rule hole)
+            (step t3 (cl q p) :rule th_resolution :premises (t1 t2))"
+            ->
+            "(step t1 (cl p) :rule hole)
+            (step t2 (cl (= (not (not p)) p)) :rule hole)
+            (step t3.t1 (cl p q) :rule weakening :premises (t1))
+            (step t3 (cl q p) :rule reordering :premises (t3.t1))",
+        }
+        "One (not p) eliminating both p and (not (not p))" {
+            "(step t1 (cl (not (not p)) q) :rule hole)
+            (step t2 (cl (not p) r) :rule hole)
+            (step t3 (cl p s) :rule hole)
+            (step t4 (cl q r s) :rule resolution :premises (t1 t2 t3))"
+            ->
+            "(step t1 (cl (not (not p)) q) :rule hole)
+            (step t2 (cl (not p) r) :rule hole)
+            (step t3 (cl p s) :rule hole)
+            (step t4.t1 (cl (not (not (not p))) p) :rule not_not)
+            (step t4.t2 (cl p q) :rule resolution :premises (t1 t4.t1) :args ((not (not p)) true))
+            (step t4.t3 (cl r q) :rule resolution :premises (t2 t4.t2) :args (p false))
+            (step t4.t4 (cl r q s) :rule weakening :premises (t4.t3))
+            (step t4 (cl q r s) :rule reordering :premises (t4.t4))",
+        }
+    }
+}

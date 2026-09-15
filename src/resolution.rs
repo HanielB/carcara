@@ -2,7 +2,7 @@
 
 use crate::ast::{Rc, Term, build_term, pool::TermPool};
 use indexmap::{IndexMap, IndexSet, map::Entry};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, HashSet, hash_map};
 use thiserror::Error;
 
 /// Errors related to the resolution checking and elaboration algorithms.
@@ -351,7 +351,8 @@ pub fn set_replay_valid(
 /// A valid ordered resolution chain reconstructed from a RUP certificate.
 pub struct RupChain {
     /// Indices into the original premise list, in chain order. May be a subset of the premises,
-    /// and is never empty when the reconstruction succeeds.
+    /// and is never empty when the reconstruction succeeds. A single index means no resolution
+    /// happens at all: the conclusion is that one premise, or a weakening of it.
     pub order: Vec<usize>,
 
     /// The pivot arguments for the chain, aligned with `order[1..]`, in the convention of
@@ -486,7 +487,17 @@ pub fn rup_chain(
     }
 
     if order.len() < 2 {
-        return None;
+        // The conflict clause is falsified by the negated conclusion alone, so the step concludes
+        // (a weakening of) that one premise and no resolution happens. veriT writes such steps: a
+        // `th_resolution` of `(cl p)` with the `not_simplify` equality `(= (not (not p)) p)`,
+        // concluding `(cl p)` again, because its SAT solver had identified the two literals. The
+        // chain of one premise lets the caller drop the step or write the weakening. A premise
+        // with a repeated literal is not reported, since its clause is not the set the caller
+        // would read from `final_clause`.
+        let distinct: HashSet<_> = clauses[conflict].iter().collect();
+        if distinct.len() != clauses[conflict].len() {
+            return None;
+        }
     }
 
     // The remaining literals are all falsified by the initial assumptions, so they form a subset

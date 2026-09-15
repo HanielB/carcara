@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        ContextStack, ProofNode, Rc, StepNode, build_term, match_term,
+        ContextStack, ProofNode, Rc, StepNode, Term, build_term, match_term,
         pool::{PrimitivePool, TermPool},
     },
     elaborator::{ElaborationError, IdHelper},
@@ -87,11 +87,33 @@ pub fn resolution(
         result.map_err(|_| first_error) // we prefer returning the first error
     });
 
-    let ResolutionTrace { not_not_added, pivot_trace } = match greedy {
-        Ok(trace) => trace,
+    let (premises, ResolutionTrace { not_not_added, pivot_trace }) = match greedy {
+        Ok(trace) => (premises, trace),
         Err(first_error) => {
             let premise_clauses: Vec<_> = premises.iter().map(|p| p.clause()).collect();
-            let Some(chain) = rup_chain(&step.clause, &premise_clauses, pool) else {
+            if let Some(chain) = rup_chain(&step.clause, &premise_clauses, pool) {
+                return Ok(build_rup_chain_step(pool, step, &premises, chain, &mut ids));
+            }
+
+            // The chain may exist only modulo double negation: reduce the stacked negations
+            // and infer it over the reduced premises, by the same two routes
+            if let Some(reduced) = reduce_stacked_negations(pool, step, &premises, &mut ids) {
+                match verified_greedy(&reduced, pool) {
+                    Ok(trace) => (reduced, trace),
+                    Err(_) => {
+                        let reduced_clauses: Vec<_> = reduced.iter().map(|p| p.clause()).collect();
+                        let Some(chain) = rup_chain(&step.clause, &reduced_clauses, pool) else {
+                            log::warn!(
+                                "resolution '{}': could not infer pivots ({}), keeping step",
+                                step.id,
+                                first_error
+                            );
+                            return Ok(Rc::new(ProofNode::Step(step.clone())));
+                        };
+                        return Ok(build_rup_chain_step(pool, step, &reduced, chain, &mut ids));
+                    }
+                }
+            } else {
                 // Neither the greedy inference nor a RUP certificate yields a chain for this
                 // step. Keeping it is much better than failing the whole elaboration, which
                 // would throw away an otherwise perfectly checkable proof: the `resolution`
@@ -106,8 +128,7 @@ pub fn resolution(
                     first_error
                 );
                 return Ok(Rc::new(ProofNode::Step(step.clone())));
-            };
-            return Ok(build_rup_chain_step(pool, step, &premises, chain, &mut ids));
+            }
         }
     };
 
@@ -214,6 +235,19 @@ fn build_rup_chain_step(
         .flat_map(|(pivot, polarity)| [pivot.clone(), pool.bool_constant(*polarity)])
         .collect();
 
+    // A chain of one premise resolves nothing: the conclusion is that premise, or a weakening of
+    // it. If it is the premise verbatim, the step goes and its consumers use the premise, as
+    // `remove_reorderings` does with a reordering; otherwise the weakening is written directly
+    // over the premise, and no resolution step at all.
+    if let [i] = chain.order[..] {
+        let premise = premises[i].clone();
+        let clause = premise.clause().to_vec();
+        if clause == step.clause {
+            return premise;
+        }
+        return restore_clause(step, premise, clause, ids);
+    }
+
     let final_set: HashSet<_> = chain.final_clause.iter().cloned().collect();
     let target_set: HashSet<_> = step.clause.iter().cloned().collect();
 
@@ -239,36 +273,124 @@ fn build_rup_chain_step(
         args,
         ..Default::default()
     }));
+    restore_clause(step, resolution_step, chain.final_clause, ids)
+}
 
-    let mut weakened = chain.final_clause;
-    weakened.extend(
-        step.clause
-            .iter()
-            .filter(|t| !final_set.contains(t))
-            .cloned(),
-    );
-    let weakening_step = Rc::new(ProofNode::Step(StepNode {
-        id: ids.next_id(),
-        depth: step.depth,
-        clause: weakened.clone(),
-        rule: "weakening".to_owned(),
-        premises: vec![resolution_step],
-        ..Default::default()
-    }));
+/// The target clause of `step` from `base`, which concludes `base_clause`, a subset of the target
+/// as a set: a `weakening` for the literals the base lacks, and a `reordering` when the order
+/// still differs. Whichever step concludes the target carries the original id.
+fn restore_clause(
+    step: &StepNode,
+    base: Rc<ProofNode>,
+    base_clause: Vec<Rc<Term>>,
+    ids: &mut IdHelper,
+) -> Rc<ProofNode> {
+    use std::collections::HashSet;
 
-    if weakened == step.clause {
-        // The weakening already concludes the exact clause; give it the original id
-        let mut final_step = weakening_step.as_step().unwrap().clone();
-        final_step.id = step.id.clone();
-        return Rc::new(ProofNode::Step(final_step));
+    let base_set: HashSet<_> = base_clause.iter().cloned().collect();
+    let missing: Vec<_> = step
+        .clause
+        .iter()
+        .filter(|t| !base_set.contains(t))
+        .cloned()
+        .collect();
+
+    let (node, clause) = if missing.is_empty() {
+        (base, base_clause)
+    } else {
+        let mut weakened = base_clause;
+        weakened.extend(missing);
+        let id = if weakened == step.clause {
+            step.id.clone()
+        } else {
+            ids.next_id()
+        };
+        let weakening_step = Rc::new(ProofNode::Step(StepNode {
+            id,
+            depth: step.depth,
+            clause: weakened.clone(),
+            rule: "weakening".to_owned(),
+            premises: vec![base],
+            ..Default::default()
+        }));
+        (weakening_step, weakened)
+    };
+
+    if clause == step.clause {
+        return node;
     }
-
     Rc::new(ProofNode::Step(StepNode {
         id: step.id.clone(),
         depth: step.depth,
         clause: step.clause.clone(),
         rule: "reordering".to_owned(),
-        premises: vec![weakening_step],
+        premises: vec![node],
         ..Default::default()
     }))
+}
+
+/// A solver whose SAT-level literals identify `(not (not p))` with `p` writes chains in which one
+/// `(not p)` eliminates both, or in which a premise carries the pivot under two more negations
+/// than the literal that eliminates it. cvc5 does this on the QF_UF hardware benchmarks. Neither
+/// is a chain over Alethe's syntactic literals, so pivot inference fails, though the step is
+/// valid: the gap is exactly a double negation. This reduces every premise literal carrying two
+/// or more negations that the conclusion does not keep, by a `not_not` step and a binary
+/// resolution on that literal, so that the chain can be inferred over the reduced premises.
+/// Returns `None` when there was nothing to reduce.
+fn reduce_stacked_negations(
+    pool: &mut PrimitivePool,
+    step: &StepNode,
+    premises: &[Rc<ProofNode>],
+    ids: &mut IdHelper,
+) -> Option<Vec<Rc<ProofNode>>> {
+    let mut reduced = Vec::with_capacity(premises.len());
+    let mut changed = false;
+    for premise in premises {
+        let mut node = premise.clone();
+        loop {
+            let clause = node.clause();
+            let Some(i) = clause
+                .iter()
+                .position(|l| l.remove_all_negations().0 >= 2 && !step.clause.contains(l))
+            else {
+                break;
+            };
+            let lit = clause[i].clone();
+            let inner = lit
+                .remove_negation()
+                .unwrap()
+                .remove_negation()
+                .unwrap()
+                .clone();
+            let not_lit = build_term!(pool, (not { lit.clone() }));
+
+            // `(cl (not (not (not t))) t)`, which resolved against the premise on the literal
+            // `(not (not t))` replaces that literal by `t`
+            let not_not_step = Rc::new(ProofNode::Step(StepNode {
+                id: ids.next_id(),
+                depth: step.depth,
+                clause: vec![not_lit, inner.clone()],
+                rule: "not_not".to_owned(),
+                ..Default::default()
+            }));
+            let mut new_clause: Vec<_> = clause.to_vec();
+            if new_clause.contains(&inner) {
+                new_clause.remove(i);
+            } else {
+                new_clause[i] = inner;
+            }
+            node = Rc::new(ProofNode::Step(StepNode {
+                id: ids.next_id(),
+                depth: step.depth,
+                clause: new_clause,
+                rule: "resolution".to_owned(),
+                premises: vec![node, not_not_step],
+                args: vec![lit, pool.bool_true()],
+                ..Default::default()
+            }));
+            changed = true;
+        }
+        reduced.push(node);
+    }
+    changed.then_some(reduced)
 }
