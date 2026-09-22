@@ -3892,3 +3892,36 @@ change reads every conjunction for a pair of opposite bounds before its
 arguments are normalized; on cvc5's holes that turns conjunctions into
 equalities the other side no longer matches.  Not reverted here -- it is
 the veriT work's -- but it has to be resolved before a rerun.
+
+## 44. `la_rw_eq` in the prenormalizer, after flattening (2026-09-22)
+
+§43's regression, fixed on this branch.  `19b64f64` read `la_rw_eq` on the
+term *as written*, before its arguments were normalized, matching only a
+two-element `and` of mirrored bounds; on cvc5's conjunction-flattening
+holes -- `(= (and (and (<= x 2) (>= x 2)) p) (and p (<= x 2) (>= x 2)))` --
+that folded the nested pair on one side and left the flat one on the other,
+so two terms that had normalized to the same flat conjunction now
+normalized apart, and 176 holes of `sc-14` that closed for free went to
+egglog as `(= (and equalities) (and bounds))`, the shape that fills the
+e-graph: 77 memory kills where there were none, 1,200 s where there were
+120.  The normalizer's cost never changed; its normal form stopped being
+confluent.
+
+The fold now runs as a top step *after* `aci_simp`, on the flat canonical
+conjunction, and reads the bounds as the normal forms leave them: two
+non-strict bounds among the conjuncts whose `Q <= 0` polynomials are each
+other's negation (`(<= P c)` with `(>= P c)`, or with `(<= -P -c)`) are the
+equality `(= t u)` in the rule's spelling, with `t <= u` read off the
+first bound.  So a pair meets however the producer nested it, and the
+equality is then normalized like any other, which is also what the veriT
+shapes need (`(and (<= t u) (<= u t))` normalizes each bound first and
+folds the mirrored pair after).  Certificate (`Emitter::emit_fold`):
+`aci_simp` regroups the pair into its own `and` (the checker compares
+multisets after flattening, so any positions and nesting), `la_generic` +
+`equiv_neg` + `resolution` turn a bound into the rule's spelling where it
+differs (under `cong`), `la_rw_eq` reversed by `symm`, and the pair
+replaced by the equality under `cong`.  The as-written reading and its
+`BoundFlip` premise are gone.  `sc-14`: 3,608 closed again.  The
+concurrent commit's test that `(and p (<= x y) (<= y x))` and `(and p (= x
+y))` stay apart encoded the limitation and is now a coinciding case; every
+other case of its tests passes as before, plus nested-against-flat cases.
