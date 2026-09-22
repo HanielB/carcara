@@ -3827,3 +3827,65 @@ and scope steps not counted; `cpc/tiers.py`, `cpc/tiers.txt`):
 
 At `dsl-rewrite` the distinct RARE-rule plus normalizer steps are 47,843 /
 68,992 / 112,902, i.e. 1.0 / 1.5 / 1.4 per distinct theory-rewrite hole.
+
+### The limits, isolated: the cap decides, the clock adds a little (2026-09-22)
+
+`vb50-2` and `vnob-2` differ in four things at once (the bound, the caps,
+the per-hole clock, the worker count), so neither arm alone says what the
+higher limits buy.  Two readings separate them.
+
+**The paired QF_UF read is almost a controlled experiment.**  Of the 3,127
+QF_UF benchmarks both arms have finished, **2,934 produce identical hole
+counts**: veriT's QF_UF preprocessing holes are already under 50 DAG nodes,
+so `--proof-hole-size=50` hardly ever fires there and the two arms are
+checking the same holes.  On the 3,086 paired proofs, `set-form`:
+
+| | holes | proved | kept | proofs fully justified | pass time |
+|---|---|---|---|---|---|
+| caps 3M/500k, 60 s, 8 workers | 241,522 | 94.2% | 14,080 | 236 | 11.5 h |
+| caps 120M/20M, 120 s, 4 workers | 241,302 | **99.7%** | 751 | **2,528** | 26.0 h |
+
+with the normalizer, 98.9% / 1,546 clean against 99.7% / 2,564.  The pass
+time roughly doubles, but the high arm runs half the workers, so per worker
+the work is comparable.
+
+The residue names the knob.  Kept holes by reason (these runs predate the
+`[class]` tag, so the text is classified: the `egglog check for tN failed`
+message is the growth cap firing):
+
+| | growth cap | per-hole time | memory |
+|---|---|---|---|
+| low limits | **13,670** | 388 | 22 |
+| high limits | 46 | 675 | 32 |
+
+Had the 60 s clock been binding, the low arm would show time kills; it
+shows cap kills, and raising the cap removes 13,600 of them.  The clock
+then becomes binding, and only mildly (388 to 675).
+
+**Locally, one knob at a time.**  The same N=50 proofs of the five worst
+QF_UF residues, the same 2 workers and 6 GB per hole, the same 600 s pass
+budget, changing only the cap and then the clock
+(`scratchpad/caps/ab.sh`; local binary, newer than the cluster's):
+
+| proof | holes | A: 3M/500k, 60 s | B: 120M/20M, 60 s | C: 120M/20M, 120 s |
+|---|---|---|---|---|
+| `gensys_icl057` | 376 | 363, 108 s | 373, 182 s | 374, 194 s |
+| `gensys_brn064` | 253 | 242, 48 s | 252, 80 s | **253**, 113 s |
+| `gensys_icl055` | 226 | 215, 44 s | 224, 132 s | 225, 176 s |
+| `dead_dnd014` | 14 | 2, 34 s | **12**, 105 s | 12, 166 s |
+| `iso_icl_repgen006` | 37 | 2, 110 s | 7, 600 s | **20**, 600 s |
+| total | 906 | 824 proved, 82 kept, 344 s | 868, 28 kept + 10 skipped, 1,098 s | 884, 7 kept + 15 skipped, 1,248 s |
+
+So the cap alone (A to B) recovers 44 of the 82 kept holes and the clock
+(B to C) another 16; on the one proof where the holes are individually hard
+(`iso_icl_repgen006`) the clock is what matters, 7 to 20.  The price is
+three times the time on proofs chosen for being the worst, and a new
+failure mode: with the higher limits `iso_icl_repgen006` no longer finishes
+inside the 600 s pass budget, so holes are skipped rather than kept.
+
+**Reading.**  For veriT's QF_UF holes the caps `vb50-2` inherited from cvc5
+are simply too small, and the 120M/20M pair costs nothing on the holes that
+were already proved (they never approach it).  A rerun of the bounded arm at
+the higher limits should take QF_UF from 94.2% to about 99.7% of holes and
+from 236 to about 2,500 fully justified proofs, and would isolate the bound,
+which is what `vb50-2` was supposed to measure in the first place.
