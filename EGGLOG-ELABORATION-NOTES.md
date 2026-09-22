@@ -3812,3 +3812,18 @@ around leaves that are still single rule instances from the same small set
 `arith-leq-norm`).  The DSL reconstruction's recursion is visible only in the
 tail; the structure comes from the macro elaboration, which egglog does not
 have to do because cvc5's theory-rewrite holes already sit at the leaves.
+
+**Distinct steps per tier** (CPC, the 206 benchmarks with all four tiers:
+96 QF_UF, 44 QF_LIA, 66 QF_LRA; distinct = deduplicated within a proof, steps
+by rule and conclusion, trusted steps also by premise conclusions; `assume`
+and scope steps not counted; `cpc/tiers.py`, `cpc/tiers.txt`):
+
+| tier | QF_UF distinct trusted | QF_LIA | QF_LRA | all distinct steps |
+|---|---|---|---|---|
+| `macro` | 30,814 | 26,938 | 44,839 | 1,215,360 |
+| `rewrite` | 32,790 | 28,341 | 32,916 | 1,342,833 |
+| `theory-rewrite` | 47,907 | 48,394 | 82,161 | 1,746,062 |
+| `dsl-rewrite` | 73 | 0 | 0 | 1,821,497 |
+
+At `dsl-rewrite` the distinct RARE-rule plus normalizer steps are 47,843 /
+68,992 / 112,902, i.e. 1.0 / 1.5 / 1.4 per distinct theory-rewrite hole.
