@@ -564,6 +564,7 @@ impl<'e> Elaborator<'e> {
             .collect();
         let abstract_tried = std::sync::atomic::AtomicUsize::new(0);
         let abstract_proved = std::sync::atomic::AtomicUsize::new(0);
+        let fallback_tried = std::sync::atomic::AtomicUsize::new(0);
         let fallback_proved = std::sync::atomic::AtomicUsize::new(0);
         let normalized_proved = std::sync::atomic::AtomicUsize::new(0);
         let normalized_fallback_proved = std::sync::atomic::AtomicUsize::new(0);
@@ -906,12 +907,28 @@ impl<'e> Elaborator<'e> {
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                         Ok(abstraction::instantiate_steps(steps, bindings))
                                     }
+                                    // A goal the abstraction did not make provable
+                                    // (saturated short of it, or the growth cap) is
+                                    // retried as it stands; one that ran out of time or
+                                    // memory *with* the shared subterms gone would only
+                                    // do so again with them back, and keeps the abstract
+                                    // attempt's verdict.
+                                    Err(reason)
+                                        if matches!(
+                                            rare_hole::residue_class(&reason),
+                                            "memory" | "memory-soft-cap" | "hole-time" | "pass-budget"
+                                        ) =>
+                                    {
+                                        Err(reason)
+                                    }
                                     Err(reason) => {
                                         log::debug!(
                                             "hole {}: abstract goal not proved ({}); retrying the original",
                                             step.id,
                                             reason.lines().next().unwrap_or("")
                                         );
+                                        fallback_tried
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                         let result = run(pool, step, options);
                                         if result.is_ok() {
                                             fallback_proved
@@ -1030,13 +1047,14 @@ impl<'e> Elaborator<'e> {
             let tried = abstract_tried.load(std::sync::atomic::Ordering::Relaxed);
             let proved = abstract_proved.load(std::sync::atomic::Ordering::Relaxed);
             log::info!(
-                "hole abstraction: {} of {} holes share a subterm of {} nodes or more; {} proved abstract, {} of the {} retried proved as they stand",
+                "hole abstraction: {} of {} holes share a subterm of {} nodes or more; {} proved abstract, {} kept on the abstract attempt's time or memory, {} of the {} retried proved as they stand",
                 tried,
                 holes.len(),
                 min_nodes,
                 proved,
+                tried - proved - fallback_tried.load(std::sync::atomic::Ordering::Relaxed),
                 fallback_proved.load(std::sync::atomic::Ordering::Relaxed),
-                tried - proved
+                fallback_tried.load(std::sync::atomic::Ordering::Relaxed)
             );
         }
         if subst {

@@ -3828,6 +3828,71 @@ and scope steps not counted; `cpc/tiers.py`, `cpc/tiers.txt`):
 At `dsl-rewrite` the distinct RARE-rule plus normalizer steps are 47,843 /
 68,992 / 112,902, i.e. 1.0 / 1.5 / 1.4 per distinct theory-rewrite hole.
 
+## 43. Shared-subterm abstraction with a fallback, and what it does and does not reach (2026-09-22)
+
+`--hole-abstract-shared N` (commit 0c50a1f4, `src/elaborator/abstraction.rs`):
+before egglog, every maximal subterm both sides of a hole share, of `N`
+nodes or more and binding nothing, becomes a fresh constant of its sort
+(`@abs_K`, declared by the child as any free variable is); the abstract goal
+is tried first on half the hole's budget, its certificate instantiated back
+by putting the subterm's text where the name is, and a hole whose abstract
+goal is *not proved* is retried as it stands.  Sound by instantiation -- a
+rewrite proved for a constant holds for any term -- and incomplete exactly
+when the proof has to rewrite inside the shared subterm to relate it to
+something outside it (`(= (or (not (not p)) (not p)) (or true (not (not
+p))))`: both sides are `true` only because the shared `(not (not p))` is
+`p`), which the fallback covers.  A hole whose abstract attempt dies of time
+or memory keeps that verdict: with the shared subterms gone the goal is as
+small as it gets, and the retry would only die the same way, for the full
+budget.  Tests: unit tests of the abstraction and the instantiation, and
+`elaborates_through_shared_subterm_abstraction_with_fallback` (fixture
+`tests/rare/elaborate/abstract-shared.*`: one hole abstracted and cited
+on the original terms, one counterexample elaborated through the
+fallback).  The runners pass `--hole-abstract-shared 16`.
+
+Measured on the §42 proofs, four workers, 1,200 s (before the gating of
+the fallback):
+
+| proof | holes with a shared subterm of 16+ nodes | proved abstract | retried | of which proved | kept before / after | unattempted before / after |
+|---|---|---|---|---|---|---|
+| sc-14 | 0 of 1,849 | -- | -- | -- | -- | -- |
+| in-de62-O0 | 0 of 2,596 | -- | -- | -- | -- | -- |
+| calypto problem-001542 | 174 of 653 | 119 | 55 | 3 | 76 / 56 | 289 / 352 |
+
+So the abstraction is not what the Dartagnan family needs: its sides
+differ by a conjunct *inside* one big `and`, and what they share is a list
+of three-node atoms, not one large subterm.  Where it applies (calypto) it
+takes a quarter of the kept holes, but the 52 failed abstract attempts each
+cost half a hole budget before the retry, and at a fixed pass budget that
+was more unattempted holes than it saved -- hence the gating above, and
+the reason a budget in holes rather than seconds (§6) is the companion
+change.
+
+With the fallback gated (calypto again, same budget): 363 of the 653
+holes that reached a worker were abstracted, 245 proved abstract, 118
+kept on the abstract attempt's own half-budget timeout, none retried;
+**2,012 proved, 124 kept, 64 unattempted** against 1,835 / 76 / 289
+without the abstraction.  So at a fixed pass budget the abstraction is
+worth 177 holes on this proof, and what it leaves is now dominated by
+holes whose *abstract* goal takes more than 30 s -- which says the half
+budget is the next knob, and that a budget in holes would let the
+abstract attempt have the whole per-hole limit without starving the
+rest of the proof.
+
+**A regression from a concurrent commit.**  These measurements were first
+confounded by `19b64f64` ("Close the la_rw_eq shape in the prenormalizer,
+before anything else"), committed to this branch by another session
+between my runs: on `sc-14` the prenormalizer closes 3,432 holes instead of
+3,608, the 176 it no longer closes are `(= A (and ...))` goals over a
+dozen conjuncts that now reach egglog and die of memory (77 kills, was 0),
+and the pass takes its whole 1,200 s instead of 120 s; on `in-de62-O0`
+4,411 proved became 3,478 at the same budget.  Bisected by building the
+tree at `b1acac8f` (3,608) and at HEAD (3,432) on the same file.  The
+change reads every conjunction for a pair of opposite bounds before its
+arguments are normalized; on cvc5's holes that turns conjunctions into
+equalities the other side no longer matches.  Not reverted here -- it is
+the veriT work's -- but it has to be resolved before a rerun.
+
 ## 45. Coarser holes from cvc5: `--proof-granularity=rewrite` (2026-09-22)
 
 Branch `egglog/rewrite-holes` (worktree `wt-rwgran`, off `bounded-parallel-holes`
