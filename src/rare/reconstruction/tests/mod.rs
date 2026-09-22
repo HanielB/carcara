@@ -2220,6 +2220,55 @@ fn elaborates_holes_under_variable_binding_anchors() {
     assert!(printed.contains("rare_rewrite"), "{printed}");
 }
 
+/// Shared-subterm abstraction with its fallback.  The first hole rewrites at
+/// the top of a shared conjunction: abstracted to `(= (= c false) (not c))`,
+/// proved by `eq-symm` and `bool-eq-false`, and its certificate instantiated
+/// back must check against the original terms.  The second is a
+/// counterexample to completeness: both sides are `true`, but only because
+/// the shared `(not (not p))` is `p`, which the abstract goal `(= (or c (not
+/// p)) (or true c))` no longer knows; the abstract goal fails and the hole
+/// must still be elaborated as it stands.
+#[test]
+fn elaborates_through_shared_subterm_abstraction_with_fallback() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let problem_path = Path::new("tests/rare/elaborate/abstract-shared.smt2");
+    let proof_path = Path::new("tests/rare/elaborate/abstract-shared.smt2.alethe");
+    let rare_path = Path::new("tests/rare/big.rare");
+    let parser_config = parser::Config::new()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let (_, problem, elaborated, mut pool) = crate::check_and_elaborate(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        elaborator::Config::new()
+            .elaborate_hole_rewrites(true)
+            .hole_abstract_shared(2),
+        vec![ElaborationPass::Hole],
+        false,
+    )
+    .expect("the proof should check and elaborate");
+    let mut printed = Vec::new();
+    crate::ast::printer::write_proof_to_dest(
+        &mut pool,
+        &problem.prelude,
+        &elaborated,
+        &mut printed,
+        false,
+    )
+    .expect("the elaborated proof should print");
+    let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+    assert!(!printed.contains(":rule hole"), "{printed}");
+    assert!(!printed.contains("@abs_"), "{printed}");
+    assert!(printed.contains("\"bool-eq-false\" (and p q r)"), "{printed}");
+}
+
 /// An equality against the conjunction of its two bounds, one of them
 /// mirrored (`(<= 1 p)`): the bounds meet through the all-relations
 /// fallback inside the `and`.  The certificate either combines `aci_simp`

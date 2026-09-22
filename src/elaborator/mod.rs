@@ -3,6 +3,7 @@
 pub mod error;
 pub mod fold;
 mod hoist;
+pub mod abstraction;
 pub mod prenorm;
 mod hole;
 mod local;
@@ -136,6 +137,11 @@ pub struct Config {
     /// a hole whose sides coincide is proved outright, the others are checked as the equality of
     /// their normal forms.
     hole_prenormalize: bool,
+
+    /// Before egglog, replace the largest subterms shared by both sides of a
+    /// hole, of at least this many nodes, by fresh constants; a hole whose
+    /// abstract goal is not proved is retried as it stands.  0 disables.
+    hole_abstract_shared: usize,
 
     /// In the fold pass, the most steps a derivation folded into one hole may have, counted as a
     /// tree (a shared step counts once per use); 0 for no limit.  A larger derivation keeps its
@@ -529,6 +535,27 @@ impl<'e> Elaborator<'e> {
                 return prenormalized;
             }
         }
+        // The abstract goal of every hole whose sides share a large subterm
+        // (see `abstraction`): tried first, the original on failure.
+        let min_nodes = self.config.hole_abstract_shared;
+        let abstractions: Vec<Option<(StepNode, Vec<(String, Rc<Term>)>)>> = holes
+            .iter()
+            .map(|(_, step)| {
+                if min_nodes == 0 {
+                    return None;
+                }
+                let conclusion = step.clause.first()?;
+                let abstraction::Abstraction { goal, bindings } =
+                    abstraction::abstract_shared(self.pool, conclusion, min_nodes)?;
+                log::debug!("hole {}: abstract goal {:#}", step.id, goal);
+                let mut abstract_step = step.clone();
+                abstract_step.clause = vec![goal];
+                Some((abstract_step, bindings))
+            })
+            .collect();
+        let abstract_tried = std::sync::atomic::AtomicUsize::new(0);
+        let abstract_proved = std::sync::atomic::AtomicUsize::new(0);
+        let fallback_proved = std::sync::atomic::AtomicUsize::new(0);
         let options = self.config.hole_rewrite_options;
         let isolate = self.config.hole_isolate;
         let check_only = self.config.hole_check_only;
@@ -819,31 +846,69 @@ impl<'e> Elaborator<'e> {
                         if !extra.is_empty() {
                             reused_count.fetch_add(extra.len(), std::sync::atomic::Ordering::Relaxed);
                         }
-                        let result = if isolate {
-                            match rare_file.as_deref() {
-                                Some(path) => rare_hole::reconstruct_in_child(
-                                    &mut pool,
-                                    prelude,
-                                    node,
-                                    step,
-                                    path,
-                                    options,
-                                    memory_limit,
-                                    check_only,
-                                    deadline,
-                                    &extra,
-                                    &hints,
-                                    subst && exports[index],
-                                ),
-                                None => {
-                                    Err("isolating holes needs the RARE file's path".to_owned())
+                        let run = |pool: &mut crate::ast::pool::PrimitivePool,
+                                       step: &StepNode,
+                                       options: RunEgglogOptions|
+                         -> Result<Vec<String>, String> {
+                            if isolate {
+                                match rare_file.as_deref() {
+                                    Some(path) => rare_hole::reconstruct_in_child(
+                                        pool,
+                                        prelude,
+                                        node,
+                                        step,
+                                        path,
+                                        options,
+                                        memory_limit,
+                                        check_only,
+                                        deadline,
+                                        &extra,
+                                        &hints,
+                                        subst && exports[index],
+                                    ),
+                                    None => {
+                                        Err("isolating holes needs the RARE file's path".to_owned())
+                                    }
+                                }
+                            } else if check_only {
+                                rare_hole::check_hole(pool, node, step, rules, options)
+                                    .map(|()| Vec::new())
+                            } else {
+                                rare_hole::reconstruct_steps(pool, node, step, rules, options)
+                            }
+                        };
+                        // The abstract goal first, on half the hole's budget:
+                        // when it is provable at all it is cheap, and a failure
+                        // must leave the original its turn.
+                        let result = match &abstractions[index] {
+                            Some((abstract_step, bindings)) => {
+                                abstract_tried.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let quick = RunEgglogOptions {
+                                    timeout: options.timeout.map(|timeout| timeout / 2),
+                                    ..options
+                                };
+                                match run(&mut pool, abstract_step, quick) {
+                                    Ok(steps) => {
+                                        abstract_proved
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        Ok(abstraction::instantiate_steps(steps, bindings))
+                                    }
+                                    Err(reason) => {
+                                        log::debug!(
+                                            "hole {}: abstract goal not proved ({}); retrying the original",
+                                            step.id,
+                                            reason.lines().next().unwrap_or("")
+                                        );
+                                        let result = run(&mut pool, step, options);
+                                        if result.is_ok() {
+                                            fallback_proved
+                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                        result
+                                    }
                                 }
                             }
-                        } else if check_only {
-                            rare_hole::check_hole(&mut pool, node, step, rules, options)
-                                .map(|()| Vec::new())
-                        } else {
-                            rare_hole::reconstruct_steps(&mut pool, node, step, rules, options)
+                            None => run(&mut pool, step, options),
                         };
                         if reuse && result.is_ok() {
                             if let (Some((lhs, rhs)), Some(conclusion)) =
@@ -899,6 +964,19 @@ impl<'e> Elaborator<'e> {
             }
         });
         let mut results = results.into_inner().unwrap();
+        if min_nodes > 0 {
+            let tried = abstract_tried.load(std::sync::atomic::Ordering::Relaxed);
+            let proved = abstract_proved.load(std::sync::atomic::Ordering::Relaxed);
+            log::info!(
+                "hole abstraction: {} of {} holes share a subterm of {} nodes or more; {} proved abstract, {} of the {} retried proved as they stand",
+                tried,
+                holes.len(),
+                min_nodes,
+                proved,
+                fallback_proved.load(std::sync::atomic::Ordering::Relaxed),
+                tried - proved
+            );
+        }
         if subst {
             log::info!(
                 "hole subst: {} normal forms exported, {} substitutions handed to later holes",

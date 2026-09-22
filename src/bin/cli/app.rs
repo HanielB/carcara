@@ -449,6 +449,14 @@ pub struct ElaborationOptions {
     #[clap(long)]
     pub hole_prenormalize: bool,
 
+    /// Before egglog, replace the largest subterms shared by both sides of
+    /// a hole, of at least this many nodes and binding nothing, by fresh
+    /// constants, and prove the abstract goal (sound: a rewrite proved for
+    /// a constant holds for any term); a hole whose abstract goal is not
+    /// proved is retried as it stands.  0 disables.
+    #[clap(long, value_name = "NODES", default_value = "0")]
+    pub hole_abstract_shared: usize,
+
     /// In the `fold` pass, the most steps a rewrite derivation folded into
     /// one hole may have (as a tree); a larger derivation keeps its top
     /// steps and folds the derivations below.  1 makes every rewrite step
