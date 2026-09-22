@@ -473,6 +473,11 @@ impl<'e> Elaborator<'e> {
             HashMap::new();
         // In the elaboration pass the certificate of a closed hole replaces it.
         let mut normalizer = prenorm::Normalizer::new();
+        // In the elaboration pass, the normalized goal of a hole the
+        // normalizer does not close, with the original sides: egglog and the
+        // reconstruction work on the normal forms, and the normalizer's
+        // derivations bridge the certificate back to the hole's own terms.
+        let mut normalized: HashMap<String, (StepNode, Rc<Term>, Rc<Term>)> = HashMap::new();
         if self.config.hole_prenormalize {
             let started = Instant::now();
             let mut rewritten = 0;
@@ -498,27 +503,31 @@ impl<'e> Elaborator<'e> {
                             .unwrap_or_default()
                     };
                     prenormalized.insert(step.id.clone(), (Ok(steps), Duration::ZERO));
-                } else if self.config.hole_check_only && (left != lhs || right != rhs) {
-                    // Only the checking pass hands egglog the normalized goal.
-                    // In the elaboration pass the certificate search works on
-                    // the e-graph of the goal it was given, and a normalized
-                    // goal is a different term from the ones the rules were
-                    // compiled around, so egglog proves more of them and the
-                    // reconstruction replays less; the original goal is kept,
-                    // and the normalizer contributes the holes it closes
-                    // outright.  (Trying the normalized goal first and the
-                    // original on a reconstruction failure would get both, at
-                    // one extra child run per lost hole.)
+                } else if left != lhs || right != rhs {
                     log::debug!(
                         "hole {}: goal normalized to (= {:#} {:#})",
                         step.id,
                         left,
                         right
                     );
-                    step.clause = vec![
-                        self.pool
-                            .add(Term::Op(crate::ast::Operator::Equals, vec![left, right])),
-                    ];
+                    let goal = self
+                        .pool
+                        .add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
+                    if self.config.hole_check_only {
+                        // The checking pass checks the normalized goal in
+                        // place of the original.
+                        step.clause = vec![goal];
+                    } else {
+                        // The elaboration pass tries the normalized goal first
+                        // and bridges its certificate; a hole whose
+                        // normalized goal is not reconstructed is retried as
+                        // it stands, since a normal form is a different term
+                        // from the ones the rules were compiled around and the
+                        // search may replay less on it.
+                        let mut normalized_step = step.clone();
+                        normalized_step.clause = vec![goal];
+                        normalized.insert(step.id.clone(), (normalized_step, lhs, rhs));
+                    }
                     rewritten += 1;
                 }
             }
@@ -556,6 +565,10 @@ impl<'e> Elaborator<'e> {
         let abstract_tried = std::sync::atomic::AtomicUsize::new(0);
         let abstract_proved = std::sync::atomic::AtomicUsize::new(0);
         let fallback_proved = std::sync::atomic::AtomicUsize::new(0);
+        let normalized_proved = std::sync::atomic::AtomicUsize::new(0);
+        let normalized_fallback_proved = std::sync::atomic::AtomicUsize::new(0);
+        // The holes whose certificate proves the normalized goal, to bridge.
+        let bridged = std::sync::Mutex::new(HashSet::<String>::new());
         let options = self.config.hole_rewrite_options;
         let isolate = self.config.hole_isolate;
         let check_only = self.config.hole_check_only;
@@ -880,14 +893,14 @@ impl<'e> Elaborator<'e> {
                         // The abstract goal first, on half the hole's budget:
                         // when it is provable at all it is cheap, and a failure
                         // must leave the original its turn.
-                        let result = match &abstractions[index] {
+                        let run_as_stated = |pool: &mut crate::ast::pool::PrimitivePool| match &abstractions[index] {
                             Some((abstract_step, bindings)) => {
                                 abstract_tried.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 let quick = RunEgglogOptions {
                                     timeout: options.timeout.map(|timeout| timeout / 2),
                                     ..options
                                 };
-                                match run(&mut pool, abstract_step, quick) {
+                                match run(pool, abstract_step, quick) {
                                     Ok(steps) => {
                                         abstract_proved
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -899,7 +912,7 @@ impl<'e> Elaborator<'e> {
                                             step.id,
                                             reason.lines().next().unwrap_or("")
                                         );
-                                        let result = run(&mut pool, step, options);
+                                        let result = run(pool, step, options);
                                         if result.is_ok() {
                                             fallback_proved
                                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -908,7 +921,34 @@ impl<'e> Elaborator<'e> {
                                     }
                                 }
                             }
-                            None => run(&mut pool, step, options),
+                            None => run(pool, step, options),
+                        };
+                        // The normalized goal before that, when there is one.
+                        let result = match normalized.get(&step.id) {
+                            Some((normalized_step, _, _)) => {
+                                match run(&mut pool, normalized_step, options) {
+                                    Ok(steps) => {
+                                        normalized_proved
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        bridged.lock().unwrap().insert(step.id.clone());
+                                        Ok(steps)
+                                    }
+                                    Err(reason) => {
+                                        log::debug!(
+                                            "hole {}: normalized goal not proved ({}); retrying the original",
+                                            step.id,
+                                            reason.lines().next().unwrap_or("")
+                                        );
+                                        let result = run_as_stated(&mut pool);
+                                        if result.is_ok() {
+                                            normalized_fallback_proved
+                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                        result
+                                    }
+                                }
+                            }
+                            None => run_as_stated(&mut pool),
                         };
                         if reuse && result.is_ok() {
                             if let (Some((lhs, rhs)), Some(conclusion)) =
@@ -964,6 +1004,28 @@ impl<'e> Elaborator<'e> {
             }
         });
         let mut results = results.into_inner().unwrap();
+        // The certificates of the normalized goals, bridged to the holes'
+        // own sides.
+        let bridged = bridged.into_inner().unwrap();
+        for id in &bridged {
+            let Some((_, lhs, rhs)) = normalized.get(id) else {
+                continue;
+            };
+            if let Some((Ok(steps), _)) = results.get_mut(id) {
+                let inner = std::mem::take(steps);
+                *steps = normalizer.bridge(self.pool, id, lhs, rhs, inner);
+            }
+        }
+        if !normalized.is_empty() {
+            let proved = normalized_proved.load(std::sync::atomic::Ordering::Relaxed);
+            log::info!(
+                "hole prenorm: {} normalized goals tried, {} proved and bridged, {} of the {} retried proved as stated",
+                normalized.len(),
+                proved,
+                normalized_fallback_proved.load(std::sync::atomic::Ordering::Relaxed),
+                normalized.len() - proved
+            );
+        }
         if min_nodes > 0 {
             let tried = abstract_tried.load(std::sync::atomic::Ordering::Relaxed);
             let proved = abstract_proved.load(std::sync::atomic::Ordering::Relaxed);
