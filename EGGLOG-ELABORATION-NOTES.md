@@ -3694,3 +3694,121 @@ would have hoisted "ok" and then failed every pass at parsing.  Fixed in
 `printer.rs`: a lambda is never given a sharing name (test
 `test_sharing_leaves_lambda_heads_spelled_out`, a print/re-parse round
 trip).
+
+## 44. How big the replacements are: cvc5's own expansion at four granularities, and why egglog costs more (2026-09-22)
+
+Setup: the local corpus `~/benchmarks/egglog-holes-eval` (the alethecore-eval
+samples: 96 QF_UF, 47 QF_LIA, 67 QF_LRA unsat benchmarks), the local cvc5
+`8f1863f2a5` (April 2026, the binary that produced that corpus), the same
+flags at every granularity.  Scripts, per-proof JSON and the full tallies in
+`~/exp/egglog-holes/granularity/` (`alethe/` for §44.1–2, `cpc/` for §44.3,
+`micro/` for §44.2's one-rule holes).  A replacement is the premise closure
+of the finer proof's step concluding the coarse step's formula, stopped at the
+coarse step's own premises; terms are interned across the files, so matching
+is structural, not textual.
+
+### 44.1 Theory-rewrite holes: cvc5 needs about one step each
+
+At `dsl-rewrite` every `TRUST_THEORY_REWRITE` of the theory-rewrite proof is
+gone and the rest of the proof is unchanged (QF_UF 4,045,606 vs 4,045,789
+steps).  Per distinct hole (Alethe):
+
+| | QF_UF | QF_LIA | QF_LRA |
+|---|---|---|---|
+| distinct holes (matched) | 47,669 (100%) | 61,234 (100%) | 85,050 (27 unmatched) |
+| steps per hole, mean / max | 1.00 / 3 | 1.43 / 9 | 1.46 / 198 |
+| single-step holes | 100% | 78.1% | 80.4% |
+| normalizer share of steps | 31% | 76% | 64% |
+| RARE-rule steps per hole | 0.69 | 0.19 | 0.36 |
+| distinct rules cited | 6 | 11 | 17 |
+
+No `rare_rewrite` step of the whole corpus has premises: none of the 28
+conditional rules of `holes.rare` is ever cited.  Only 130 of ~194k holes take
+6 or more steps (the largest: 96–198-step `cong`/`trans` chains around one
+`aci_simp`, clock_synchro; 35 holes of 20 steps chaining four rules, tta_startup).
+The reason is where the hole sits: its tag is (theory, method) with method 6/7
+only, i.e. one theory rewriter's pre/post call at one node, and the congruence
+structure of the whole-term rewrite is already in the theory-rewrite proof.
+`RewriteDbProofCons::proveEqStratified` tries refl/`EVALUATE`/distinct
+values/a pre-DSL theory rewrite first and then iterative deepening from
+depth 0, so it returns the shallowest proof; the search leaves no trace.
+
+The egglog certificates (no `--hole-prenormalize`, enc4's `set` options;
+the run was cancelled at 169/207 proofs, paired on the first 73) match that:
+QF_UF 117/117 identical rule multisets; QF_LIA 87.1% identical, egglog larger
+on 10.4% (711 vs 563 steps): cvc5 cites `arith-leq-norm` + `evaluate` (5 steps)
+where the search takes the `arith_poly_norm_rel` edge and the elaborator
+routes both sides through `arith-elim-*` (10 steps), and one engine-internal
+`gen-16` step (14 vs 1); QF_LRA 93.7% identical, egglog smaller (935 vs 1,150).
+
+### 44.2 Why egglog costs 0.2–0.4 s for a one-step hole
+
+cvc5's expansion costs nothing measurable: solving at `dsl-rewrite` instead of
+theory-rewrite changes total solve time by +8 s (QF_UF, 0.15 ms/hole) and −12 s /
+−18 s (QF_LIA/QF_LRA, noise).  The egglog pass, per justified hole (local, 5
+workers): median 0.195 / 0.387 / 0.337 s, of which the egglog phase is 58 / 84 /
+69% and the certificate search 18 / 8 / 12% (enc4 agrees: 0.024 s per hole over 8
+workers).  One-rule holes in an isolated child:
+
+| hole | `holes.rare` (292 compiled rules) | only the rule it needs |
+|---|---|---|
+| `(= (not (not p)) p)` | 0.166 s (egglog 0.110, search 0.041) | 0.03 s (0.012, 0.003) |
+| `(= (<= x 1) (>= 1 x))` | 0.196 s (egglog 0.144, search 0.035) | 0.06–0.07 s (~0.04, 0.015) |
+
+So QF_UF's median hole *is* the fixed cost of loading and saturating the whole
+database in a fresh child; arithmetic adds the normalizer rules; the tail is
+e-graph growth.  cvc5 knows the node and the rewriter call, tries the
+builtins, and matches at the root.  Since 100 / 78 / 80% of cvc5's own hole
+derivations are a single root-level rule instance or a single normalizer step,
+a cheap first pass (root match per rule plus Carcara's `evaluate`/`poly_simp`/
+`aci_simp`, i.e. the prenormalizer) should close most holes before egglog.
+
+### 44.3 Coarse granularities: where the structure is (CPC)
+
+CPC proofs at `macro`, `rewrite`, `theory-rewrite`, `dsl-rewrite`
+(`--proof-format-mode=cpc --proof-print-conclusion`); the printer's
+`; trust <RULE>` comment names each trusted step.  206 benchmarks have all
+four (cvc5 aborts on 3 QF_LIA benchmarks at `macro`; one LassoRanker times out
+at 60 s everywhere).  Whole proofs:
+
+| steps (trust) | QF_UF | QF_LIA | QF_LRA |
+|---|---|---|---|
+| `rewrite` | 1,588,014 (32,790) | 449,592 (57,229) | 476,996 (32,916) |
+| `theory-rewrite` | 1,695,834 (47,907) | 633,131 (87,319) | 699,377 (82,167) |
+| `dsl-rewrite` | 1,696,015 (73) | 667,120 (0) | 742,176 (0) |
+
+Almost all the growth is rewrite → theory-rewrite (+108k / +184k / +222k), the
+decomposition of whole-term rewrites into per-node rewriter calls; the DSL
+stage adds +0.2k / +34k / +43k.  Per distinct coarse `rewrite`-granularity step:
+
+| | QF_UF `MACRO_REWRITE` | QF_LIA `MACRO_REWRITE` | QF_LRA `MACRO_REWRITE` | QF_LRA `MACRO_SR_PRED_INTRO` |
+|---|---|---|---|---|
+| distinct (matched) | 24,699 (98.9%) | 29,595 (41.2%) | 13,816 (99.4%) | 14,177 (99.5%) |
+| theory-rewrite leaves, mean / median / max | 3.75 / 1 / 439 | 12.7 / 3 / 15,513 | 12.3 / 10 / 56 | 3.4 / 1 / 1,358 |
+| dsl steps, mean / median / p99 / max | 7.0 / 2 / 78 / 1,101 | 35.3 / 15 / 79 / 50,503 | 28.8 / 25 / 99 / 224 | 14.0 / 5 / 234 / 5,405 |
+| step mix RARE / normalizer / glue | 45 / 9 / 46% | 3 / 40 / 57% | 3 / 40 / 57% | 14 / 27 / 59% |
+| RARE steps per step, mean (max) | 3.13 (246) | 1.02 (2,858) | 0.92 (5) | 1.89 (341) |
+| distinct RARE rules per step, mean (max) | 0.88 (4) | 0.76 (4) | 0.92 (3) | 1.13 (6) |
+
+The replacements share sub-derivations: the union of all replacements per proof
+is 155,772 / 285,488 / 308,564 steps against per-step sums 2.2–2.5 times larger.
+Matching needed one fallback: a coarse `(= F true)` (proved by `MACRO_REWRITE` +
+`true_elim`) has no counterpart when the finer proof proves `F` directly (QF_UF
+11,790 of 24,432).  QF_LIA's 17,397 unmatched `MACRO_REWRITE`s are routes the
+finer proof does not take: in the five benchmarks holding 16,480 of them (SMPT
+BART/RwMutex, Dartagnan deep-nested) every one's user is absent from the
+`dsl-rewrite` proof too, and 15,755 are solved forms for substitution
+(`(= (= a1 (+ p111 p1)) (= p111 (+ (* -1 p1) a1)))`).  `SUBS` steps are not
+isolable this way (their replacement reaches the assumptions through
+`and_elim`).  At `macro` granularity the steps carry substitution and
+reasoning too (QF_LRA `MACRO_SR_PRED_TRANSFORM`, 25,393 distinct: 84.7 steps
+mean, 1.81 distinct RARE rules, 56% non-rewrite steps); QF_LIA's
+`MACRO_SR_EQ_INTRO` matches only 16% for the same route reason.
+
+Reading: from the coarse levels the expansion is large (tens of steps per
+whole-term rewrite, up to 50k), but it is congruence glue and normalizer calls
+around leaves that are still single rule instances from the same small set
+(7 / 11 / 16 rules overall, `eq-symm`, `bool-double-not-elim`, `arith-elim-*`,
+`arith-leq-norm`).  The DSL reconstruction's recursion is visible only in the
+tail; the structure comes from the macro elaboration, which egglog does not
+have to do because cvc5's theory-rewrite holes already sit at the leaves.
