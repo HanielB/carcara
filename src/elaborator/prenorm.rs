@@ -11,8 +11,9 @@
 //! `distinct` is expanded to its pairwise disequalities, and a pair of
 //! opposite bounds between the same two terms, `(and (<= t u) (<= u t))`
 //! or with either bound written as a `>=`, is the equality `(= t u)`
-//! (`la_rw_eq`, read on the term as written, before its bounds are
-//! normalized apart; a `>=` bound is first turned round by `la_generic`,
+//! (`la_rw_eq`, read on the flat conjunction after `aci_simp`, so that the
+//! pair is found however the producer nested it; a bound that is not
+//! spelled as the rule states it is turned round by `la_generic`,
 //! `equiv_neg1`, `equiv_neg2` and `resolution`, so the certificate stays
 //! within Alethe without a `*_simplify` rule).  Nothing else: what these
 //! five do not reach is left to the RARE rules in egglog.
@@ -34,13 +35,10 @@ use rug::{Integer, Rational};
 use std::collections::HashMap;
 
 /// A premise a top step's certificate needs: the `poly_simp` equality a
-/// `poly_simp_rel` step is stated on, or the equality of a `>=` bound with
-/// its `<=` mirror image, `(= (>= x y) (<= y x))`, proved from `la_generic`
-/// and the `equiv_neg` tautologies by resolution.
+/// `poly_simp_rel` step is stated on.
 #[derive(Clone)]
 enum Premise {
     PolySimp(Rc<Term>, Rc<Term>),
-    BoundFlip(Rc<Term>, Rc<Term>),
 }
 
 /// One rule application at the top of a term: `(= from to)` by `rule`, with
@@ -54,6 +52,22 @@ struct TopStep {
     to: Rc<Term>,
     premises: Vec<Premise>,
     flipped: bool,
+    /// Set on a `la_rw_eq` fold of two bounds of a conjunction (see
+    /// `la_rw_eq_fold`), whose certificate is a small chain of its own.
+    fold: Option<Fold>,
+}
+
+/// The pieces of a `la_rw_eq` fold: the two bounds of the conjunction as
+/// they stand, the pair as the rule states it (`(<= t u)`, `(<= u t)`), the
+/// equality `(= t u)`, and the other conjuncts.
+#[derive(Clone)]
+struct Fold {
+    first: Rc<Term>,
+    second: Rc<Term>,
+    lower: Rc<Term>,
+    upper: Rc<Term>,
+    equality: Rc<Term>,
+    rest: Vec<Rc<Term>>,
 }
 
 /// How a term's normal form is derived: the arguments' normal forms under
@@ -168,17 +182,6 @@ impl Normalizer {
             tail: None,
             result: t.clone(),
         };
-        // 0. `la_rw_eq`, on the term as written: `(and (<= t u) (<= u t))`,
-        //    either bound possibly a `>=`, is `(= t u)`.  This comes before
-        //    the arguments are normalized because afterwards the two bounds
-        //    are `(<= P c)` and `(<= -P -c)` and no longer mirror each
-        //    other.  The equality is then normalized like any other.
-        if let Some(tops) = self.la_rw_eq_steps(pool, term) {
-            let equality = tops.last().expect("at least the la_rw_eq step").to.clone();
-            let result = self.normalize(pool, &equality);
-            let tail = (result != equality).then(|| equality.clone());
-            return Derivation { cong: None, tops, tail, result };
-        }
         // 1. The arguments, under `cong`.
         let current = match term.as_ref() {
             Term::Op(op, args) => {
@@ -225,64 +228,104 @@ impl Normalizer {
         Derivation { cong, tops, tail, result }
     }
 
-    /// `la_rw_eq` read backwards: `(and (<= t u) (<= u t))`, with `t` and
-    /// `u` the same terms in both bounds, to `(= t u)`.  A bound written as
-    /// `(>= u t)` or `(>= t u)` is accepted too; the certificate then first
-    /// turns it round under `cong`, so the pair matches the rule as stated.
-    fn la_rw_eq_steps(&mut self, pool: &mut dyn TermPool, term: &Rc<Term>) -> Option<Vec<TopStep>> {
-        // A bound as "x is at most y", and whether it is written as a `>=`.
-        fn at_most(bound: &Rc<Term>) -> Option<(&Rc<Term>, &Rc<Term>, bool)> {
-            match bound.as_ref() {
+    /// `la_rw_eq` read backwards, on the flat conjunction: two bounds among
+    /// the conjuncts that are each other's reverse -- `(<= P c)` with
+    /// `(>= P c)`, or `(<= P c)` with `(<= -P -c)`, the shapes the normal
+    /// forms leave a mirrored pair in -- are the equality `(= t u)` the rule
+    /// states them from.  This runs *after* `aci_simp`, so that a pair meets
+    /// whether the producer wrote it as its own `and` or spread it over a
+    /// larger one: cvc5 flattens `(and (and (<= x 2) (>= x 2)) p)` to
+    /// `(and p (<= x 2) (>= x 2))`, and read before flattening the pair
+    /// folded on one side only, which sent 176 closable holes of one
+    /// QF_LRA proof to egglog as `(= (and equalities) (and bounds))` goals.
+    /// The certificate regroups the pair by `aci_simp`, turns each bound
+    /// into the rule's spelling by `la_generic` where needed, applies
+    /// `la_rw_eq` under `cong`, and the equality is then normalized like any
+    /// other.
+    fn la_rw_eq_fold(
+        &mut self,
+        pool: &mut dyn TermPool,
+        term: &Rc<Term>,
+        args: &[Rc<Term>],
+    ) -> Option<TopStep> {
+        // A non-strict bound as its two sides and whether it is a `>=`.
+        fn bound(term: &Rc<Term>) -> Option<(&Rc<Term>, &Rc<Term>, bool)> {
+            match term.as_ref() {
                 Term::Op(Operator::LessEq, args) if args.len() == 2 => {
                     Some((&args[0], &args[1], false))
                 }
                 Term::Op(Operator::GreaterEq, args) if args.len() == 2 => {
-                    Some((&args[1], &args[0], true))
+                    Some((&args[0], &args[1], true))
                 }
                 _ => None,
             }
         }
-        let Term::Op(Operator::And, args) = term.as_ref() else {
-            return None;
-        };
-        let [first, second] = args.as_slice() else {
-            return None;
-        };
-        let (t, u, first_flipped) = at_most(first)?;
-        let (u2, t2, second_flipped) = at_most(second)?;
-        if t != t2 || u != u2 || arith_sort(pool, t).is_none() {
-            return None;
-        }
-        let (t, u) = (t.clone(), u.clone());
-        let lower = pool.add(Term::Op(Operator::LessEq, vec![t.clone(), u.clone()]));
-        let upper = pool.add(Term::Op(Operator::LessEq, vec![u.clone(), t.clone()]));
-        let stated = pool.add(Term::Op(Operator::And, vec![lower.clone(), upper.clone()]));
-        let mut tops = Vec::new();
-        if stated != *term {
-            let mut premises = Vec::new();
-            if first_flipped {
-                premises.push(Premise::BoundFlip(first.clone(), lower));
+        // The bound as `Q <= 0`.
+        let at_most_zero = |lhs: &Rc<Term>, rhs: &Rc<Term>, geq: bool| {
+            if geq {
+                Polynomial::from_term(rhs).sub(Polynomial::from_term(lhs))
+            } else {
+                Polynomial::from_term(lhs).sub(Polynomial::from_term(rhs))
             }
-            if second_flipped {
-                premises.push(Premise::BoundFlip(second.clone(), upper));
+        };
+        for i in 0..args.len() {
+            let Some((lhs_i, rhs_i, geq_i)) = bound(&args[i]) else {
+                continue;
+            };
+            if arith_sort(pool, lhs_i).is_none() {
+                continue;
             }
-            tops.push(TopStep {
-                rule: "cong",
-                from: term.clone(),
-                to: stated.clone(),
-                premises,
-                flipped: false,
-            });
+            let q_i = at_most_zero(lhs_i, rhs_i, geq_i);
+            for j in (i + 1)..args.len() {
+                let Some((lhs_j, rhs_j, geq_j)) = bound(&args[j]) else {
+                    continue;
+                };
+                // The second bound reversed, as `R <= 0`: the pair is an
+                // equality exactly when `R` is `Q`.
+                let r_j = at_most_zero(lhs_j, rhs_j, !geq_j);
+                if !q_i.clone().sub(r_j).is_zero() {
+                    continue;
+                }
+                let (t, u) = if geq_i {
+                    (rhs_i.clone(), lhs_i.clone())
+                } else {
+                    (lhs_i.clone(), rhs_i.clone())
+                };
+                let lower = pool.add(Term::Op(Operator::LessEq, vec![t.clone(), u.clone()]));
+                let upper = pool.add(Term::Op(Operator::LessEq, vec![u.clone(), t.clone()]));
+                let equality = pool.add(Term::Op(Operator::Equals, vec![t, u]));
+                let rest: Vec<Rc<Term>> = args
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| *k != i && *k != j)
+                    .map(|(_, a)| a.clone())
+                    .collect();
+                let to = if rest.is_empty() {
+                    equality.clone()
+                } else {
+                    let mut conjuncts = Vec::with_capacity(rest.len() + 1);
+                    conjuncts.push(equality.clone());
+                    conjuncts.extend(rest.iter().cloned());
+                    pool.add(Term::Op(Operator::And, conjuncts))
+                };
+                return Some(TopStep {
+                    rule: "la_rw_eq",
+                    from: term.clone(),
+                    to,
+                    premises: Vec::new(),
+                    flipped: false,
+                    fold: Some(Fold {
+                        first: args[i].clone(),
+                        second: args[j].clone(),
+                        lower,
+                        upper,
+                        equality,
+                        rest,
+                    }),
+                });
+            }
         }
-        let to = pool.add(Term::Op(Operator::Equals, vec![t, u]));
-        tops.push(TopStep {
-            rule: "la_rw_eq",
-            from: stated,
-            to,
-            premises: Vec::new(),
-            flipped: true,
-        });
-        Some(tops)
+        None
     }
 
     /// One rule applied at the top of `term`, whose arguments are normal.
@@ -298,6 +341,7 @@ impl Normalizer {
                 to,
                 premises: Vec::new(),
                 flipped: false,
+                fold: None,
             })
         };
         // `evaluate`: a ground term is its value.
@@ -322,7 +366,16 @@ impl Normalizer {
                 self.relation_step(pool, term, *op, &args[0], &args[1], sort)
             }
             Distinct => step("distinct_elim", self.distinct_expansion(pool, args)),
-            _ if is_aci(*op) => step("aci_simp", self.aci_canonical(pool, *op, args)),
+            _ if is_aci(*op) => {
+                let canonical = self.aci_canonical(pool, *op, args);
+                match step("aci_simp", canonical) {
+                    Some(step) => Some(step),
+                    // On the flat, canonical conjunction: a mirrored pair
+                    // of bounds is an equality.
+                    None if *op == And => self.la_rw_eq_fold(pool, term, args),
+                    None => None,
+                }
+            }
             _ => None,
         }
     }
@@ -400,6 +453,7 @@ impl Normalizer {
             to,
             premises: vec![Premise::PolySimp(left, right)],
             flipped: false,
+            fold: None,
         })
     }
 
@@ -640,6 +694,11 @@ impl Normalizer {
                 at = congruent.clone();
             }
             for top in &derivation.tops {
+                if let Some(fold) = &top.fold {
+                    chain.push(emitter.emit_fold(pool, &top.from, &top.to, fold));
+                    at = top.to.clone();
+                    continue;
+                }
                 let premises: Vec<String> = top
                     .premises
                     .iter()
@@ -647,7 +706,6 @@ impl Normalizer {
                         Premise::PolySimp(left, right) => {
                             emitter.emit(pool, left, right, "poly_simp", &[])
                         }
-                        Premise::BoundFlip(from, to) => emitter.emit_bound_flip(pool, from, to),
                     })
                     .collect();
                 let id = if top.flipped {
@@ -732,6 +790,61 @@ impl Emitter {
     /// `(<= y x)`, or the reverse): each implies the other by `la_generic`,
     /// and the two implications make the equivalence through the
     /// `equiv_neg` tautologies and resolution.  Returns the last step's id.
+    /// The certificate of a `la_rw_eq` fold, concluding `(= from to)`: the
+    /// flat conjunction regrouped so the pair is its own `and` (`aci_simp`),
+    /// each bound of the pair turned into the rule's spelling where it
+    /// differs (`la_generic`, under `cong`), `la_rw_eq` reversed by `symm`,
+    /// and the pair replaced by the equality under `cong`.
+    fn emit_fold(
+        &mut self,
+        pool: &mut dyn TermPool,
+        from: &Rc<Term>,
+        to: &Rc<Term>,
+        fold: &Fold,
+    ) -> String {
+        let pair = pool.add(Term::Op(
+            Operator::And,
+            vec![fold.first.clone(), fold.second.clone()],
+        ));
+        let stated = pool.add(Term::Op(
+            Operator::And,
+            vec![fold.lower.clone(), fold.upper.clone()],
+        ));
+        let grouped = (!fold.rest.is_empty()).then(|| {
+            let mut conjuncts = Vec::with_capacity(fold.rest.len() + 1);
+            conjuncts.push(pair.clone());
+            conjuncts.extend(fold.rest.iter().cloned());
+            pool.add(Term::Op(Operator::And, conjuncts))
+        });
+        // pair = equality
+        let mut pair_chain = Vec::new();
+        if pair != stated {
+            let mut premises = Vec::new();
+            if fold.first != fold.lower {
+                premises.push(self.emit_bound_flip(pool, &fold.first, &fold.lower));
+            }
+            if fold.second != fold.upper {
+                premises.push(self.emit_bound_flip(pool, &fold.second, &fold.upper));
+            }
+            pair_chain.push(self.emit(pool, &pair, &stated, "cong", &premises));
+        }
+        let rule = self.emit(pool, &fold.equality, &stated, "la_rw_eq", &[]);
+        pair_chain.push(self.emit(pool, &stated, &fold.equality, "symm", &[rule]));
+        let pair_step = if pair_chain.len() == 1 {
+            pair_chain.pop().unwrap()
+        } else {
+            self.emit(pool, &pair, &fold.equality, "trans", &pair_chain)
+        };
+        match grouped {
+            None => pair_step,
+            Some(grouped) => {
+                let regrouped = self.emit(pool, from, &grouped, "aci_simp", &[]);
+                let replaced = self.emit(pool, &grouped, to, "cong", &[pair_step]);
+                self.emit(pool, from, to, "trans", &[regrouped, replaced])
+            }
+        }
+    }
+
     fn emit_bound_flip(&mut self, pool: &mut dyn TermPool, a: &Rc<Term>, b: &Rc<Term>) -> String {
         let a_implies_b =
             self.emit_clause(&format!("(not {a:#}) {b:#}"), "la_generic", &[], "1.0 1.0");
@@ -898,6 +1011,11 @@ mod tests {
             (REALS, "(and (<= a b) (<= b a))", "(= (- a b) 0.0)"),
             // cvc5's `arith-eq-elim` shape, and the other ways round
             (INTS, "(and (>= x y) (<= x y))", "(= x y)"),
+            // the pair nested by the producer against the pair flattened
+            (INTS, "(and (and (<= x 2) (>= x 2)) p)", "(and p (<= x 2) (>= x 2))"),
+            (INTS, "(and (and (<= x 2) (>= x 2)) p)", "(and p (= x 2))"),
+            (INTS, "(and p (<= x 2) q (>= x 2))", "(and (= x 2) q p)"),
+            (REALS, "(and (and (<= a b) (>= a b)) (= x 1))", "(and (= x 1) (= (- a b) 0.0))"),
             (INTS, "(and (<= x y) (>= x y))", "(= x y)"),
             (INTS, "(and (>= y x) (>= x y))", "(= x y)"),
             (INTS, "(and p (= 0 x))", "(and p (and (>= x 0) (<= x 0)))"),
@@ -924,7 +1042,6 @@ mod tests {
             (INTS, "(and (<= x y) (< y x))", "(= x y)"),
             (INTS, "(and (>= x y) (>= x y))", "(= x y)"),
             (INTS, "(and (>= x y) (<= y x))", "(= x y)"),
-            (INTS, "(and p (<= x y) (<= y x))", "(and p (= x y))"),
             (REALS, "(>= a 1.0)", "(> a 1.0)"),
         ] {
             let (equal, nl, nr) = same(problem, lhs, rhs);
@@ -984,6 +1101,9 @@ mod tests {
             (INTS, "(and (<= x y) (>= x y))", "(= x y)"),
             (INTS, "(and (>= y x) (>= x y))", "(= x y)"),
             (INTS, "(and p (= 0 x))", "(and p (and (>= x 0) (<= x 0)))"),
+            (INTS, "(and (and (<= x 2) (>= x 2)) p)", "(and p (<= x 2) (>= x 2))"),
+            (INTS, "(and p (<= x 2) q (>= x 2))", "(and (= x 2) q p)"),
+            (REALS, "(and (and (<= a b) (>= a b)) (= x 1))", "(and (= x 1) (= (- a b) 0.0))"),
             (
                 INTS,
                 "(not (= 0 (+ x (* (- 2) y))))",
