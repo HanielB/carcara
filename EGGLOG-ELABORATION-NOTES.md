@@ -3827,3 +3827,237 @@ and scope steps not counted; `cpc/tiers.py`, `cpc/tiers.txt`):
 
 At `dsl-rewrite` the distinct RARE-rule plus normalizer steps are 47,843 /
 68,992 / 112,902, i.e. 1.0 / 1.5 / 1.4 per distinct theory-rewrite hole.
+
+## 45. Coarser holes from cvc5: `--proof-granularity=rewrite` (2026-09-22)
+
+Branch `egglog/rewrite-holes` (worktree `wt-rwgran`, off `bounded-parallel-holes`
+at b3f21bf6), cvc5 branch `alethe-rewrite-granularity` (`~/cvc5/wt-rwgran`,
+off main at 47f43bd012, commit 506592fc52).  Scripts and per-run outputs in
+this session's scratchpad `rwgran/` (`run.sh`, `batch.sh`, `elab.sh`,
+`tab.py`, `out/<bench>/<trw|rw>/`).
+
+**The question.**  Every run so far checks cvc5 proofs at `theory-rewrite`
+granularity, one hole per theory rewriter call at one node (§44.1).  Could the
+producer be asked for coarser holes -- one per call of the *full* rewriter on a
+term, which is what cvc5's `MACRO_REWRITE` step states -- and would the
+pipeline still close them?
+
+**What cvc5 offers.**  cvc5's granularities, from the coarsest: `macro` leaves
+the `MACRO_SR_*` rules unexpanded (substitution plus rewriting, with premises
+and non-equality conclusions); `rewrite` expands them into `SUBS`
+(substitution) and `MACRO_REWRITE` (`(= t rw(t))`, no premises) glued by
+`EQ_RESOLVE`/`TRUE_ELIM`/`TRANS`; `theory-rewrite` expands `SUBS` into
+cong/trans and `MACRO_REWRITE` into one `THEORY_REWRITE` per node (the holes
+we know); `dsl-rewrite` replaces those by RARE steps.  For Alethe, cvc5 forced
+any granularity below `theory-rewrite` up to it, even one set by the user
+(`set_defaults.cpp`, "Alethe requires granularity at least theory-rewrite"),
+and the Alethe backend had no case for the macro rules: they would reach
+`default:` and print as holes under the rule's name with the raw arguments
+(method ids as bare integers).
+
+On five QF_LIA/QF_LRA samples in cvc5's internal format (distinct steps), the
+`macro` proofs hold 89–571 `MACRO_SR_PRED_TRANSFORM` steps each (one premise,
+the source formula, no substitution premises except 5 of 94 on tgc_io-safe-6),
+31–125 `MACRO_SR_PRED_INTRO` and 3–312 `MACRO_SR_EQ_INTRO` (a fraction with one
+substitution premise, always `SB_DEFAULT SBA_FIXPOINT`), and 0–100
+`MACRO_REWRITE`.  `macro` does not give coarser *rewriting* than `rewrite`; it
+only leaves the substitution and resolution glue unexpanded, and has more
+steps than `rewrite` because many `PRED_TRANSFORM`s each become two rewrites.
+So `rewrite` is the level to take first: its holes are unit equalities with
+no premises, the shape the pipeline already handles, only coarser.  (`macro`
+is still on the table -- the Alethe backend printing the macro rules as holes
+with their premises, and the engine taking a hole's premises as facts that the
+certificate can cite -- but it needs both sides changed; this section is the
+measurement of the cheap level.)
+
+### 45.1 The patches
+
+*cvc5* (three files, commit 506592fc52):
+
+- `set_defaults.cpp`: an explicit `--proof-granularity` is kept for Alethe;
+  only the default is `theory-rewrite`.
+- `proof_manager.cpp`: at `rewrite` granularity with the Alethe format, `SUBS`
+  is still eliminated (expanded into cong/trans over its premises, as at
+  `theory-rewrite`), so no hole carries premises.
+- `alethe_post_processor.cpp`: a case for `MACRO_REWRITE` and premise-free
+  `MACRO_SR_PRED_INTRO` (what `--proof-elim-subtypes` makes of a
+  `MACRO_REWRITE` it re-typed): a reflexive conclusion is `refl` (as for
+  `TRUST`, the purification steps); otherwise
+  `(step tN (cl (= t t')) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))`,
+  the rule name and the rewriter's method id as strings.  A macro step with
+  premises keeps the untranslated form.
+
+*Carcara* (commit 7b418d3a): the two tags join `THEORY_REWRITE_TAGS`; nothing
+else, since the hole shape is the one the pipeline checks.  Fixture
+`tests/rare/elaborate/RF-12-rewrite.smt2.alethe`: the theory-rewrite proof's
+two holes and their cong/trans glue are one `MACRO_REWRITE` hole (11 steps
+against 27); `elaborates_cvc5_rewrite_granularity_holes_end_to_end`
+elaborates it and re-checks `valid`.
+
+Holes of the same proof that neither granularity tags (identical in both arms):
+`THEORY_INFERENCE_ARITH` (arithmetic preprocessing, 7–288 per proof),
+`DIAMONDS`, and the subtype-elimination trust steps, `ARITH_PRED_CAST_TYPE` at
+theory-rewrite (10–125 on the mixed Int/Real benchmarks) which become
+`MACRO_THEORY_REWRITE_RCONS_SIMPLE` at `rewrite` (2–143).  None of them is
+checked by the pipeline today.
+
+### 45.2 Checking: ten samples, two arms
+
+The ten §23/§24 samples, each proved twice (cvc5 `prod` 1.3.5.dev at
+`theory-rewrite`, the patched cvc5 at `rewrite`, the same flags), `hoist
+prune` once, then check-only passes `set` (plain) and `nset`
+(`--hole-prenormalize`) at the production caps (3M/500k), 4 workers, 30 s and
+3.5 GB per hole, 300 s per pass; the runs interleaved, one at a time.
+
+| benchmark | arm | cvc5 s | proof MB | steps | holes hoisted (tagged) | `set` proved / time | `nset` proved / closed by normalizer / time |
+|---|---|---|---|---|---|---|---|
+| 30_30_18 (QF_LIA) | t-rw | 4.5 | 1.86 | 17,989 | 1,067 | 1,067 / 103 s | 1,067 / 563 / 30 s |
+| | rw | 4.2 | 1.12 | 9,880 | 462 | 462 / 90 s | 462 / 123 / 43 s |
+| FISCHER9 (QF_LIA) | t-rw | 1.8 | 3.36 | 26,867 | 1,760 | 1,760 / 70 s | 1,760 / 1,242 / 23 s |
+| | rw | 1.6 | 3.07 | 23,625 | 1,511 | 1,511 / 89 s | 1,511 / 921 / 62 s |
+| MULTIPLIER_3 (QF_LIA) | t-rw | 0.6 | 3.66 | 36,660 | 845 | 845 / 258 s | 845 / 726 / 5 s |
+| | rw | 0.4 | 1.51 | 13,863 | 272 | 264 / 292 s | 272 / 130 / 9 s |
+| RF-09 (QF_LIA) | t-rw | 7.2 | 2.77 | 22,167 | 2,735 | 2,731 / 186 s | 2,735 / 1,205 / 81 s |
+| | rw | 6.6 | 2.50 | 18,925 | 2,079 | 2,078 / 175 s | 2,079 / 549 / 115 s |
+| clocksynchro_3 (QF_LRA) | t-rw | 0.3 | 0.99 | 9,633 | 1,115 | 1,114 / 99 s | 1,108 / 739 / 92 s |
+| | rw | 0.2 | 0.48 | 4,329 | 196 | 158 / 296 s | 191 / 60 / 37 s |
+| cut_lemma_01_008 (QF_LIA) | t-rw | 0.9 | 1.99 | 18,655 | 1,000 | 711 / 300 s (budget) | 1,000 / 912 / 5 s |
+| | rw | 0.6 | 0.48 | 4,289 | 126 | 93 / 274 s | 126 / 34 / 8 s |
+| ex4880 (QF_LIA) | t-rw | 4.1 | 1.64 | 15,656 | 1,348 | 1,341 / 146 s | 1,348 / 901 / 28 s |
+| | rw | 3.8 | 1.09 | 9,933 | 673 | 670 / 110 s | 672 / 233 / 77 s |
+| ring_2exp10 (QF_LIA) | t-rw | 0.5 | 3.41 | 35,883 | 819 | 819 / 79 s | 819 / 674 / 8 s |
+| | rw | 0.3 | 1.62 | 15,913 | 349 | 307 / 224 s | 349 / 189 / 13 s |
+| tgc_io-safe-6 (QF_LRA) | t-rw | 0.2 | 0.56 | 5,255 | 764 | 764 / 34 s | 617 / 350 / 300 s (70 memory, 77 budget) |
+| | rw | 0.2 | 0.36 | 3,171 | 140 | 106 / 244 s | 123 / 29 / 87 s (17 memory) |
+| vpm2-0 (QF_LRA) | t-rw | 30.7 | 2.96 | 30,518 | 2,097 | 2,090 / 142 s | 2,096 / 878 / 66 s |
+| | rw | 30.8 | 2.11 | 20,542 | 2,081 | 1,074 / 300 s (budget) | 2,079 / 761 / 96 s |
+
+What it says:
+
+- **Proofs shrink**: 1.1–4.4× fewer steps, 1.1–4.1× fewer bytes; tagged holes
+  fall 3–8× on the Boolean-heavy proofs (cut_lemma 1,000 → 126, clocksynchro
+  1,115 → 196, MULTIPLIER_3 845 → 272) and hardly at all where the holes were
+  single arithmetic relations to begin with (vpm2 2,097 → 2,081, FISCHER9
+  1,760 → 1,511).  cvc5's own time is unchanged (it is the solving).
+- **With the normalizer the coarse holes close as well as the fine ones**:
+  `nset` proves every hole of seven proofs, and 191/196, 672/673, 2,079/2,081,
+  123/140 on the other four -- the theory-rewrite arm's rate on the same
+  proofs.  The normalizer closes a smaller *fraction* outright (a coarse hole
+  is closed only if every rewrite in it is one of its four procedures), and
+  egglog proves the rest.
+- **Without the normalizer the coarse holes are much worse**: plain `set`
+  loses 8–52% per proof and runs to the budget (clocksynchro 158/196 in
+  296 s against 1,114/1,115 in 99 s at theory-rewrite).  A whole-term
+  rewrite is the size egglog pays for; the normalizer is what makes the
+  granularity affordable, as it was for veriT's coarse holes (§34).
+- **Wall-clock per proof** for `nset` is within a factor of two either way:
+  the rw arm is faster where the fine holes were many (clocksynchro 37 s
+  against 92 s, MULTIPLIER_3 9 s against 5 s, cut_lemma 8 against 5) and
+  slower where each hole got heavier (30_30_18 43 s against 30, FISCHER9 62
+  against 23, ex4880 77 against 28).
+- **The residue** (rw, `nset`): clocksynchro 3 time and 2 growth-cap kills on
+  whole-clause goals (`(= (or ...) (or ...))` over a dozen relations);
+  ex4880 and vpm2 one and two 30 s kills; tgc_io-safe-6 17 memory kills.
+  The tgc kills are the `arith-eq-elim` shape -- `(and (<= t u) (>= t u))`
+  nested on one side and flattened into the outer `and` on the other -- which
+  the trichotomy step (§43) only reads when the pair is a conjunction of its
+  own, so the normalizer turns the nested side into `(= t u)` and leaves the
+  flat side as bounds, and egglog blows up on the goal it is then handed.
+  The same 70 memory kills hit the theory-rewrite arm's `nset` on that proof
+  (its plain pass proves all 764 in 34 s), so this is a normalizer defect
+  independent of the granularity: the pair should also be found among the
+  flattened conjuncts.
+
+### 45.3 Elaboration: two gaps the coarse holes exposed, both fixed
+
+Elaboration (`--hole-prenormalize`, 45 s per hole, 600 s per pass, otherwise
+as above) on five of the `rewrite` proofs, then `carcara check` of the
+result.  Three binaries, one change each:
+
+| proof | holes | as it stood (justified / pass) | + `bridge` (84c663a6) | + search fixes (42a2a85b) | theory-rewrite arm, same binary |
+|---|---|---|---|---|---|
+| clocksynchro_3 | 196 | 189 / 73 s | 189 / 112 s | **191** / 93 s | 1,114 of 1,115 / 127 s |
+| cut_lemma_01_008 | 126 | 99 / 188 s | 99 / 189 s | **112** / 22 s | 1,000 / 6 s |
+| MULTIPLIER_3 | 272 | 238 / 367 s | 238 / 417 s | **267** / 14 s | 845 / 6 s |
+| tgc_io-safe-6 | 140 | -- | 113 / 279 s | **117** / 217 s | 757 of 764 / 408 s |
+| ring_2exp10 | 349 | -- | 315 / 332 s | **339** / 30 s | 819 / 11 s |
+
+Every elaborated proof re-checks `holey` with only the untagged holes, the
+kept ones and the `arith_poly_norm_rel` trust steps (§1) left.
+
+**Gap 1: the elaboration pass never used the normal forms.**  Under
+`--hole-prenormalize` the checking pass checks `(= nf(l) nf(r))`, but the
+elaboration pass handed egglog the hole as stated and took from the
+normalizer only the holes it closed outright (the comment at the rewrite
+site in `elaborate_holes` said why: a normal form is a different term from
+the ones the rules were compiled around, and the search may replay less on
+it).  `Normalizer::bridge` -- the derivations `l = nf(l)` and `nf(r) = r`
+around egglog's certificate of the normal forms -- existed and was never
+called.  Now (84c663a6) the normalized goal is tried first, its certificate
+bridged, and a hole whose normalized goal is not reconstructed is retried as
+stated.  On these five proofs it changes nothing in the totals -- the holes
+it bridges were provable as stated too -- and costs a retry where the normal
+form loses (tgc: 26 of 52 bridged, 3 of the 26 retries proved; at
+theory-rewrite 59 of 162 bridged, 97 of the 103 retries proved).  The
+mechanism is right and the numbers say the search, not the goal, was the
+limit.
+
+**Gap 2: the certificate search on `(= (= a b) true)`.**  102 of the 129
+holes the first binary left were of this one shape (cut_lemma 27/27,
+MULTIPLIER_3 34/34, ring 34/34): a `MACRO_REWRITE` whose term is an
+equality the rewriter takes to `true`, typically `(= (= (not (not A)) A)
+true)` from the double-negation elimination cvc5 states as a rewrite to
+`true`.  egglog proves each in 0.3 s; the search ran to the 45 s limit or
+gave up.  Reproduced on the 9-node goal `(= (= (not (not (>= x -2))) (>= x
+-2)) true)` (`tests/rare/elaborate/eq-true.smt2`).  Two causes, both in
+`expand_vertex`:
+
+- The candidate congruence `(= X true)` to `(= true true)` -- `X` replaced
+  by the constant of its class -- has the goal `X = true` itself as its
+  obligation.  The in-progress guard prunes it, a prune is not cacheable
+  (correctly: it depends on the stack), and each of the four
+  rejustifications banned one such edge and found the same shortcut at
+  another level of the `Mk`/`Args` spine.  A congruence candidate is now
+  skipped when a differing child pair, at any depth of the spine the two
+  terms share, is already on the proof stack.
+- The backward search from `true` expanded the constant: `eq-refl` and
+  `eq-symm` anchored at `true` ground to the reflexive and symmetric
+  instances over every member of the `true` class, hundreds of `(= s s)`
+  terms in a saturated e-graph (`(= (str.len true) (str.len true))` among
+  them), and the 256-state budget was gone before the forward search's
+  two-edge path `X` -> `(= A A)` -> `true` was met.  A constant vertex now
+  gets no rule edges; the edges into it are found from the term side.
+
+The micro goal reconstructs in 3 s.  On the five proofs the search fixes
+justify 79 more holes and cut the passes 2--30 times (MULTIPLIER_3 417 s ->
+14 s).  The 35 `no-certificate` holes left (cut_lemma 14, ring 10, tgc 6,
+MULTIPLIER_3 5) are the same shape with a *polynomial* relation on each
+side, `(= (= (not (not (>= P c))) (>= P' c)) true)` with `P'` a reordering
+of `P`, where the obligation `(not (not (>= P c))) = (>= P' c)` needs a
+double-negation step and a relation step in sequence; the goal-directed
+relation edge exists only towards a sub-search's own goal, so the chain is
+not found.  Open, and the natural next search fix.  The other residue is
+tgc's `arith-eq-elim` memory kills (§45.2) and clocksynchro's whole-clause
+goals.
+
+### 45.4 Verdict, and what is next
+
+At `rewrite` granularity the pipeline closes cvc5's holes at the
+theory-rewrite rate in checking, with proofs 1.1--4.4x smaller and 3--8x
+fewer holes on the Boolean-heavy proofs, provided the normalizer is on.
+Elaboration is a step behind (95--98% justified against 99.9--100%), on
+one search shape that is now characterized.  Costs and gains beyond the
+sample need the three sets on the cluster: cvc5 at `rewrite` from the
+patched binary, the same passes as `enc4`, with elaboration on the
+`nset` arm.  What the granularity does not change: the untagged holes
+(`THEORY_INFERENCE_ARITH`, subtype elimination's trust steps) and the
+`arith_poly_norm_rel` steps the elaborator still leaves as trust.
+
+`macro` proper stays the plan after `rewrite`: the Alethe backend printing
+the `MACRO_SR_*` rules as holes with their premises (their conclusions are
+not equalities and the substitution premises are facts), the engine taking
+a hole's premises as ground unions, the search citing them as leaves (a
+ground `premise:k` rewrite in the rule list needs no new certificate
+variant), `insert_solver_proof` discharging `(not P_k)` and citing the
+outer premise nodes as `sat_refutation` does, and `eq_mp` for the
+non-equality conclusions.
