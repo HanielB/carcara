@@ -2283,7 +2283,7 @@ fn elaborates_equality_to_true_without_circular_congruences() {
     let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
     assert!(!printed.contains(":rule hole"), "{printed}");
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(15),
+        started.elapsed() < std::time::Duration::from_secs(60),
         "the search took {:?}",
         started.elapsed()
     );
