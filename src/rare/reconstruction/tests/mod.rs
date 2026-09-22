@@ -2237,6 +2237,58 @@ fn elaborates_cvc5_rewrite_granularity_holes_end_to_end() {
     assert_eq!(rechecked, crate::Status::Valid, "{printed}");
 }
 
+/// A rewrite-granularity hole of the shape `(= (= a b) true)`, with `a` and
+/// `b` equal modulo one rule: the search used to run to its budget through
+/// congruence candidates `(= X true)` to `(= true true)` whose obligation is
+/// the goal itself (102 of 129 unreconstructed holes on five samples).
+#[test]
+fn elaborates_equality_to_true_without_circular_congruences() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let problem_path = Path::new("tests/rare/elaborate/eq-true.smt2");
+    let proof_path = Path::new("tests/rare/elaborate/eq-true.smt2.alethe");
+    let rare_path = Path::new("tests/rare/big.rare");
+    let parser_config = parser::Config::default()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let started = std::time::Instant::now();
+    let (_, problem, elaborated, mut pool) = crate::check_and_elaborate(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        elaborator::Config::new()
+            .elaborate_hole_rewrites(true)
+            .hole_rewrite_options(crate::RunEgglogOptions {
+                timeout: Some(std::time::Duration::from_secs(20)),
+                ..Default::default()
+            }),
+        vec![ElaborationPass::Hole],
+        false,
+    )
+    .expect("the proof should check and elaborate");
+    let mut printed = Vec::new();
+    crate::ast::printer::write_proof_to_dest(
+        &mut pool,
+        &problem.prelude,
+        &elaborated,
+        &mut printed,
+        false,
+    )
+    .expect("the elaborated proof should print");
+    let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+    assert!(!printed.contains(":rule hole"), "{printed}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
+        "the search took {:?}",
+        started.elapsed()
+    );
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.

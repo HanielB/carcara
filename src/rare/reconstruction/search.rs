@@ -729,6 +729,36 @@ impl Reconstructor<'_> {
     /// enough for a term met through the class signature: the engine keeps
     /// the unwrapped terms of a class together, so every two wrapped members
     /// pass the wrapper's test, whatever their heads.
+    /// Whether proving `lhs = rhs` is already on the proof stack, so that a
+    /// congruence candidate whose obligation it is can only be pruned.
+    fn circular(&self, lhs: &Term, rhs: &Term) -> bool {
+        self.in_progress.contains(&(lhs.clone(), rhs.clone()))
+            || self.in_progress.contains(&(rhs.clone(), lhs.clone()))
+    }
+
+    /// Whether a congruence between `lhs` and `rhs` (at the wrapper or the
+    /// application level, as `inner_congruence_compatible` reads them) has
+    /// a child obligation that is on the proof stack.  Such a candidate is
+    /// a circular shortcut: `(= X true)` to `(= true true)` while proving
+    /// `X = true` itself, which the search met on every level of a goal
+    /// `(= (= a b) true)` -- the obligation is pruned, the prune is not
+    /// cacheable, and the bounded rejustifications went to the same shortcut
+    /// at another level each time.
+    fn circular_congruence(&self, lhs: &Term, rhs: &Term) -> bool {
+        // The differing pair may sit below an `Args` cell or a `Mk`
+        // wrapper: walk the two terms in parallel while they agree in shape.
+        if lhs == rhs {
+            return false;
+        }
+        if lhs.op != rhs.op || lhs.children.len() != rhs.children.len() {
+            return false;
+        }
+        lhs.children
+            .iter()
+            .zip(rhs.children.iter())
+            .any(|(l, r)| l != r && (self.circular(l, r) || self.circular_congruence(l, r)))
+    }
+
     pub fn inner_congruence_compatible(&mut self, lhs: &Term, rhs: &Term) -> bool {
         if lhs.op == "Mk" && rhs.op == "Mk" {
             if let ([inner_lhs], [inner_rhs]) = (lhs.children.as_slice(), rhs.children.as_slice())
@@ -1345,7 +1375,19 @@ impl Reconstructor<'_> {
         vertex: &Term,
     ) -> Vec<(Term, CandidateEdge)> {
         let mut edges = Vec::new();
-        if let Some(signature) = self.term_signature(vertex) {
+        // A constant vertex has no rule edges worth following: a rule side
+        // matched at `true` or at a numeral is a variable pattern, and its
+        // groundings are the reflexive and symmetric instances over every
+        // member of the constant's class -- on a goal `(= X true)` in a
+        // saturated e-graph that is hundreds of `(= s s)` terms, which
+        // exhaust the state budget before the forward search's two-edge
+        // path is met.  The edges into a constant are found from the other
+        // side, where the instance is anchored on a real term.
+        let constant_vertex = matches!(vertex.children.as_slice(), [inner]
+            if vertex.op == "Mk" && matches!(inner.op.as_str(), "Bool" | "Num" | "Real" | "RatConst"));
+        if constant_vertex {
+            // nothing
+        } else if let Some(signature) = self.term_signature(vertex) {
             let matches = self.matches_at_signature(graph.eclass, &signature);
             for class_match in matches.iter() {
                 let Some(instance) = self.grounded_match(graph.eclass, class_match, vertex) else {
@@ -1366,7 +1408,9 @@ impl Reconstructor<'_> {
                         reversed,
                     };
                     edges.push((other.clone(), rule));
-                } else if self.inner_congruence_compatible(matched, vertex) {
+                } else if self.inner_congruence_compatible(matched, vertex)
+                    && !self.circular_congruence(matched, vertex)
+                {
                     // Same head as the vertex with the children pairwise in
                     // one class: a congruence the child proofs replay.  The
                     // signature the match was found at is the wrapper's,
@@ -1428,7 +1472,7 @@ impl Reconstructor<'_> {
             let Some(constant) = self.class_constant(class, CONSTANT_DEPTH) else {
                 continue;
             };
-            if constant == *subterm {
+            if constant == *subterm || self.circular(subterm, &constant) {
                 continue;
             }
             let candidate = replace_at_position(vertex, &position, &constant);
@@ -1468,7 +1512,9 @@ impl Reconstructor<'_> {
             } else if let Some(kind) = arith_kind(vertex, goal, self.sorts) {
                 self.stats.computational_edges += 1;
                 edges.push((goal.clone(), CandidateEdge::Computational { kind }));
-            } else if self.congruence_compatible(vertex, goal) {
+            } else if self.congruence_compatible(vertex, goal)
+                && !self.circular_congruence(vertex, goal)
+            {
                 edges.push((goal.clone(), CandidateEdge::Congruence));
             }
         }

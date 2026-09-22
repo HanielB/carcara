@@ -1,0 +1,3 @@
+(assume a0 (not (= (= (not (not (>= x6 -2))) (>= x6 -2)) true)))
+(step t1 (cl (= (= (not (not (>= x6 -2))) (>= x6 -2)) true)) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step t2 (cl) :rule resolution :premises (a0 t1))
