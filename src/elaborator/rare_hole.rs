@@ -586,16 +586,28 @@ pub const MAX_SNAPSHOT_TUPLES: usize = 4_000_000;
 /// The tags a producer prints on a rewrite hole: cvc5's
 /// `ProofRule::TRUST_THEORY_REWRITE` under the rule's own name up to April
 /// 2026 and under `"untranslated rewrite"` since cvc5 #12639 renamed the
-/// printed form (same rule, same code path), and `"preprocessing"` on the
-/// holes veriT prints for a preprocessing stage under
-/// `--proof-coarse-preprocessing`.
-pub const THEORY_REWRITE_TAGS: [&str; 3] = [
+/// printed form (same rule, same code path); `"MACRO_REWRITE"` and
+/// `"MACRO_SR_PRED_INTRO"` on the holes cvc5 prints at
+/// `--proof-granularity=rewrite`, where a hole is one call of the full
+/// rewriter on a term (`(= t rw(t))`, or an equality the rewriter takes to
+/// `true`) rather than one theory rewrite of one subterm; and
+/// `"preprocessing"` on the holes veriT prints for a preprocessing stage
+/// under `--proof-coarse-preprocessing`.
+///
+/// All of them are unit equalities that the producer states without
+/// premises; a macro step that carries substitution premises is printed by
+/// cvc5 under its rule name and is not recognized here.
+pub const THEORY_REWRITE_TAGS: [&str; 5] = [
     "TRUST_THEORY_REWRITE",
     "untranslated rewrite",
+    "MACRO_REWRITE",
+    "MACRO_SR_PRED_INTRO",
     "preprocessing",
 ];
 
-/// Whether `step` is a cvc5 theory-rewrite hole.
+/// Whether `step` is a rewrite hole: a `hole` step with one of the
+/// [`THEORY_REWRITE_TAGS`].  (The isolated child rebuilds a hole with the
+/// assumptions it may use as `:premises`, so premises are not a criterion.)
 pub fn is_theory_rewrite_hole(step: &StepNode) -> bool {
     step.rule == "hole"
         && matches!(

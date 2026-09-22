@@ -2179,6 +2179,64 @@ fn elaborates_cvc5_theory_rewrite_holes_end_to_end() {
     eprintln!("elaborated RF-12:\n{printed}");
 }
 
+/// The same problem at `--proof-granularity=rewrite`: cvc5 prints one
+/// `MACRO_REWRITE` hole for the whole rewrite of the assertion, where the
+/// theory-rewrite proof had two `TRUST_THEORY_REWRITE` holes glued by
+/// `cong`/`trans` (11 steps against 27).  The hole is recognized by its tag,
+/// elaborated, and the result re-checks `valid`.
+#[test]
+fn elaborates_cvc5_rewrite_granularity_holes_end_to_end() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let problem_path = Path::new("tests/rare/elaborate/RF-12-rewrite.smt2");
+    let proof_path = Path::new("tests/rare/elaborate/RF-12-rewrite.smt2.alethe");
+    let rare_path = Path::new("tests/rare/big.rare");
+    let parser_config = parser::Config::default()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let (status, problem, elaborated, mut pool) = crate::check_and_elaborate(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        elaborator::Config::new().elaborate_hole_rewrites(true),
+        vec![ElaborationPass::Hole],
+        false,
+    )
+    .expect("the cvc5 proof should check and elaborate");
+    assert_eq!(status, crate::Status::Holey);
+
+    let mut printed = Vec::new();
+    crate::ast::printer::write_proof_to_dest(
+        &mut pool,
+        &problem.prelude,
+        &elaborated,
+        &mut printed,
+        false,
+    )
+    .expect("the elaborated proof should print");
+    let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+    assert!(!printed.contains("MACRO_REWRITE"), "{printed}");
+    assert!(!printed.contains(":rule hole"), "{printed}");
+
+    let (mut problem_text, mut rare_text) = (String::new(), String::new());
+    let rechecked = crate::check(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::new(Path::new("<elaborated RF-12-rewrite>"), &printed),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        false,
+    )
+    .expect("the elaborated proof should parse and check");
+    assert_eq!(rechecked, crate::Status::Valid, "{printed}");
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.
