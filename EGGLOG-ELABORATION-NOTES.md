@@ -3925,3 +3925,9 @@ replaced by the equality under `cong`.  The as-written reading and its
 concurrent commit's test that `(and p (<= x y) (<= y x))` and `(and p (= x
 y))` stay apart encoded the limitation and is now a coinciding case; every
 other case of its tests passes as before, plus nested-against-flat cases.
+
+Re-measured with the fold (same files, budgets and workers as §42/§43):
+`sc-14` **5,281 of 5,281 proved, 0 kept, 136 s** (with `19b64f64` as
+committed: 4,517 proved, 81 kept, 1,200 s); `in-de62-O0` 3,388 closed by
+the normalizer, 4,333 proved, 70 kept, 1,380 unattempted at 1,200 s
+(before the regression 4,411 / 78 / 1,294; with it 3,478 / 128 / 2,177).
