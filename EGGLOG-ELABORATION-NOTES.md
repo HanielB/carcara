@@ -3828,7 +3828,200 @@ and scope steps not counted; `cpc/tiers.py`, `cpc/tiers.txt`):
 At `dsl-rewrite` the distinct RARE-rule plus normalizer steps are 47,843 /
 68,992 / 112,902, i.e. 1.0 / 1.5 / 1.4 per distinct theory-rewrite hole.
 
-## 43. Shared-subterm abstraction with a fallback, and what it does and does not reach (2026-09-22)
+### The limits, isolated: the cap decides, the clock adds a little (2026-09-22)
+
+`vb50-2` and `vnob-2` differ in four things at once (the bound, the caps,
+the per-hole clock, the worker count), so neither arm alone says what the
+higher limits buy.  Two readings separate them.
+
+**The paired QF_UF read is almost a controlled experiment.**  Of the 3,127
+QF_UF benchmarks both arms have finished, **2,934 produce identical hole
+counts**: veriT's QF_UF preprocessing holes are already under 50 DAG nodes,
+so `--proof-hole-size=50` hardly ever fires there and the two arms are
+checking the same holes.  On the 3,086 paired proofs, `set-form`:
+
+| | holes | proved | kept | proofs fully justified | pass time |
+|---|---|---|---|---|---|
+| caps 3M/500k, 60 s, 8 workers | 241,522 | 94.2% | 14,080 | 236 | 11.5 h |
+| caps 120M/20M, 120 s, 4 workers | 241,302 | **99.7%** | 751 | **2,528** | 26.0 h |
+
+with the normalizer, 98.9% / 1,546 clean against 99.7% / 2,564.  The pass
+time roughly doubles, but the high arm runs half the workers, so per worker
+the work is comparable.
+
+The residue names the knob.  Kept holes by reason (these runs predate the
+`[class]` tag, so the text is classified: the `egglog check for tN failed`
+message is the growth cap firing):
+
+| | growth cap | per-hole time | memory |
+|---|---|---|---|
+| low limits | **13,670** | 388 | 22 |
+| high limits | 46 | 675 | 32 |
+
+Had the 60 s clock been binding, the low arm would show time kills; it
+shows cap kills, and raising the cap removes 13,600 of them.  The clock
+then becomes binding, and only mildly (388 to 675).
+
+**Locally, one knob at a time.**  The same N=50 proofs of the five worst
+QF_UF residues, the same 2 workers and 6 GB per hole, the same 600 s pass
+budget, changing only the cap and then the clock
+(`scratchpad/caps/ab.sh`; local binary, newer than the cluster's):
+
+| proof | holes | A: 3M/500k, 60 s | B: 120M/20M, 60 s | C: 120M/20M, 120 s |
+|---|---|---|---|---|
+| `gensys_icl057` | 376 | 363, 108 s | 373, 182 s | 374, 194 s |
+| `gensys_brn064` | 253 | 242, 48 s | 252, 80 s | **253**, 113 s |
+| `gensys_icl055` | 226 | 215, 44 s | 224, 132 s | 225, 176 s |
+| `dead_dnd014` | 14 | 2, 34 s | **12**, 105 s | 12, 166 s |
+| `iso_icl_repgen006` | 37 | 2, 110 s | 7, 600 s | **20**, 600 s |
+| total | 906 | 824 proved, 82 kept, 344 s | 868, 28 kept + 10 skipped, 1,098 s | 884, 7 kept + 15 skipped, 1,248 s |
+
+So the cap alone (A to B) recovers 44 of the 82 kept holes and the clock
+(B to C) another 16; on the one proof where the holes are individually hard
+(`iso_icl_repgen006`) the clock is what matters, 7 to 20.  The price is
+three times the time on proofs chosen for being the worst, and a new
+failure mode: with the higher limits `iso_icl_repgen006` no longer finishes
+inside the 600 s pass budget, so holes are skipped rather than kept.
+
+**Reading.**  For veriT's QF_UF holes the caps `vb50-2` inherited from cvc5
+are simply too small, and the 120M/20M pair costs nothing on the holes that
+were already proved (they never approach it).  A rerun of the bounded arm at
+the higher limits should take QF_UF from 94.2% to about 99.7% of holes and
+from 236 to about 2,500 fully justified proofs, and would isolate the bound,
+which is what `vb50-2` was supposed to measure in the first place.
+
+### Arithmetic: the limits are not the constraint, the shape is (2026-09-22)
+
+The same question for QF_LIA and QF_LRA.  `vnob-2` has not reached them
+yet, so this is `vb50-2` plus local runs.
+
+**Arithmetic does not lose where QF_UF loses.**  Kept holes are a rounding
+error; the losses are holes never attempted before the pass budget ran out:
+
+| `vb50-2`, set-form | holes | proved | kept | skipped | growth-cap kills |
+|---|---|---|---|---|---|
+| QF_UF | 305,215 | 93.7% | 6.3% | 0.0% | 18,757 |
+| QF_LIA | 1,041,503 | 69.2% | 0.3% | **30.6%** | 133 |
+| QF_LRA | 309,653 | 39.6% | 6.1% | **54.3%** | 24 |
+
+The cap that decides QF_UF barely fires here.  What kept holes there are
+die on memory (1,238 in QF_LIA, 10,343 in QF_LRA) and on the per-hole
+clock.  The binding constraint is throughput: the pass budget divided by
+the cost of a hole.
+
+**So the higher limits do not help arithmetic; they hurt.**  Same knobs as
+the QF_UF experiment, three QF_LRA proofs, 2 workers, 6 GB, 600 s per pass
+(`scratchpad/arith/ab.sh`):
+
+| proof | holes | A: caps 3M/500k | B: caps 120M/20M | N: A + normalizer | M: B + normalizer |
+|---|---|---|---|---|---|
+| LassoRanker `p-46 Loop_4` | 2,854 | 17 proved, 2,824 skipped | **11**, 2,825 skipped | **2,854**, 178 s | 2,854, 119 s |
+| `tta_startup 14nodes.synchro.base` | 1,793 | 28, 1,735 skipped | 28, 1,735 skipped | **1,791**, 56 s | 1,791, 53 s |
+| miplib `fixnet-1000` | 4,635 | 19, 4,596 skipped | 19, 4,596 skipped | **4,635**, 51 s | 4,635, 51 s |
+
+Raising the cap on the first proof *loses* six holes: a hopeless hole now
+runs to a larger e-graph before it fails, and the holes behind it in the
+queue are never reached.  On the other two it changes nothing.  In every
+arm the proof is decided by how many holes the budget covers, and the way
+to cover them is to make a hole cheap, not to give it more room.
+
+**Which is exactly what the shape does.**  Split by family, `vb50-2`:
+
+| | holes in families the normalizer failed on | those: set / nset | the rest: set / nset |
+|---|---|---|---|
+| QF_LIA | 503,542 of 1,041,503 (48%), all Dartagnan | 36.7% / 22.5% | 99.6% / 99.4% |
+| QF_LRA | 100,373 of 309,653 (32%): `tta_startup`, `uart`, `sal`, `sc`, `spider` | 22.1% / 16.0% | 48.0% / **96.9%** |
+
+Outside those families the normalizer already decided arithmetic: 96.9% of
+the QF_LRA holes and 99.4% of the QF_LIA ones, against 48.0% and 99.6%
+plain.  Inside them it closed nothing and, per §43, made the goals dearer,
+so it lost: 22.1% to 16.0%, 36.7% to 22.5%.
+
+And those families are one shape.  A `tta_startup` hole is fourteen
+`la_rw_eq` rewrites at once under a disjunction:
+
+```
+(= (or (= 1.0 x_43) .. (= 14.0 x_43))
+   (or (and (<= 1.0 x_43) (<= x_43 1.0)) .. (and (<= x_43 14.0) (<= 14.0 x_43))))
+```
+
+each disjunct a mirrored pair, some written the other way round.  With the
+step added today the arguments of the `or` close one by one on the way up,
+the whole hole closes without egglog, and the family goes from 28 holes
+proved in 600 s to 1,791 of 1,793 closed in 0.056 s.  The LassoRanker and
+miplib proofs, which the old normalizer already half closed, go from 17 and
+19 proved to complete.
+
+**The arithmetic story, then.**  Not a resource story at all.  Both logics
+are one rewrite shape wide: `la_rw_eq` is 100% of the QF_LIA residue and
+the whole of the QF_LRA families that were failing, and closing it in the
+prenormalizer converts both from throughput-bound to free.  The measurement
+to make is a rerun of the two `nset` arms with the new binary; the caps
+should stay where `vb50-2` has them, and the QF_UF arm is the only one that
+wants the larger ones.
+
+## 44. `vnob-2` complete: the bound wins arithmetic, the caps win QF_UF (2026-09-23)
+
+The no-bound arm finished (9,812 tasks, aggregator stopped 2026-09-23).
+Both veriT arms are now readable end to end.  Recall they differ in two
+things: the granularity (`--proof-hole-size=50` against none) and the
+limits (caps 3M/500k, 60 s, 8 workers against 120M/20M, 120 s, 4 workers).
+
+**What the bound does to the holes.**
+
+| | holes, N=50 | holes, no bound | ratio | median per proof |
+|---|---|---|---|---|
+| QF_UF | 305,215 | 304,978 | 1.00 | 18 / 18 |
+| QF_LIA | 1,041,503 | 236,561 | 4.4 | 7 / 2 |
+| QF_LRA | 309,653 | 8,225 | **37.6** | 122 / 3 |
+
+QF_UF is untouched: veriT's preprocessing there produces holes already
+under 50 nodes.  In arithmetic the bound is the whole experiment, and
+QF_LRA's whole-assertion holes are 37 times coarser.
+
+**Hole percentages favour the coarse arm, and mislead.**  `set-form`:
+QF_LIA 69.2% of 1.04 M against 99.2% of 237 k, QF_LRA 39.6% of 310 k
+against 41.2% of 8 k.  The denominators are not comparable; what is
+comparable is whether a proof comes out with every hole closed.
+
+**Proofs fully justified, best of the four configurations, paired:**
+
+| | proofs | N=50 | no bound | only N=50 | only no bound |
+|---|---|---|---|---|---|
+| QF_UF | 4,176 | 2,106 | **3,542** | 0 | 1,436 |
+| QF_LIA | 2,506 | **2,139** | 1,841 | 329 | 31 |
+| QF_LRA | 566 | **213** | 168 | 46 | 1 |
+| total | 7,248 | 4,458 | 5,551 | 375 | 1,468 |
+
+Two different effects, and they do not interfere, because the bound is a
+no-op on QF_UF and the caps are nearly irrelevant to arithmetic (§43):
+
+- **QF_UF is the limits.**  Same holes, and the coarse arm's larger caps
+  take it from 2,106 to 3,542 fully justified proofs.  Residue: 2,855
+  growth-cap kills against 28.
+- **Arithmetic is the bound.**  Splitting an assertion into 50-node holes
+  wins 329 QF_LIA proofs and 46 QF_LRA ones, and loses 31 and 1.  A
+  whole-assertion hole that fails costs the whole proof; a bounded hole
+  that fails costs one rewrite.
+
+**So neither arm is the configuration to run.**  The bounded proof with the
+larger caps has never been measured, and on these numbers it should reach
+about 3,542 + 2,139 + 213 = 5,894 fully justified proofs against `vnob-2`'s
+5,551 and `vb50-2`'s 4,458 -- except that §43 measured the larger caps
+*hurting* arithmetic throughput, so the caps want to be per-logic: large
+for QF_UF, `vb50-2`'s for QF_LIA and QF_LRA.
+
+**The encoding gap widened.**  On the no-bound QF_UF holes `chain` takes
+106.3 h against `set-form`'s 34.7 h, a factor of 3.1 (it was 2.4 in
+`vb50-2`), and proves less (97.4% against 99.1%).  Every arm of both jobs
+agrees: for veriT's holes the set form is the encoding.
+
+**Caveat on all the arithmetic numbers here.**  They predate today's
+`la_rw_eq` step in the prenormalizer (§43), which closes the shape these
+proofs are made of: on the three local QF_LRA proofs the same holes go from
+17, 28 and 19 proved to complete.  The arithmetic half of this table is a
+measurement of the old normalizer and should be redone.
+## 45. Shared-subterm abstraction with a fallback, and what it does and does not reach (2026-09-22)
 
 `--hole-abstract-shared N` (commit 0c50a1f4, `src/elaborator/abstraction.rs`):
 before egglog, every maximal subterm both sides of a hole share, of `N`
@@ -3893,9 +4086,9 @@ arguments are normalized; on cvc5's holes that turns conjunctions into
 equalities the other side no longer matches.  Not reverted here -- it is
 the veriT work's -- but it has to be resolved before a rerun.
 
-## 44. `la_rw_eq` in the prenormalizer, after flattening (2026-09-22)
+## 46. `la_rw_eq` in the prenormalizer, after flattening (2026-09-22)
 
-§43's regression, fixed on this branch.  `19b64f64` read `la_rw_eq` on the
+§45's regression, fixed on this branch.  `19b64f64` read `la_rw_eq` on the
 term *as written*, before its arguments were normalized, matching only a
 two-element `and` of mirrored bounds; on cvc5's conjunction-flattening
 holes -- `(= (and (and (<= x 2) (>= x 2)) p) (and p (<= x 2) (>= x 2)))` --
@@ -3926,7 +4119,13 @@ concurrent commit's test that `(and p (<= x y) (<= y x))` and `(and p (= x
 y))` stay apart encoded the limitation and is now a coinciding case; every
 other case of its tests passes as before, plus nested-against-flat cases.
 
-## 45. Coarser holes from cvc5: `--proof-granularity=rewrite` (2026-09-22)
+Re-measured with the fold (same files, budgets and workers as the QF_LIA residue section and §45):
+`sc-14` **5,281 of 5,281 proved, 0 kept, 136 s** (with `19b64f64` as
+committed: 4,517 proved, 81 kept, 1,200 s); `in-de62-O0` 3,388 closed by
+the normalizer, 4,333 proved, 70 kept, 1,380 unattempted at 1,200 s
+(before the regression 4,411 / 78 / 1,294; with it 3,478 / 128 / 2,177).
+
+## 47. Coarser holes from cvc5: `--proof-granularity=rewrite` (2026-09-22)
 
 Branch `egglog/rewrite-holes` (worktree `wt-rwgran`, off `bounded-parallel-holes`
 at b3f21bf6), cvc5 branch `alethe-rewrite-granularity` (`~/cvc5/wt-rwgran`,
@@ -3968,7 +4167,7 @@ with their premises, and the engine taking a hole's premises as facts that the
 certificate can cite -- but it needs both sides changed; this section is the
 measurement of the cheap level.)
 
-### 45.1 The patches
+### 47.1 The patches
 
 *cvc5* (three files, commit 506592fc52):
 
@@ -3999,7 +4198,7 @@ theory-rewrite (10–125 on the mixed Int/Real benchmarks) which become
 `MACRO_THEORY_REWRITE_RCONS_SIMPLE` at `rewrite` (2–143).  None of them is
 checked by the pipeline today.
 
-### 45.2 Checking: ten samples, two arms
+### 47.2 Checking: ten samples, two arms
 
 The ten §23/§24 samples, each proved twice (cvc5 `prod` 1.3.5.dev at
 `theory-rewrite`, the patched cvc5 at `rewrite`, the same flags), `hoist
@@ -4058,7 +4257,7 @@ What it says:
   ex4880 and vpm2 one and two 30 s kills; tgc_io-safe-6 17 memory kills.
   The tgc kills are the `arith-eq-elim` shape -- `(and (<= t u) (>= t u))`
   nested on one side and flattened into the outer `and` on the other -- which
-  the trichotomy step (§43) only reads when the pair is a conjunction of its
+  the trichotomy step (§46) only reads when the pair is a conjunction of its
   own, so the normalizer turns the nested side into `(= t u)` and leaves the
   flat side as bounds, and egglog blows up on the goal it is then handed.
   The same 70 memory kills hit the theory-rewrite arm's `nset` on that proof
@@ -4066,7 +4265,7 @@ What it says:
   independent of the granularity: the pair should also be found among the
   flattened conjuncts.
 
-### 45.3 Elaboration: two gaps the coarse holes exposed, both fixed
+### 47.3 Elaboration: two gaps the coarse holes exposed, both fixed
 
 Elaboration (`--hole-prenormalize`, 45 s per hole, 600 s per pass, otherwise
 as above) on five of the `rewrite` proofs, then `carcara check` of the
@@ -4135,10 +4334,10 @@ of `P`, where the obligation `(not (not (>= P c))) = (>= P' c)` needs a
 double-negation step and a relation step in sequence; the goal-directed
 relation edge exists only towards a sub-search's own goal, so the chain is
 not found.  Open, and the natural next search fix.  The other residue is
-tgc's `arith-eq-elim` memory kills (§45.2) and clocksynchro's whole-clause
+tgc's `arith-eq-elim` memory kills (§47.2) and clocksynchro's whole-clause
 goals.
 
-### 45.4 Verdict, and what is next
+### 47.4 Verdict, and what is next
 
 At `rewrite` granularity the pipeline closes cvc5's holes at the
 theory-rewrite rate in checking, with proofs 1.1--4.4x smaller and 3--8x
@@ -4160,7 +4359,7 @@ variant), `insert_solver_proof` discharging `(not P_k)` and citing the
 outer premise nodes as `sat_refutation` does, and `eq_mp` for the
 non-equality conclusions.
 
-### 45.5 Run `rw1` (submitted 2026-09-22)
+### 47.5 Run `rw1` (submitted 2026-09-22)
 
 The three sets on `octa` (arrays 30291166 QF_UF, 30291167 QF_LIA, 30291168
 QF_LRA; two tasks per node, 8 cores and 60 GB each, wall 3,100 s; results
