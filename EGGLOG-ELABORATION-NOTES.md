@@ -3959,3 +3959,65 @@ prenormalizer converts both from throughput-bound to free.  The measurement
 to make is a rerun of the two `nset` arms with the new binary; the caps
 should stay where `vb50-2` has them, and the QF_UF arm is the only one that
 wants the larger ones.
+
+## 44. `vnob-2` complete: the bound wins arithmetic, the caps win QF_UF (2026-09-23)
+
+The no-bound arm finished (9,812 tasks, aggregator stopped 2026-09-23).
+Both veriT arms are now readable end to end.  Recall they differ in two
+things: the granularity (`--proof-hole-size=50` against none) and the
+limits (caps 3M/500k, 60 s, 8 workers against 120M/20M, 120 s, 4 workers).
+
+**What the bound does to the holes.**
+
+| | holes, N=50 | holes, no bound | ratio | median per proof |
+|---|---|---|---|---|
+| QF_UF | 305,215 | 304,978 | 1.00 | 18 / 18 |
+| QF_LIA | 1,041,503 | 236,561 | 4.4 | 7 / 2 |
+| QF_LRA | 309,653 | 8,225 | **37.6** | 122 / 3 |
+
+QF_UF is untouched: veriT's preprocessing there produces holes already
+under 50 nodes.  In arithmetic the bound is the whole experiment, and
+QF_LRA's whole-assertion holes are 37 times coarser.
+
+**Hole percentages favour the coarse arm, and mislead.**  `set-form`:
+QF_LIA 69.2% of 1.04 M against 99.2% of 237 k, QF_LRA 39.6% of 310 k
+against 41.2% of 8 k.  The denominators are not comparable; what is
+comparable is whether a proof comes out with every hole closed.
+
+**Proofs fully justified, best of the four configurations, paired:**
+
+| | proofs | N=50 | no bound | only N=50 | only no bound |
+|---|---|---|---|---|---|
+| QF_UF | 4,176 | 2,106 | **3,542** | 0 | 1,436 |
+| QF_LIA | 2,506 | **2,139** | 1,841 | 329 | 31 |
+| QF_LRA | 566 | **213** | 168 | 46 | 1 |
+| total | 7,248 | 4,458 | 5,551 | 375 | 1,468 |
+
+Two different effects, and they do not interfere, because the bound is a
+no-op on QF_UF and the caps are nearly irrelevant to arithmetic (§43):
+
+- **QF_UF is the limits.**  Same holes, and the coarse arm's larger caps
+  take it from 2,106 to 3,542 fully justified proofs.  Residue: 2,855
+  growth-cap kills against 28.
+- **Arithmetic is the bound.**  Splitting an assertion into 50-node holes
+  wins 329 QF_LIA proofs and 46 QF_LRA ones, and loses 31 and 1.  A
+  whole-assertion hole that fails costs the whole proof; a bounded hole
+  that fails costs one rewrite.
+
+**So neither arm is the configuration to run.**  The bounded proof with the
+larger caps has never been measured, and on these numbers it should reach
+about 3,542 + 2,139 + 213 = 5,894 fully justified proofs against `vnob-2`'s
+5,551 and `vb50-2`'s 4,458 -- except that §43 measured the larger caps
+*hurting* arithmetic throughput, so the caps want to be per-logic: large
+for QF_UF, `vb50-2`'s for QF_LIA and QF_LRA.
+
+**The encoding gap widened.**  On the no-bound QF_UF holes `chain` takes
+106.3 h against `set-form`'s 34.7 h, a factor of 3.1 (it was 2.4 in
+`vb50-2`), and proves less (97.4% against 99.1%).  Every arm of both jobs
+agrees: for veriT's holes the set form is the encoding.
+
+**Caveat on all the arithmetic numbers here.**  They predate today's
+`la_rw_eq` step in the prenormalizer (§43), which closes the shape these
+proofs are made of: on the three local QF_LRA proofs the same holes go from
+17, 28 and 19 proved to complete.  The arithmetic half of this table is a
+measurement of the old normalizer and should be redone.
