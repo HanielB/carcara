@@ -425,40 +425,12 @@
   ((set (relPolyOf (Mk (@>= (Args x1 (Args x2 (Empty)))))) canon))
   :ruleset arith_poly)
 
-(rule
-  ((= lhs (Mk (@> (Args x1 (Args x2 (Empty)))))))
-  ((relPolyOf-demand lhs))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@> (Args x1 (Args x2 (Empty)))))))
-  ((arithCopyOf-demand x1)
-   (arithCopyOf-demand x2))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@> (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2))
-  ((arithPolyNfOf-demand (ASub2 ax1 ax2)))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@> (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2)
-   (= (arithPolyNfOf (ASub2 ax1 ax2)) diff))
-  ((canonRelPolyN-demand diff))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@> (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2)
-   (= (arithPolyNfOf (ASub2 ax1 ax2)) diff)
-   (= (canonRelPolyN diff) canon))
-  ((set (relPolyOf (Mk (@> (Args x1 (Args x2 (Empty)))))) canon))
-  :ruleset arith_poly)
+;; The strict relations `<` and `>` have no `relPolyOf`: the function is one
+;; value per e-class, and a class that holds `(< m e)` beside its integer
+;; rewrite `(>= e (+ m 1))` would carry whichever polynomial was set first
+;; -- the strict `e - m` under the non-strict key rules, which then read
+;; `GeqKey (e - m)` for a formula whose key is `GeqKey (e - m - 1)`.  Their
+;; keys come from `strictOrderBoolKeyN` alone.
 
 (rule
   ((= lhs (Mk (@<= (Args x1 (Args x2 (Empty)))))))
@@ -495,44 +467,6 @@
   ((set (relPolyOf (Mk (@<= (Args x1 (Args x2 (Empty)))))) canon))
   :ruleset arith_poly)
 
-(rule
-  ((= lhs (Mk (@< (Args x1 (Args x2 (Empty)))))))
-  ((relPolyOf-demand lhs))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@< (Args x1 (Args x2 (Empty)))))))
-  ((arithCopyOf-demand x1)
-   (arithCopyOf-demand x2))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@< (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2))
-  ((arithPolyNfOf-demand (ASub2 ax2 ax1)))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@< (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2)
-   (= (arithPolyNfOf (ASub2 ax2 ax1)) diff))
-  ((canonRelPolyN-demand diff))
-  :ruleset arith_poly)
-
-(rule
-  ((relPolyOf-demand (Mk (@< (Args x1 (Args x2 (Empty))))))
-   (= (arithCopyOf x1) ax1)
-   (= (arithCopyOf x2) ax2)
-   (= (arithPolyNfOf (ASub2 ax2 ax1)) diff)
-   (= (canonRelPolyN diff) canon))
-  ((set (relPolyOf (Mk (@< (Args x1 (Args x2 (Empty)))))) canon))
-  :ruleset arith_poly)
-
-;; Strict order formulas use a strict key over reals and a tightened non-strict
-;; key over integer expressions so that `<`, `>`, and negated non-strict
-;; inequalities agree with their rewritten integer counterparts.
 (rule
   ((strictOrderBoolKeyN-demand p))
   ((polyIsIntExprN-demand p))

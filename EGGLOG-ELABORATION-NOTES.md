@@ -4375,3 +4375,132 @@ commits of `egglog/hole-abstraction`).  Runner `~/exp/egglog-holes/
 run-holes-rw.sh`, keys as chk1200n's minus the plain pass, plus
 `holes_untagged` and `elab_bridged`.  Baselines: enc4's `nset` arm for
 checking, chk1200n for elaboration.
+
+### 47.6 `rw1` half-way: the QF_UF checking gap is the engine's demand rules
+
+Read on 2026-09-23 with QF_UF complete and QF_LIA at 2,227 of 4,748
+(partial `results.json.gz`, truncated at a record boundary; the same
+benchmarks in enc4's `nset` arm as the baseline, proofs complete in both):
+
+| | rw1 (`rewrite`) | enc4 (`theory-rewrite`) |
+|---|---|---|
+| QF_UF proofs fully checked (of 4,315) | 2,406 | 4,078 |
+| QF_UF proofs with a kept hole | 1,711 | 39 |
+| QF_UF holes proved | 99.6% | 99.9% |
+| QF_UF checking pass, summed | 49 h | 11 h |
+| QF_LIA (first 2,018) proofs fully checked | 1,849 | 1,902 |
+| QF_LIA holes proved | 93.2% | 98.8% |
+| QF_LIA holes skipped by the pass budget | 20,522 | 8,056 |
+
+The kept-hole classes from the run's own keys: QF_UF checking 4,509
+`hole-time`, 281 `growth-cap`, 15 `memory`; QF_UF elaboration 11,481
+`hole-time`, 508 `no-certificate`; QF_LIA elaboration 17,311
+`no-certificate`, 3,190 `hole-time`.  1,652 of the 1,711 QF_UF proofs
+with a kept hole are QG-classification, 57 Goel-hwbench.
+
+**The hole.**  Reproduced locally on the two smallest cases (`bridge.2`,
+5 holes, one kept; `dead_dnd005`, 21 holes, one kept).  Both are
+`MACRO_REWRITE` steps of pure Boolean simplification over an uninterpreted
+sort: a 28-conjunct `and` of disequalities holding `(not (= x x))`,
+rewritten to `false`; an `or` of six `(and (= e (op e (op e e))) (not (= e0
+e)))` blocks losing the one with `(not (= e0 e0))`, with every equality
+reoriented.  At theory-rewrite these are one node-sized step each and enc4
+checks the proofs in under a second; at `rewrite` egglog died at 6 GB after
+15--25 s, and at 14 GB still hit the 60 s limit.  Abstraction, the
+normalizer, the list encoding and `--rare-seed-from-goal` change nothing.
+(Boolean simplification does not go into the prenormalizer: the normalizer
+is limited to what core Alethe rules compute, and general rewriting is the
+egglog route's job.)
+
+Shrunk copies (`and` of k disequalities over sort U, one reflexive):
+
+| k | with `(not (= c0 c0))` | with a literal `false` |
+|---|---|---|
+| 4 | 0.8 s | 0.1 s |
+| 8 | 4.3 s | 0.1 s |
+| 12 | 16.5 s | 0.1 s |
+| 16 | 45.7 s | 0.1 s |
+| 24 | memory kill | 0.1 s |
+
+The closing rewrite needs three rounds (`eq-refl`, `(not true)` by
+evaluation, `and` with `false`); with the literal it fires in round one.
+The per-rule reports of the 12-conjunct case say what fills the rounds in
+between:
+
+- Every `define-cond-rule` had a demand rule instantiating its premise
+  over *all pairs of available terms* (`rule ((Avaliable s1) (Avaliable r1))
+  ((Mk (@str.in_re s1 r1))))`), sort-blind: eight such rules fired 2,175
+  times each in round two and 12,775 each in round four, building
+  `str.in_re`, `str.<=`, `>=` and `=` nodes over uninterpreted constants.
+  The RARE rule is sort-guarded; its demand was not.
+- Once a disequality's `(= s r)` sat in the `false` class, `eq-cond-deq`
+  (`(= (= t s) (= t r)) -> (and (not (= t s)) (not (= t r)))` when
+  `(= s r) = false`) and its demand rule matched 530k times in one round
+  over the demand-made equalities: the 8 s rounds.
+
+**Fix 1 (engine): premises demanded where the left-hand side occurs.**
+`construct_rules` now emits, per conditional-rule premise, `rule ((=
+demand_site <LHS pattern>) ...) (<premise lhs> <premise rhs>)`: the premise
+terms are built for the bindings of every occurrence of the rule's
+left-hand side, which is exactly where the rule could fire, and nowhere
+else.  A premise variable the left-hand side does not bind still ranges
+over the seed relation (`Avaliable`, or `Origin` under
+`--rare-seed-from-goal`), under its sort guard.  On the way: `SortString`
+and `SortRegLan` relations (constants, `str.*`/`re.*` heads, declared
+result sorts) so string parameters are guarded like the numeric ones.
+The k-series is 0.2--0.3 s at every k up to 28; `bridge.2` checks in 0.3 s
+and `dead_dnd005` in 0.9 s, all holes proved.
+
+**What the old demand had been masking (fix 2, fix 3).**  The ten-sample
+`nset` pass with the new demand lost 16 arithmetic holes (30_30_18: 8,
+FISCHER9: 8) of the shape `(< x t) = (>= (+ ...) 1)` while gaining 23
+(tgc's 17 memory kills among them).  On the reproducer `(= (< m e) (>= (- e
+m) 1))` the halves held (`(< m e) = (>= e (+ m 1))` by `arith-elim-int-lt`;
+`(>= e (+ m 1)) = (>= (- e m) 1)` by the relation keys) and the whole did
+not.  Dumping the key tables at the failure: the class of `(< m e)` -- which
+by then also held `(not (>= m e))` and `(>= e (+ m 1))` -- carried
+`GeqKey (e - m)`, the untightened polynomial, while `(>= (- e m) 1)` carried
+`GeqKey (e - m - 1)` and the strict-order rule had correctly computed the
+latter for `e - m`.  `relPolyOf` is one value per class with `:merge old`;
+the `<` node's rules had written the polynomial that is *positive* (`e -
+m`), and the `>=` node's key rule, matching the same class, read it back
+as a `GeqKey`.  With the all-pairs demand the `>=` node's write happened to
+land first.  Nothing reads the strict `relPolyOf` (the strict keys come from
+`strictOrderBoolKeyN`), so the ten rules writing it for `<` and `>` are
+gone (`arith_poly_norm_rel.egglog`).  And on the way there, the bounded
+saturation loop (`run_statement_within_deadline`) stopped when the tuple
+count was unchanged between iterations, which an iteration that inserts one
+tuple and merges one away satisfies with its demands still pending; it now
+stops on egglog's own `updated` report.
+
+Ten samples, `rewrite` arm, `nset` pass (30 s per hole, 300 s per pass,
+3M/500k caps, 4 workers), 387b0882 against the three fixes:
+
+| sample | 387b0882 proved / holes, pass s | with the fixes |
+|---|---|---|
+| 30_30_18_1 | 462 / 462, 43 s | 462 / 462, 28 s |
+| clocksynchro_3 | 191 / 196, 37 s | **196** / 196, 16 s |
+| cut_lemma_01_008 | 126 / 126, 8 s | 126 / 126, 10 s |
+| ex4880 | 672 / 673, 77 s | **673** / 673, 49 s |
+| FISCHER9 | 1,511 / 1,511, 62 s | 1,511 / 1,511, 43 s |
+| MULTIPLIER_3 | 272 / 272, 9 s | 272 / 272, 10 s |
+| RF-09 | 2,079 / 2,079, 115 s | 2,079 / 2,079, 115 s |
+| ring_2exp10 | 349 / 349, 13 s | 349 / 349, 13 s |
+| tgc_io-safe-6 | 123 / 140, 87 s (17 memory) | **140** / 140, 8 s |
+| vpm2-0 | 2,079 / 2,081, 96 s | 2,079 / 2,081, 56 s (2 growth-cap) |
+
+Every hole of the sample except vpm2's two growth-cap holes, and the
+passes 1.3--10x faster where the old demand had been feeding the e-graph.
+
+Regression tests (`rare::engine::tests`): the 16-conjunct reflexive
+conjunction over an uninterpreted sort under 20 s, `eq-cond-deq` firing on
+`(= (= x 1) (= x 2))`, and `(< m e)` / `(> e m)` against `(>= (- e m) 1)`.
+
+**Left for the elaboration side.**  The same Boolean holes now check in
+milliseconds but do not reconstruct: the search on the 16-conjunct goal
+ends with `no certificate` and zero rule instances, so the `and`-with-`false`
+step in the set-form encoding is not a candidate edge.  That is the next
+gap for QF_UF elaboration, with the polynomial-relation shape of §47.3 for
+QF_LIA.  The run `rw1` continues with the old binary; the next run gets
+these fixes (with the checking pass folded into elaboration: one 1,500 s
+pass at 60 s per hole).

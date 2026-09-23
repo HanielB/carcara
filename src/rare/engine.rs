@@ -310,6 +310,14 @@ pub fn create_headers() -> EggLanguage {
             SORT_BOOL.to_owned(),
             vec![ConstType::ConstrType("Term".to_owned())],
         ),
+        EggStatement::Relation(
+            SORT_STRING.to_owned(),
+            vec![ConstType::ConstrType("Term".to_owned())],
+        ),
+        EggStatement::Relation(
+            SORT_REGLAN.to_owned(),
+            vec![ConstType::ConstrType("Term".to_owned())],
+        ),
         EggStatement::Rule {
             ruleset: None,
             body: vec![EggExpr::Call(
@@ -503,6 +511,8 @@ pub fn create_headers() -> EggLanguage {
 
 // This function is primarily used to insert premises to egraph
 // But we use the relation Avaliable so we can know each one we added by using our translation
+/// A proof premise's clause as a term the rules can reach: built over the
+/// available terms its variables (if any) bind.
 fn create_avaliable_premise(
     term: &Rc<Term>,
     func_cache: &mut EggFunctions,
@@ -1088,6 +1098,26 @@ fn construct_rules(
 
         let context = format!("translating RARE rule '{}'", definition.name);
 
+        // A conditional rule's premise terms are demanded where the rule's
+        // left-hand side occurs: the premise `(= s r) = false` of
+        // `eq-cond-deq` gets its `(= s r)` built for the `s` and `r` of
+        // every `(= (= t s) (= t r))` in the e-graph, and nowhere else.
+        // Demanding it over every pair of available terms instead (as
+        // before) is quadratic in the terms, and every round's products are
+        // available terms for the next: a coarse Boolean hole over an
+        // uninterpreted sort drowned in `(= s r)` terms that no left-hand
+        // side ever asked for.  A premise variable the left-hand side does
+        // not bind still ranges over the seed relation, under its sort
+        // guard.
+        let demand_lhs = translate_term(
+            conclusion_lhs,
+            &subs,
+            func_cache,
+            var_map,
+            definition.is_elaborated,
+            &context,
+        )?;
+        let mut demand_bound = premise_available_args.clone();
         for premise in &definition.premises {
             let Some((op @ (Operator::Equals | Operator::Distinct), lhs, rhs)) =
                 get_equational_terms(premise)
@@ -1097,80 +1127,71 @@ fn construct_rules(
                     definition.name, premise
                 ));
             };
-            match op {
-                Operator::Equals => {
-                    if let Some(lhs) =
-                        create_avaliable_premise(lhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(lhs);
+            let mut demand_body = vec![EggExpr::Equal(
+                Box::new(EggExpr::Literal(DEMAND_SITE.to_owned())),
+                Box::new(demand_lhs.clone()),
+            )];
+            let mut demand_head = Vec::new();
+            for side in [lhs, rhs] {
+                for name in collect_vars(side, false).into_keys() {
+                    let Some(parameter) = definition.parameters.get(&name) else {
+                        continue;
+                    };
+                    if !demand_bound.insert(name.clone()) {
+                        continue;
                     }
-
-                    let lhs = Box::new(translate_term(
-                        lhs,
-                        &subs,
-                        func_cache,
-                        var_map,
-                        definition.is_elaborated,
-                        &context,
-                    )?);
-
-                    if let Some(rhs) =
-                        create_avaliable_premise(rhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(rhs);
+                    let bound = if parameter.attribute == AttributeParameters::List {
+                        EggExpr::Literal(name.clone())
+                    } else {
+                        EggExpr::Mk(Box::new(EggExpr::Literal(name.clone())))
+                    };
+                    demand_body.push(EggExpr::Call(seed.to_owned(), vec![bound.clone()]));
+                    if sort_guards && parameter.attribute != AttributeParameters::List {
+                        if let Some(relation) = sort_relation(&parameter.sort) {
+                            demand_body.push(EggExpr::Call(relation.to_owned(), vec![bound]));
+                        }
                     }
-                    let rhs = Box::new(translate_term(
-                        rhs,
-                        &subs,
-                        func_cache,
-                        var_map,
-                        definition.is_elaborated,
-                        &context,
-                    )?);
-
-                    premises.push(EggExpr::Equal(lhs, rhs));
                 }
-
-                Operator::Distinct => {
-                    if let Some(lhs) =
-                        create_avaliable_premise(lhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(lhs);
-                    }
-
-                    let lhs = Box::new(translate_term(
-                        lhs,
+                if !side.is_var() {
+                    demand_head.push(translate_term(
+                        side,
                         &subs,
                         func_cache,
                         var_map,
                         definition.is_elaborated,
                         &context,
                     )?);
-
-                    if let Some(rhs) =
-                        create_avaliable_premise(rhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(rhs);
-                    }
-
-                    let rhs = Box::new(translate_term(
-                        rhs,
-                        &subs,
-                        func_cache,
-                        var_map,
-                        definition.is_elaborated,
-                        &context,
-                    )?);
-
-                    premises.push(EggExpr::Distinct(lhs, rhs));
-                }
-                _ => {
-                    return Err(format!(
-                        "RARE rule '{}' has an unsupported premise operator: {}",
-                        definition.name, premise
-                    ));
                 }
             }
+            if !demand_head.is_empty() {
+                rules.insert(EggStatement::Rule {
+                    ruleset: None,
+                    body: demand_body,
+                    head: demand_head,
+                });
+            }
+
+            let lhs = Box::new(translate_term(
+                lhs,
+                &subs,
+                func_cache,
+                var_map,
+                definition.is_elaborated,
+                &context,
+            )?);
+            let rhs = Box::new(translate_term(
+                rhs,
+                &subs,
+                func_cache,
+                var_map,
+                definition.is_elaborated,
+                &context,
+            )?);
+            premises.push(match op {
+                Operator::Equals => EggExpr::Equal(lhs, rhs),
+                Operator::Distinct => EggExpr::Distinct(lhs, rhs),
+                _ => unreachable!(),
+            });
         }
 
         let egg_equations: (Box<EggExpr>, Box<EggExpr>) = (
@@ -1395,9 +1416,14 @@ fn construct_rules(
 }
 
 const ORIGIN_RELATION: &str = "Origin";
+/// The variable a demand rule binds to the occurrence of a conditional
+/// rule's left-hand side.
+const DEMAND_SITE: &str = "demand_site";
 pub(crate) const SORT_INT: &str = "SortInt";
 pub(crate) const SORT_REAL: &str = "SortReal";
 const SORT_BOOL: &str = "SortBool";
+const SORT_STRING: &str = "SortString";
+const SORT_REGLAN: &str = "SortRegLan";
 const GOAL_LHS_NAME: &str = "goal_lhs";
 const GOAL_RHS_NAME: &str = "goal_rhs";
 
@@ -1698,7 +1724,16 @@ fn run_statement_within_deadline(
         check_timeout(deadline, goal_label)?;
         check_growth(egraph, caps, goal_label)?;
         let after = egraph.num_tuples();
-        if after == before || after > MAX_SATURATION_TUPLES {
+        // The fixpoint is egglog's verdict on the iteration, not a tuple
+        // count: an iteration that inserts one tuple and merges one away
+        // leaves the count unchanged with its demands still pending (the
+        // polynomial normalizer's strict-order key stopped there, one step
+        // short, on `(< m e) = (>= (- e m) 1)`).
+        let updated = egraph
+            .get_run_report()
+            .as_ref()
+            .map_or(after != before, |report| report.updated);
+        if !updated || after > MAX_SATURATION_TUPLES {
             break;
         }
     }
@@ -2050,6 +2085,8 @@ fn sort_relation(sort: &Sort) -> Option<&'static str> {
         Sort::Int => Some(SORT_INT),
         Sort::Real => Some(SORT_REAL),
         Sort::Bool => Some(SORT_BOOL),
+        Sort::String => Some(SORT_STRING),
+        Sort::RegLan => Some(SORT_REGLAN),
         _ => None,
     }
 }
@@ -2079,6 +2116,7 @@ fn constant_sort_rules() -> Vec<EggStatement> {
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("Real", vec!["n", "d"])))], SORT_REAL),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("RatConst", vec!["q"])))], SORT_REAL),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("Bool", vec!["b"])))], SORT_BOOL),
+        sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("@String", vec!["s"])))], SORT_STRING),
     ]
 }
 
@@ -2133,6 +2171,17 @@ fn function_sort_rules(name: &str, is_op: bool, result: Option<&Sort>) -> Vec<Eg
         "to_int" | "div" | "mod" => vec![whole(SORT_INT)],
         "+" | "-" | "*" | "abs" => vec![from_first(SORT_INT), from_first(SORT_REAL)],
         "ite" => vec![from_branch(SORT_INT), from_branch(SORT_REAL), from_branch(SORT_BOOL)],
+        "str.<" | "str.<=" | "str.prefixof" | "str.suffixof" | "str.contains" | "str.in_re"
+        | "str.is_digit" => vec![whole(SORT_BOOL)],
+        "str.len" | "str.indexof" | "str.indexof_re" | "str.to_code" | "str.to_int" => {
+            vec![whole(SORT_INT)]
+        }
+        "str.++" | "str.at" | "str.substr" | "str.replace" | "str.replace_all" | "str.replace_re"
+        | "str.replace_re_all" | "str.from_code" | "str.from_int" => vec![whole(SORT_STRING)],
+        "str.to_re" | "re.none" | "re.all" | "re.allchar" | "re.++" | "re.union" | "re.inter"
+        | "re.*" | "re.comp" | "re.diff" | "re.+" | "re.opt" | "re.range" | "re.loop" => {
+            vec![whole(SORT_REGLAN)]
+        }
         _ => Vec::new(),
     }
 }
@@ -2164,6 +2213,41 @@ fn guard_sort(term: &Rc<Term>) -> Option<&'static str> {
             | Operator::IsInt => Some(SORT_BOOL),
             Operator::ToReal | Operator::RealDiv => Some(SORT_REAL),
             Operator::ToInt | Operator::IntDiv | Operator::Mod => Some(SORT_INT),
+            Operator::StrLessThan
+            | Operator::StrLessEq
+            | Operator::PrefixOf
+            | Operator::SuffixOf
+            | Operator::Contains
+            | Operator::StrInRe
+            | Operator::StrIsDigit => Some(SORT_BOOL),
+            Operator::StrLen
+            | Operator::IndexOf
+            | Operator::IndexOfRe
+            | Operator::StrToCode
+            | Operator::StrToInt => Some(SORT_INT),
+            Operator::StrConcat
+            | Operator::CharAt
+            | Operator::Substring
+            | Operator::Replace
+            | Operator::ReplaceAll
+            | Operator::ReplaceRe
+            | Operator::ReplaceReAll
+            | Operator::StrFromCode
+            | Operator::StrFromInt => Some(SORT_STRING),
+            Operator::StrToRe
+            | Operator::ReNone
+            | Operator::ReAll
+            | Operator::ReAllChar
+            | Operator::ReConcat
+            | Operator::ReUnion
+            | Operator::ReIntersection
+            | Operator::ReKleeneClosure
+            | Operator::ReComplement
+            | Operator::ReDiff
+            | Operator::ReKleeneCross
+            | Operator::ReOption
+            | Operator::ReRange
+            | Operator::ReFromAutomaton => Some(SORT_REGLAN),
             Operator::Add | Operator::Sub | Operator::Mult | Operator::Abs => {
                 args.first().and_then(guard_sort)
             }
@@ -3302,5 +3386,139 @@ mod tests {
             error.contains("binary equality"),
             "unexpected error: {error}"
         );
+    }
+
+    /// The rule database of the evaluation, for the goals whose cost is in
+    /// the interplay of all its rules.
+    fn database_rules(pool: &mut PrimitivePool) -> RareStatements {
+        let text = std::fs::read_to_string("tests/rare/big.rare").expect("the database should open");
+        let (_, _, rules) = crate::parser::parse_instance_with_pool(
+            "".into(),
+            "".into(),
+            Some(text.as_str().into()),
+            crate::parser::Config::new(),
+            pool,
+        )
+        .expect("the database should parse");
+        rules
+    }
+
+    fn database_options() -> RunEgglogOptions {
+        RunEgglogOptions {
+            timeout: Some(std::time::Duration::from_secs(30)),
+            sort_guards: true,
+            ..RunEgglogOptions::default()
+        }
+    }
+
+    /// A conjunction of disequalities over an uninterpreted sort, one of
+    /// them reflexive, is `false` in three rounds (`eq-refl`, the evaluation
+    /// of `(not true)`, the conjunction with `false`).  When every
+    /// conditional rule's premise was demanded over all pairs of available
+    /// terms the third round never came: sixteen conjuncts took 45 s and
+    /// twenty-four the memory limit, in `(= s r)` terms no rule asked for.
+    /// With the premises demanded where a left-hand side occurs it is
+    /// instant at any width.
+    #[test]
+    fn a_reflexive_disequality_falsifies_a_wide_conjunction_quickly() {
+        let mut pool = PrimitivePool::new();
+        let sort = pool.add_sort(Sort::Atom("U".into(), Box::new([])));
+        let constants: Vec<Rc<Term>> = (0..16)
+            .map(|i| pool.add(Term::Var(format!("c{i}"), sort.clone())))
+            .collect();
+        let mut conjuncts = Vec::new();
+        for (i, a) in constants.iter().enumerate() {
+            let b = if i == 8 { a } else { &constants[(i + 1) % 16] };
+            let equality = pool.add(Term::Op(Operator::Equals, vec![a.clone(), b.clone()]));
+            conjuncts.push(pool.add(Term::Op(Operator::Not, vec![equality])));
+        }
+        let conjunction = pool.add(Term::Op(Operator::And, conjuncts));
+        let falsity = pool.add(Term::new_bool(false));
+        let goal = pool.add(Term::Op(Operator::Equals, vec![conjunction, falsity]));
+        let database = database_rules(&mut pool);
+        let context = RareCtx::new(&database);
+
+        let started = std::time::Instant::now();
+        let (result, _) = check_hole_rewrite_with_context(
+            &mut pool,
+            "reflexive",
+            goal,
+            &[],
+            &context,
+            database_options(),
+        );
+        assert!(result.is_ok(), "check failed: {:?}", result.err());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "the check took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A strict integer relation and its non-strict rewrite share a class,
+    /// and the class's key must be the tightened one whichever node's rules
+    /// ran first: `relPolyOf` is one value per class, and when the strict
+    /// node also wrote it (`e - m`, the polynomial that is positive) the
+    /// non-strict key rules read it back as `GeqKey (e - m)` for a formula
+    /// whose key is `GeqKey (e - m - 1)`, and `(>= (- e m) 1)` never met it.
+    #[test]
+    fn a_strict_relation_keys_like_its_tightened_rewrite() {
+        for (goal_text, strict) in [("(< m e)", Operator::LessThan), ("(> e m)", Operator::GreaterThan)] {
+            let mut pool = PrimitivePool::new();
+            let int = pool.add_sort(Sort::Int);
+            let e = pool.add(Term::Var("e".to_owned(), int.clone()));
+            let m = pool.add(Term::Var("m".to_owned(), int));
+            let one = pool.add(Term::new_int(1));
+            let lhs = match strict {
+                Operator::LessThan => pool.add(Term::Op(strict, vec![m.clone(), e.clone()])),
+                _ => pool.add(Term::Op(strict, vec![e.clone(), m.clone()])),
+            };
+            let difference = pool.add(Term::Op(Operator::Sub, vec![e, m]));
+            let rhs = pool.add(Term::Op(Operator::GreaterEq, vec![difference, one]));
+            let goal = pool.add(Term::Op(Operator::Equals, vec![lhs, rhs]));
+            let database = database_rules(&mut pool);
+            let context = RareCtx::new(&database);
+
+            let (result, _) = check_hole_rewrite_with_context(
+                &mut pool,
+                "strict",
+                goal,
+                &[],
+                &context,
+                database_options(),
+            );
+            assert!(result.is_ok(), "{goal_text}: check failed: {:?}", result.err());
+        }
+    }
+
+    /// A conditional rule still fires where its left-hand side occurs: the
+    /// premise `(= 1 2) = false` of `eq-cond-deq` is demanded for the
+    /// `(= (= x 1) (= x 2))` of the goal, and evaluation settles it.
+    #[test]
+    fn a_conditional_rule_gets_its_premise_where_its_left_hand_side_occurs() {
+        let mut pool = PrimitivePool::new();
+        let int = pool.add_sort(Sort::Int);
+        let x = pool.add(Term::Var("x".to_owned(), int));
+        let one = pool.add(Term::new_int(1));
+        let two = pool.add(Term::new_int(2));
+        let eq_x1 = pool.add(Term::Op(Operator::Equals, vec![x.clone(), one]));
+        let eq_x2 = pool.add(Term::Op(Operator::Equals, vec![x, two]));
+        let lhs = pool.add(Term::Op(Operator::Equals, vec![eq_x1.clone(), eq_x2.clone()]));
+        let not_x1 = pool.add(Term::Op(Operator::Not, vec![eq_x1]));
+        let not_x2 = pool.add(Term::Op(Operator::Not, vec![eq_x2]));
+        let rhs = pool.add(Term::Op(Operator::And, vec![not_x1, not_x2]));
+        let goal = pool.add(Term::Op(Operator::Equals, vec![lhs, rhs]));
+        let database = database_rules(&mut pool);
+        let context = RareCtx::new(&database);
+
+        let (result, _) = check_hole_rewrite_with_context(
+            &mut pool,
+            "conditional",
+            goal,
+            &[],
+            &context,
+            database_options(),
+        );
+        assert!(result.is_ok(), "check failed: {:?}", result.err());
     }
 }
