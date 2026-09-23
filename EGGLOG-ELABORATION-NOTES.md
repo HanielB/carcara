@@ -4159,3 +4159,20 @@ ground `premise:k` rewrite in the rule list needs no new certificate
 variant), `insert_solver_proof` discharging `(not P_k)` and citing the
 outer premise nodes as `sat_refutation` does, and `eq_mp` for the
 non-equality conclusions.
+
+### 45.5 Run `rw1` (submitted 2026-09-22)
+
+The three sets on `octa` (arrays 30291166 QF_UF, 30291167 QF_LIA, 30291168
+QF_LRA; two tasks per node, 8 cores and 60 GB each, wall 3,100 s; results
+`exp/results/egglog-holes/rw1`): the static cvc5 of 506592fc52 at
+`--proof-granularity=rewrite` (60 s), `hoist prune`, the `nset` checking pass
+under enc4's budgets (600 s per pass, 60 s and 6 GB per hole) but with the
+whole-assertion caps 120M/20M -- on the ten samples 3M/500k and 120M/20M gave
+identical verdicts, so the higher caps only matter on the proofs the sample
+does not have -- then elaboration (900 s, 45 s per hole, normalized goal
+first) and a re-check (900 s), with the static carcara of 387b0882 (the two
+tags, the bridge, the search fixes, and the shared-subterm abstraction
+commits of `egglog/hole-abstraction`).  Runner `~/exp/egglog-holes/
+run-holes-rw.sh`, keys as chk1200n's minus the plain pass, plus
+`holes_untagged` and `elab_bridged`.  Baselines: enc4's `nset` arm for
+checking, chk1200n for elaboration.
