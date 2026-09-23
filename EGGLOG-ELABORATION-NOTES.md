@@ -3889,3 +3889,73 @@ were already proved (they never approach it).  A rerun of the bounded arm at
 the higher limits should take QF_UF from 94.2% to about 99.7% of holes and
 from 236 to about 2,500 fully justified proofs, and would isolate the bound,
 which is what `vb50-2` was supposed to measure in the first place.
+
+### Arithmetic: the limits are not the constraint, the shape is (2026-09-22)
+
+The same question for QF_LIA and QF_LRA.  `vnob-2` has not reached them
+yet, so this is `vb50-2` plus local runs.
+
+**Arithmetic does not lose where QF_UF loses.**  Kept holes are a rounding
+error; the losses are holes never attempted before the pass budget ran out:
+
+| `vb50-2`, set-form | holes | proved | kept | skipped | growth-cap kills |
+|---|---|---|---|---|---|
+| QF_UF | 305,215 | 93.7% | 6.3% | 0.0% | 18,757 |
+| QF_LIA | 1,041,503 | 69.2% | 0.3% | **30.6%** | 133 |
+| QF_LRA | 309,653 | 39.6% | 6.1% | **54.3%** | 24 |
+
+The cap that decides QF_UF barely fires here.  What kept holes there are
+die on memory (1,238 in QF_LIA, 10,343 in QF_LRA) and on the per-hole
+clock.  The binding constraint is throughput: the pass budget divided by
+the cost of a hole.
+
+**So the higher limits do not help arithmetic; they hurt.**  Same knobs as
+the QF_UF experiment, three QF_LRA proofs, 2 workers, 6 GB, 600 s per pass
+(`scratchpad/arith/ab.sh`):
+
+| proof | holes | A: caps 3M/500k | B: caps 120M/20M | N: A + normalizer | M: B + normalizer |
+|---|---|---|---|---|---|
+| LassoRanker `p-46 Loop_4` | 2,854 | 17 proved, 2,824 skipped | **11**, 2,825 skipped | **2,854**, 178 s | 2,854, 119 s |
+| `tta_startup 14nodes.synchro.base` | 1,793 | 28, 1,735 skipped | 28, 1,735 skipped | **1,791**, 56 s | 1,791, 53 s |
+| miplib `fixnet-1000` | 4,635 | 19, 4,596 skipped | 19, 4,596 skipped | **4,635**, 51 s | 4,635, 51 s |
+
+Raising the cap on the first proof *loses* six holes: a hopeless hole now
+runs to a larger e-graph before it fails, and the holes behind it in the
+queue are never reached.  On the other two it changes nothing.  In every
+arm the proof is decided by how many holes the budget covers, and the way
+to cover them is to make a hole cheap, not to give it more room.
+
+**Which is exactly what the shape does.**  Split by family, `vb50-2`:
+
+| | holes in families the normalizer failed on | those: set / nset | the rest: set / nset |
+|---|---|---|---|
+| QF_LIA | 503,542 of 1,041,503 (48%), all Dartagnan | 36.7% / 22.5% | 99.6% / 99.4% |
+| QF_LRA | 100,373 of 309,653 (32%): `tta_startup`, `uart`, `sal`, `sc`, `spider` | 22.1% / 16.0% | 48.0% / **96.9%** |
+
+Outside those families the normalizer already decided arithmetic: 96.9% of
+the QF_LRA holes and 99.4% of the QF_LIA ones, against 48.0% and 99.6%
+plain.  Inside them it closed nothing and, per §43, made the goals dearer,
+so it lost: 22.1% to 16.0%, 36.7% to 22.5%.
+
+And those families are one shape.  A `tta_startup` hole is fourteen
+`la_rw_eq` rewrites at once under a disjunction:
+
+```
+(= (or (= 1.0 x_43) .. (= 14.0 x_43))
+   (or (and (<= 1.0 x_43) (<= x_43 1.0)) .. (and (<= x_43 14.0) (<= 14.0 x_43))))
+```
+
+each disjunct a mirrored pair, some written the other way round.  With the
+step added today the arguments of the `or` close one by one on the way up,
+the whole hole closes without egglog, and the family goes from 28 holes
+proved in 600 s to 1,791 of 1,793 closed in 0.056 s.  The LassoRanker and
+miplib proofs, which the old normalizer already half closed, go from 17 and
+19 proved to complete.
+
+**The arithmetic story, then.**  Not a resource story at all.  Both logics
+are one rewrite shape wide: `la_rw_eq` is 100% of the QF_LIA residue and
+the whole of the QF_LRA families that were failing, and closing it in the
+prenormalizer converts both from throughput-bound to free.  The measurement
+to make is a rerun of the two `nset` arms with the new binary; the caps
+should stay where `vb50-2` has them, and the QF_UF arm is the only one that
+wants the larger ones.
