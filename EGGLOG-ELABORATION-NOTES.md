@@ -4021,3 +4021,106 @@ agrees: for veriT's holes the set form is the encoding.
 proofs are made of: on the three local QF_LRA proofs the same holes go from
 17, 28 and 19 proved to complete.  The arithmetic half of this table is a
 measurement of the old normalizer and should be redone.
+## 45. Shared-subterm abstraction with a fallback, and what it does and does not reach (2026-09-22)
+
+`--hole-abstract-shared N` (commit 0c50a1f4, `src/elaborator/abstraction.rs`):
+before egglog, every maximal subterm both sides of a hole share, of `N`
+nodes or more and binding nothing, becomes a fresh constant of its sort
+(`@abs_K`, declared by the child as any free variable is); the abstract goal
+is tried first on half the hole's budget, its certificate instantiated back
+by putting the subterm's text where the name is, and a hole whose abstract
+goal is *not proved* is retried as it stands.  Sound by instantiation -- a
+rewrite proved for a constant holds for any term -- and incomplete exactly
+when the proof has to rewrite inside the shared subterm to relate it to
+something outside it (`(= (or (not (not p)) (not p)) (or true (not (not
+p))))`: both sides are `true` only because the shared `(not (not p))` is
+`p`), which the fallback covers.  A hole whose abstract attempt dies of time
+or memory keeps that verdict: with the shared subterms gone the goal is as
+small as it gets, and the retry would only die the same way, for the full
+budget.  Tests: unit tests of the abstraction and the instantiation, and
+`elaborates_through_shared_subterm_abstraction_with_fallback` (fixture
+`tests/rare/elaborate/abstract-shared.*`: one hole abstracted and cited
+on the original terms, one counterexample elaborated through the
+fallback).  The runners pass `--hole-abstract-shared 16`.
+
+Measured on the §42 proofs, four workers, 1,200 s (before the gating of
+the fallback):
+
+| proof | holes with a shared subterm of 16+ nodes | proved abstract | retried | of which proved | kept before / after | unattempted before / after |
+|---|---|---|---|---|---|---|
+| sc-14 | 0 of 1,849 | -- | -- | -- | -- | -- |
+| in-de62-O0 | 0 of 2,596 | -- | -- | -- | -- | -- |
+| calypto problem-001542 | 174 of 653 | 119 | 55 | 3 | 76 / 56 | 289 / 352 |
+
+So the abstraction is not what the Dartagnan family needs: its sides
+differ by a conjunct *inside* one big `and`, and what they share is a list
+of three-node atoms, not one large subterm.  Where it applies (calypto) it
+takes a quarter of the kept holes, but the 52 failed abstract attempts each
+cost half a hole budget before the retry, and at a fixed pass budget that
+was more unattempted holes than it saved -- hence the gating above, and
+the reason a budget in holes rather than seconds (§6) is the companion
+change.
+
+With the fallback gated (calypto again, same budget): 363 of the 653
+holes that reached a worker were abstracted, 245 proved abstract, 118
+kept on the abstract attempt's own half-budget timeout, none retried;
+**2,012 proved, 124 kept, 64 unattempted** against 1,835 / 76 / 289
+without the abstraction.  So at a fixed pass budget the abstraction is
+worth 177 holes on this proof, and what it leaves is now dominated by
+holes whose *abstract* goal takes more than 30 s -- which says the half
+budget is the next knob, and that a budget in holes would let the
+abstract attempt have the whole per-hole limit without starving the
+rest of the proof.
+
+**A regression from a concurrent commit.**  These measurements were first
+confounded by `19b64f64` ("Close the la_rw_eq shape in the prenormalizer,
+before anything else"), committed to this branch by another session
+between my runs: on `sc-14` the prenormalizer closes 3,432 holes instead of
+3,608, the 176 it no longer closes are `(= A (and ...))` goals over a
+dozen conjuncts that now reach egglog and die of memory (77 kills, was 0),
+and the pass takes its whole 1,200 s instead of 120 s; on `in-de62-O0`
+4,411 proved became 3,478 at the same budget.  Bisected by building the
+tree at `b1acac8f` (3,608) and at HEAD (3,432) on the same file.  The
+change reads every conjunction for a pair of opposite bounds before its
+arguments are normalized; on cvc5's holes that turns conjunctions into
+equalities the other side no longer matches.  Not reverted here -- it is
+the veriT work's -- but it has to be resolved before a rerun.
+
+## 46. `la_rw_eq` in the prenormalizer, after flattening (2026-09-22)
+
+§45's regression, fixed on this branch.  `19b64f64` read `la_rw_eq` on the
+term *as written*, before its arguments were normalized, matching only a
+two-element `and` of mirrored bounds; on cvc5's conjunction-flattening
+holes -- `(= (and (and (<= x 2) (>= x 2)) p) (and p (<= x 2) (>= x 2)))` --
+that folded the nested pair on one side and left the flat one on the other,
+so two terms that had normalized to the same flat conjunction now
+normalized apart, and 176 holes of `sc-14` that closed for free went to
+egglog as `(= (and equalities) (and bounds))`, the shape that fills the
+e-graph: 77 memory kills where there were none, 1,200 s where there were
+120.  The normalizer's cost never changed; its normal form stopped being
+confluent.
+
+The fold now runs as a top step *after* `aci_simp`, on the flat canonical
+conjunction, and reads the bounds as the normal forms leave them: two
+non-strict bounds among the conjuncts whose `Q <= 0` polynomials are each
+other's negation (`(<= P c)` with `(>= P c)`, or with `(<= -P -c)`) are the
+equality `(= t u)` in the rule's spelling, with `t <= u` read off the
+first bound.  So a pair meets however the producer nested it, and the
+equality is then normalized like any other, which is also what the veriT
+shapes need (`(and (<= t u) (<= u t))` normalizes each bound first and
+folds the mirrored pair after).  Certificate (`Emitter::emit_fold`):
+`aci_simp` regroups the pair into its own `and` (the checker compares
+multisets after flattening, so any positions and nesting), `la_generic` +
+`equiv_neg` + `resolution` turn a bound into the rule's spelling where it
+differs (under `cong`), `la_rw_eq` reversed by `symm`, and the pair
+replaced by the equality under `cong`.  The as-written reading and its
+`BoundFlip` premise are gone.  `sc-14`: 3,608 closed again.  The
+concurrent commit's test that `(and p (<= x y) (<= y x))` and `(and p (= x
+y))` stay apart encoded the limitation and is now a coinciding case; every
+other case of its tests passes as before, plus nested-against-flat cases.
+
+Re-measured with the fold (same files, budgets and workers as the QF_LIA residue section and §45):
+`sc-14` **5,281 of 5,281 proved, 0 kept, 136 s** (with `19b64f64` as
+committed: 4,517 proved, 81 kept, 1,200 s); `in-de62-O0` 3,388 closed by
+the normalizer, 4,333 proved, 70 kept, 1,380 unattempted at 1,200 s
+(before the regression 4,411 / 78 / 1,294; with it 3,478 / 128 / 2,177).
