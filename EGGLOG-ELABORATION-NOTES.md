@@ -4504,3 +4504,74 @@ gap for QF_UF elaboration, with the polynomial-relation shape of §47.3 for
 QF_LIA.  The run `rw1` continues with the old binary; the next run gets
 these fixes (with the checking pass folded into elaboration: one 1,500 s
 pass at 60 s per hole).
+
+### 47.7 Run `rw1` complete (2026-09-23): the read
+
+All 9,812 benchmarks, binary 387b0882 (before the §47.6 fixes).  Against
+enc4's `nset` arm on the proofs complete in both:
+
+| | QF_UF (4,315) | QF_LIA (2,531) | QF_LRA (524) |
+|---|---|---|---|
+| proof text, rw1 / enc4 | 22.0 / 22.3 GB | 3.2 / 6.3 GB | 1.9 / 3.2 GB |
+| holes, rw1 / enc4 | 1.17 M / 2.23 M | 723 k / 1,766 k | 435 k / 1,234 k |
+| holes proved, rw1 / enc4 | 99.6% / 99.9% | 95.8% / 99.2% | 85.7% / 94.8% |
+| proofs fully checked, rw1 / enc4 | 2,406 / 4,078 | 2,264 / 2,361 | 268 / 310 |
+| fully checked in one arm only, rw1 / enc4 | 0 / 1,672 | 5 / 102 | 41 / 83 |
+| checking pass, summed, rw1 / enc4 | 49 / 11 h | 28 / 17 h | 15 / 21 h |
+| holes skipped by the pass budget, rw1 / enc4 | 101 / 715 | 24,090 / 9,411 | 58,147 / 51,742 |
+
+Solved by cvc5 (60 s) at `rewrite`: QF_UF 4,316 (enc4 4,325), QF_LIA
+2,541 (2,547), QF_LRA 524 (537) -- the granularity costs it a dozen
+proofs per logic, printing time mostly.
+
+**What the granularity buys.**  Half the proof text and 2.4--3.6x fewer
+holes on the arithmetic logics (QF_UF proofs are the same size: their
+holes were already node-sized).  QF_LRA checks in less time with the same
+hole rate on what it reaches, and is the one logic where the rewrite arm
+fully checks proofs the baseline cannot (41 against 83).
+
+**What it loses, and why it is the engine (§47.6).**  QF_UF: 1,652
+QG-classification and 57 Goel proofs with one or a few Boolean holes over
+an uninterpreted sort that the all-pairs demand rules blew up; fixed, both
+reproducers check in under a second.  QF_LIA: Dartagnan, 76 proofs, none
+fully checked, 44 at the pass budget with 20.5 k holes skipped (enc4: 5
+checked, 14 at budget), whole-assertion goals each fed for seconds by the
+same demand.  QF_LRA: the three families with 40--110 k holes per few
+proofs (`sc`, `uart`, `tta_startup`) are skipped in both arms and are a
+throughput question; the loss that is the engine's is LassoRanker, 17 of
+67 fully checked against enc4's 65, on `hole-time` kills.  Of the eight
+smallest QF_LIA/QF_LRA proofs with a kept hole replayed under d78da84d,
+all four QF_LRA cases prove the holes that timed out (three under a
+second, one in 19 s) but one 154-node `MACRO_SR_PRED_INTRO` disjunction
+that still saturates past 60 s; the four QF_LIA cases fail fast (0.6 s)
+with honest `unproved` verdicts instead of 60 s time-outs.
+
+**Two rule-side gaps those fast failures expose.**  Integer infeasibility
+`(= (+ (* 3 x1) (* 3 x2)) 1) = false` (no rule).  And nested Boolean
+simplification: each piece proves alone (`and`-flattening, double
+negation, `(<= x x) = true` with the normalizer), but `(and s (not (not
+(and p q)))) = (and s p q)` fails without the normalizer and passes with
+it, while the full RF-12 goal it comes from passes without and fails with:
+flattening a nested `and` in the set-form encoding is order-sensitive
+once a rewrite unions the nested class.  Next egglog-side item after the
+elaboration search.
+
+**Elaboration.**  Fully justified against fully checked: QF_UF 1,167 /
+2,406, QF_LIA 1,445 / 2,265, QF_LRA 185 / 268.  Per-hole kills in the
+elaboration pass by phase: QF_LIA egglog 5,035 / search 275 / serialize
+16; QF_LRA 1,096 / 64 / 9; QF_UF egglog 5,205 / search 4,232 / serialize
+1,937.  The arithmetic kills are egglog's and fall to the demand fix; the
+QF_UF search and serialization cost on coarse holes remains.
+`no-certificate`: QF_LIA 23.4 k, QF_LRA 6.4 k (the §47.3 relation shape),
+QF_UF 508 (the Boolean shapes above: the search sees zero rule instances
+for the set-form `and`-with-`false` step).
+
+**The untagged ceiling.**  Proofs with an untagged hole (`THEORY_LEMMA`,
+`THEORY_INFERENCE_ARITH`, subtype-elimination trust steps): QF_UF 1,890 of
+4,316, QF_LIA 1,148 of 2,541, QF_LRA 320 of 524; no Carcara change moves
+them.  Of the proofs without one, re-check `valid`: QF_UF 257 of 2,426,
+QF_LIA 962 of 1,393, QF_LRA 181 of 204.
+
+**`rw2`.**  The d78da84d static binary, the checking pass folded into one
+1,500 s elaboration pass at 60 s per hole, the same sets; read against
+this run's tables.
