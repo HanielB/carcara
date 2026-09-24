@@ -1667,8 +1667,31 @@ fn run_hole_worker_inner(
         }
         Some(status) if status.success() => Ok(lines()),
         Some(status) => match status.signal() {
+            // The phase says whether egglog had proved the hole before the
+            // memory limit took the worker: a kill during serialization or
+            // the search is a checked hole the elaboration lost.
             Some(signal) => Err((
-                format!("worker killed by signal {signal}: {}", tail()),
+                format!(
+                    "worker killed by signal {signal} during {}{}: {}",
+                    if check_only {
+                        "egglog"
+                    } else {
+                        phase_in_progress()
+                    },
+                    {
+                        let completed = phases
+                            .iter()
+                            .map(|(name, secs)| format!("{name}={secs}"))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if completed.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" (after {completed})")
+                        }
+                    },
+                    tail()
+                ),
                 lines(),
             )),
             None => Err((
