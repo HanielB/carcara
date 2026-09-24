@@ -145,6 +145,16 @@ pub fn list_elements(list: &Term) -> Option<Vec<Term>> {
                 }
                 current = tail;
             }
+            // The re-association also makes cells whose tail is a lone
+            // element, `(Args a b)` for the segment `a b`: the segment a
+            // `:list` variable binds is represented that way, and its
+            // representative reaches the search through the grounded
+            // instances.  Such a tail ends the chain as its last element.
+            ("Args", _) => return None,
+            _ if !elements.is_empty() || list.op == "Args" => {
+                elements.push(current.clone());
+                return Some(elements);
+            }
             _ => return None,
         }
     }

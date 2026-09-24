@@ -295,6 +295,13 @@ pub enum CandidateEdge {
     /// e-graph unioned; justified by `aci_simp` on the matching literals and
     /// in-class proofs of the unioned ones.
     AciModulo,
+    /// A `:list` rule instance between an `and`/`or` vertex and a goal,
+    /// recovered by sequence matching (`prove_by_list_rule`): the engine
+    /// proves such rules on the set form, which leaves no grounded instance
+    /// in the e-graph for the rule edges above to find, so `(and xs false
+    /// ys) = false` was never a step.  `reversed` when the goal is the rule's
+    /// left-hand side.
+    ListRule { reversed: bool },
 }
 
 /// Per-obligation search state over the candidate c-graph.  Vertices and
@@ -701,8 +708,14 @@ impl Reconstructor<'_> {
                 }
             }
         }
-        let lhs = instantiate(&rule.lhs, &substitution)?;
-        let rhs = instantiate(&rule.rhs, &substitution)?;
+        // The instance is read in flat chain form: a `:list` variable binds
+        // a segment, which the engine's re-association lets a chain cell
+        // hold as a nested `Args`, and a term with a nested cell neither
+        // decodes to Alethe nor matches the flat vertices the search stands
+        // on.  The re-association rewrites themselves flatten to identities
+        // and are no edge.
+        let lhs = flat_form(&instantiate(&rule.lhs, &substitution)?);
+        let rhs = flat_form(&instantiate(&rule.rhs, &substitution)?);
         (lhs != rhs
             && self.snapshot.class_of_term(&lhs) == Some(eclass)
             && self.snapshot.class_of_term(&rhs) == Some(eclass))
@@ -826,6 +839,14 @@ impl Reconstructor<'_> {
         let prune_mark = self.prune_events;
         self.in_progress.insert(key.clone());
         let certificate = self.prove_in_class(source, target, source_class);
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!(
+                "obligation {} = {}: {}",
+                source.to_egglog(),
+                target.to_egglog(),
+                if certificate.is_some() { "proved" } else { "failed" }
+            );
+        }
         self.in_progress.remove(&key);
         if certificate.is_some() || self.prune_events == prune_mark {
             self.memo.insert(key, certificate.clone());
@@ -949,6 +970,30 @@ impl Reconstructor<'_> {
     /// arguments as a sequence.  Each list parameter binds the segment it
     /// covers, as an argument chain, which is what a `rare-list` argument of
     /// the emitted step spells out.
+    /// Whether some `:list` rule takes `source` to `target` in one step, as
+    /// `prove_by_list_rule` would certify; no statistics, for the search's
+    /// goal-directed edges.
+    pub fn list_rule_applies(&self, source: &Term, target: &Term) -> bool {
+        let Some((operator, elements)) = encoded_application(source) else {
+            return false;
+        };
+        if !matches!(operator, "@and" | "@or") {
+            return false;
+        }
+        self.rules.iter().any(|rule| {
+            if rule.lists.is_empty() {
+                return false;
+            }
+            let Some(patterns) = argument_patterns(&rule.lhs, operator) else {
+                return false;
+            };
+            let mut substitution = Substitution::new();
+            match_sequence(&patterns, &elements, &rule.lists, &mut substitution)
+                && instantiate(&rule.rhs, &substitution)
+                    .is_some_and(|instance| flat_form(&instance) == flat_form(target))
+        })
+    }
+
     pub fn prove_by_list_rule(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
         let (operator, elements) = encoded_application(source)?;
         if !matches!(operator, "@and" | "@or") {
@@ -1305,6 +1350,15 @@ impl Reconstructor<'_> {
                     self.prove_by_aci_modulo(parent, child)
                 }
             }
+            CandidateEdge::ListRule { reversed } => {
+                let (lhs, rhs) = if *reversed { (child, parent) } else { (parent, child) };
+                let certificate = self.prove_by_list_rule(lhs, rhs)?;
+                Some(if *reversed != flip {
+                    reverse(certificate)
+                } else {
+                    certificate
+                })
+            }
         }
     }
 
@@ -1509,6 +1563,10 @@ impl Reconstructor<'_> {
                 ));
             } else if self.aci_modulo_pairs(vertex, goal).is_some() {
                 edges.push((goal.clone(), CandidateEdge::AciModulo));
+            } else if self.list_rule_applies(vertex, goal) {
+                edges.push((goal.clone(), CandidateEdge::ListRule { reversed: false }));
+            } else if self.list_rule_applies(goal, vertex) {
+                edges.push((goal.clone(), CandidateEdge::ListRule { reversed: true }));
             } else if let Some(kind) = arith_kind(vertex, goal, self.sorts) {
                 self.stats.computational_edges += 1;
                 edges.push((goal.clone(), CandidateEdge::Computational { kind }));
@@ -1519,6 +1577,38 @@ impl Reconstructor<'_> {
             }
         }
         edges.retain(|(neighbour, _)| !graph.banned.contains(&(vertex.clone(), neighbour.clone())));
+        // One edge per neighbour, the most replayable kind: the search keeps
+        // the first edge it meets to a vertex, and a failed edge bans the
+        // pair, so a congruence towards the goal found before the list rule
+        // towards the same goal took both down -- `(and ... false ...) = F`
+        // by `bool-and-false` was never tried.
+        let rank = |edge: &CandidateEdge| match edge {
+            CandidateEdge::Rule { .. } => 0,
+            CandidateEdge::ListRule { .. } => 1,
+            CandidateEdge::Computational { .. } => 2,
+            CandidateEdge::AciModulo => 3,
+            CandidateEdge::Congruence => 4,
+        };
+        let mut best: Vec<(Term, CandidateEdge)> = Vec::with_capacity(edges.len());
+        for (neighbour, edge) in edges {
+            match best.iter_mut().find(|(seen, _)| *seen == neighbour) {
+                Some((_, kept)) if rank(&edge) < rank(kept) => *kept = edge,
+                Some(_) => {}
+                None => best.push((neighbour, edge)),
+            }
+        }
+        let edges = best;
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!(
+                "expand {}: {}",
+                vertex.to_egglog(),
+                edges
+                    .iter()
+                    .map(|(neighbour, edge)| format!("[{} -> {}]", edge_kind(edge), neighbour.to_egglog()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+        }
         edges
     }
 }
@@ -1530,6 +1620,7 @@ fn edge_kind(edge: &CandidateEdge) -> &'static str {
         CandidateEdge::Congruence => "congruence",
         CandidateEdge::Computational { .. } => "computational",
         CandidateEdge::AciModulo => "aci-modulo",
+        CandidateEdge::ListRule { .. } => "list-rule",
     }
 }
 
@@ -1728,21 +1819,36 @@ fn match_sequence(
 
 /// The positions of a term's proper subterms, outermost first, bounded so a
 /// large term does not flood the candidate search.
+/// The positions of a vertex's proper subterms, shallowest first, and no
+/// positions inside an atom (a variable, a constant, a sort): an encoded
+/// variable is a dozen nodes deep, and a depth-first walk with a small cap
+/// spent the whole budget inside the first argument of a wide `and`, so the
+/// element that held the constant -- the third of four -- was never a
+/// substitution candidate.
 fn subterm_positions(term: &Term) -> Vec<Vec<usize>> {
-    const MAX_POSITIONS: usize = 32;
-    fn walk(term: &Term, prefix: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
-        for (index, child) in term.children.iter().enumerate() {
+    const MAX_POSITIONS: usize = 256;
+    let atom = |term: &Term| {
+        matches!(
+            term.op.as_str(),
+            "Var" | "Const" | "Sort" | "Bool" | "Num" | "Real" | "RatConst" | "BitVec" | "@String"
+        )
+    };
+    let mut out = Vec::new();
+    let mut queue = std::collections::VecDeque::from([(term, Vec::new())]);
+    while let Some((current, prefix)) = queue.pop_front() {
+        if atom(current) {
+            continue;
+        }
+        for (index, child) in current.children.iter().enumerate() {
             if out.len() >= MAX_POSITIONS {
-                return;
+                return out;
             }
-            prefix.push(index);
-            out.push(prefix.clone());
-            walk(child, prefix, out);
-            prefix.pop();
+            let mut position = prefix.clone();
+            position.push(index);
+            out.push(position.clone());
+            queue.push_back((child, position));
         }
     }
-    let mut out = Vec::new();
-    walk(term, &mut Vec::new(), &mut out);
     out
 }
 
