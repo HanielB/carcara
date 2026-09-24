@@ -138,10 +138,19 @@ pub struct Config {
     /// their normal forms.
     hole_prenormalize: bool,
 
+    /// With `hole_prenormalize` in the checking pass: the normalizer only closes holes; a hole it
+    /// does not close goes to egglog as it stands, not as the equality of its normal forms.
+    hole_prenormalize_close_only: bool,
+
     /// Before egglog, replace the largest subterms shared by both sides of a
     /// hole, of at least this many nodes, by fresh constants; a hole whose
     /// abstract goal is not proved is retried as it stands.  0 disables.
     hole_abstract_shared: usize,
+
+    /// Schedule the holes smallest goal first (DAG nodes of the goal as
+    /// egglog gets it), so that a pass budget that cannot cover every hole
+    /// covers the most of them, rather than the proof's order.
+    hole_smallest_first: bool,
 
     /// In the fold pass, the most steps a derivation folded into one hole may have, counted as a
     /// tree (a shared step counts once per use); 0 for no limit.  A larger derivation keeps its
@@ -503,7 +512,22 @@ impl<'e> Elaborator<'e> {
                             .unwrap_or_default()
                     };
                     prenormalized.insert(step.id.clone(), (Ok(steps), Duration::ZERO));
-                } else if left != lhs || right != rhs {
+                } else if left == lhs && right == rhs {
+                    log::info!(
+                        "hole {}: prenorm open, goal unchanged ({} nodes)",
+                        step.id,
+                        term_dag_size(&conclusion)
+                    );
+                } else if self.config.hole_check_only && self.config.hole_prenormalize_close_only {
+                    let normal =
+                        self.pool.add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
+                    log::info!(
+                        "hole {}: prenorm open, goal kept ({} nodes, normal form {} nodes)",
+                        step.id,
+                        term_dag_size(&conclusion),
+                        term_dag_size(&normal)
+                    );
+                } else {
                     log::debug!(
                         "hole {}: goal normalized to (= {:#} {:#})",
                         step.id,
@@ -513,6 +537,12 @@ impl<'e> Elaborator<'e> {
                     let goal = self
                         .pool
                         .add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
+                    log::info!(
+                        "hole {}: prenorm open, goal rewritten ({} nodes to {} nodes)",
+                        step.id,
+                        term_dag_size(&conclusion),
+                        term_dag_size(&goal)
+                    );
                     if self.config.hole_check_only {
                         // The checking pass checks the normalized goal in
                         // place of the original.
@@ -688,6 +718,27 @@ impl<'e> Elaborator<'e> {
                 owners.len(),
                 with_dependencies
             );
+        }
+        // Smallest goal first: a pass budget that cannot cover every hole
+        // then covers the most of them, and a proof is fully justified
+        // only when all of its holes are.  The proof's own order spreads
+        // the large holes over the pass, which is the opposite.  Not with
+        // the substitution schedule, which has its own order.
+        if self.config.hole_smallest_first && !subst {
+            let mut sizes: Vec<usize> = vec![0; holes.len()];
+            for &index in &worklist {
+                if let Some(conclusion) = holes[index].1.clause.first() {
+                    sizes[index] = term_dag_size(conclusion);
+                }
+            }
+            worklist.sort_by_key(|&index| (sizes[index], index));
+            if let (Some(&first), Some(&last)) = (worklist.first(), worklist.last()) {
+                log::info!(
+                    "hole schedule: smallest goal first, {} to {} nodes",
+                    sizes[first],
+                    sizes[last]
+                );
+            }
         }
         let worklist = worklist;
         let hole_hashes = hole_hashes;
@@ -1743,6 +1794,32 @@ impl IdHelper {
 
 
 /// The number of nodes of a term, walking through applications only.
+/// The number of distinct nodes of `term`: its size as a DAG, which is what
+/// egglog loads, where the tree count of a shared term can be astronomical.
+fn term_dag_size(term: &Rc<Term>) -> usize {
+    fn walk(term: &Rc<Term>, seen: &mut std::collections::HashSet<*const Term>) {
+        if !seen.insert(Rc::as_ptr(term)) {
+            return;
+        }
+        match term.as_ref() {
+            Term::Op(_, args) => args.iter().for_each(|a| walk(a, seen)),
+            Term::App(function, args) => {
+                walk(function, seen);
+                args.iter().for_each(|a| walk(a, seen));
+            }
+            Term::Let(bindings, body) => {
+                bindings.iter().for_each(|(_, v)| walk(v, seen));
+                walk(body, seen);
+            }
+            Term::Binder(_, _, body) => walk(body, seen),
+            _ => {}
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    walk(term, &mut seen);
+    seen.len()
+}
+
 fn term_node_count(term: &Rc<Term>) -> usize {
     match term.as_ref() {
         Term::Op(_, args) => 1 + args.iter().map(term_node_count).sum::<usize>(),

@@ -241,6 +241,8 @@ fn elaborate_command(
     let hole_reuse_proved = options.elaboration.hole_reuse_proved;
     let hole_reuse_subst = options.elaboration.hole_reuse_subst;
     let hole_prenormalize = options.elaboration.hole_prenormalize;
+    let hole_prenormalize_close_only = options.elaboration.hole_prenormalize_close_only;
+    let hole_smallest_first = options.elaboration.hole_smallest_first;
     let hole_abstract_shared = options.elaboration.hole_abstract_shared;
     let fold_limit = options.elaboration.fold_limit.unwrap_or(0);
 
@@ -262,6 +264,8 @@ fn elaborate_command(
         .hole_reuse_proved(hole_reuse_proved)
         .hole_reuse_subst(hole_reuse_subst)
         .hole_prenormalize(hole_prenormalize)
+        .hole_prenormalize_close_only(hole_prenormalize_close_only)
+        .hole_smallest_first(hole_smallest_first)
         .hole_abstract_shared(hole_abstract_shared)
         .fold_limit(fold_limit)
         .hole_rewrite_options(hole_rewrite_options)

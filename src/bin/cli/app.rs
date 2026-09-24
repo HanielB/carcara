@@ -449,6 +449,17 @@ pub struct ElaborationOptions {
     #[clap(long)]
     pub hole_prenormalize: bool,
 
+    /// With --hole-prenormalize and --hole-check-only: the normalizer only
+    /// closes holes, and a hole it does not close goes to egglog as it
+    /// stands rather than as the equality of its normal forms.
+    #[clap(long, requires = "hole_prenormalize")]
+    pub hole_prenormalize_close_only: bool,
+
+    /// Schedule the holes smallest goal first, so a pass budget that cannot
+    /// cover every hole covers the most of them.
+    #[clap(long)]
+    pub hole_smallest_first: bool,
+
     /// Before egglog, replace the largest subterms shared by both sides of
     /// a hole, of at least this many nodes and binding nothing, by fresh
     /// constants, and prove the abstract goal (sound: a rewrite proved for
