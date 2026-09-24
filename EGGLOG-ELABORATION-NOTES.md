@@ -4124,3 +4124,110 @@ Re-measured with the fold (same files, budgets and workers as the QF_LIA residue
 committed: 4,517 proved, 81 kept, 1,200 s); `in-de62-O0` 3,388 closed by
 the normalizer, 4,333 proved, 70 kept, 1,380 unattempted at 1,200 s
 (before the regression 4,411 / 78 / 1,294; with it 3,478 / 128 / 2,177).
+
+## 48. Smallest goal first (2026-09-23)
+
+`--hole-smallest-first` orders the checking pass's worklist by the DAG size
+of each hole's goal (as egglog gets it) instead of the proof's order.  The
+reason is §43's reading of arithmetic: where it loses, it loses holes that
+were never attempted before the pass budget ran out (30.6% of QF_LIA's and
+54.3% of QF_LRA's in `vb50-2`), and a proof counts only when all its holes
+close, so the budget should go to as many holes as it can cover.  The
+proof's order spreads the large goals over the pass, which is the
+opposite.
+
+Plain `set-form`, no normalizer, the budget binding, the same settings as
+the baselines of §43 (`scratchpad/order/run.sh`):
+
+| proof | holes | proof order | smallest first | goal sizes |
+|---|---|---|---|---|
+| Dartagnan `count_up_down-1` (4 workers, 300 s) | 9,850 | 3,845 | 4,167 | 7 to 21,254 nodes |
+| LassoRanker `p-46` (2 workers, 600 s) | 2,854 | 43 | 526 | 5 to 429 |
+| `tta_startup 14nodes` (2, 600 s) | 1,793 | 28 | 740 | 7 to 15,193 |
+| miplib `fixnet-1000` (2, 600 s) | 4,635 | 19 | 1,427 | 4 to 126 |
+
+Twelve to seventy-five times more holes proved in the same budget on the
+three QF_LRA proofs.  It matters only where the budget binds: with the
+normalizer these proofs close almost entirely before egglog (§43), so the
+option is for the residue that stays budget-bound, and it costs nothing
+where the budget does not bind.  Not combined with `--hole-reuse-subst`,
+which has its own order.  (The `fixnet` pass in the proof's order ran
+1,155 s of wall time against a 600 s budget; in the smallest-first order
+600 s.  The post-summary stall of `VERIT-PLAN.md` item 4 again.)
+
+## 49. Normalize to close only, or also rewrite the goal?  Settled locally (2026-09-24)
+
+The question from §43: when the normalizer cannot close a hole, should the
+checking pass hand egglog the equality of the normal forms (today) or the
+hole as stated?  §43's evidence for "as stated" was veriT-only (the
+flattened `la_rw_eq` goals, 1.6--4.5 times dearer), and nothing had been
+measured on cvc5.
+
+**Design.**  `--hole-prenormalize-close-only` makes the normalizer only
+close; a hole it cannot close goes to egglog unchanged.  Two arms on the
+same proofs, both normalizing, differing only in that choice: R (the
+normal forms, today) and C (close only).  Pass budget 3,600 s, so every
+hole is attempted in both and the comparison is per hole; 60 s and 5 GB per
+hole, 4 workers, caps 3M/500k, `set-form`, arm order alternating by proof
+(`scratchpad/closeonly/run.sh`, `analyze.py`).  Every hole the normalizer
+leaves open is now logged at info level as `prenorm open, goal
+rewritten|kept|unchanged` with the DAG sizes of the goal and its normal
+form.  Holes whose normal form *is* the goal are the same goal in both
+arms: the noise floor.
+
+**Corpus.**  The normalizer rewrites almost nothing in QF_UF (178 of 48,183
+hole steps of the 96 local cvc5 proofs), so the question is arithmetic's:
+19,200 rewritten hole steps in QF_LIA, 46,718 in QF_LRA.  Ten local cvc5
+proofs (`~/benchmarks/egglog-holes-eval`, same options as `enc4`) from the
+families where it rewrites without closing: SMPT, bofill and mathsat in
+QF_LIA, `sal` (gasburner, pursuit, tgc), `spider`, `tta_startup` (two) and
+`uart` in QF_LRA; plus the two veriT QF_LRA proofs with rewritten holes
+left after the `la_rw_eq` fold (`p-46`, `fixnet-1000`).
+
+**Noise floor.**  3,962 unchanged open holes: identical verdicts, per-hole
+time R/C geometric mean 0.99 (p10 0.89, p90 1.11).
+
+**Verdicts on the 4,989 rewritten holes:** both prove 4,920, only the
+normal form 61, only the goal as stated 1, neither 7.  The 61 are 56
+gasburner holes and 5 of `p-46`: the stated goal runs to the 60 s kill,
+the normal form proves in 0.17 s median (13.5 s at most).  The one the
+other way is a memory kill in one `tta10` hole whose normal form is the
+same size as the goal, i.e. noise.  A gasburner example: `(= (<= X c) ..)`
+with `X` a chain of nested counter `ite`s under `(* -1 ..)`, 69 DAG nodes;
+the normalizer takes the `ite` as an atom (§38) and hands egglog 33 nodes,
+proved in 0.34 s, where egglog's own polynomial normalizer on the stated
+goal never finishes.
+
+**Per proof.**  Fully proved: R 10 of 12, C 9 of 12 (C loses gasburner and
+`p-46`, R loses `tta10` on the one memory kill).  Egglog time on open
+holes, summed: R 1,772 s, C 6,079 s; without gasburner and `p-46`, R 1,466 s
+and C 1,575 s.  R also needs 4.4% fewer egglog runs (6,173 against 6,458):
+normalization makes some distinct goals identical, and duplicates share a
+verdict.
+
+**Where the rewrite costs: the size of the normal form decides.**
+
+| rewritten holes | holes | egglog time R | C | per-hole R/C, geo-mean (p10, p90) | verdicts |
+|---|---|---|---|---|---|
+| normal form smaller | 1,605 | **694 s** | 5,029 s | **0.72** (0.43, 1.29) | all 61 R-only wins |
+| same size | 1,462 | 110 s | 148 s | 1.00 (0.90, 1.10) | the 1 C-only (noise) |
+| normal form larger | 1,922 | 489 s | **380 s** | **1.46** (1.00, 2.39) | no difference |
+
+The veriT goals are all in the last row: `fixnet`'s 500 rewritten holes are
+all larger in normal form (113 s against 49 s), and so are 246 of `p-46`'s
+288.  The polynomial normal form with its `(* -1 x)` monomials and
+`to_real` wrappers is larger than what veriT printed, and costs egglog
+more; that is §43's slowdown, measured directly.  The cvc5 goals are mostly
+in the first two rows.
+
+**Answer.**  Close-only is wrong: it gives up every hole in the first row
+where the stated goal is out of egglog's reach, 61 here, and quadruples the
+egglog time.  What the data supports is the size test I first proposed and
+then withdrew: **hand egglog the normal form when it is not larger than the
+goal, the goal as stated otherwise.**  On these proofs that keeps all of
+R's verdicts and would cost 694 + 110 + 380 = 1,184 s of egglog time against
+R's 1,293 s and C's 5,557 s.  The withdrawal argued that a flattened goal
+is smaller yet dearer; the goals that are dearer here are the larger ones,
+and the flattened `la_rw_eq` goals it was about are now closed by the fold.
+Not yet implemented: the close-only flag stays as the measurement's switch,
+and the size rule is the one-line change it points to.
