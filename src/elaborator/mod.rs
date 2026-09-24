@@ -138,9 +138,12 @@ pub struct Config {
     /// their normal forms.
     hole_prenormalize: bool,
 
-    /// With `hole_prenormalize` in the checking pass: the normalizer only closes holes; a hole it
-    /// does not close goes to egglog as it stands, not as the equality of its normal forms.
-    hole_prenormalize_close_only: bool,
+    /// With `hole_prenormalize` in the checking pass: a hole the normalizer does not close goes to
+    /// egglog as the equality of its normal forms only when that is not larger (in DAG nodes) than
+    /// the hole's goal, and as it stands otherwise.  A larger normal form never proved a hole the
+    /// stated goal did not, and cost 1.46 times per hole; a smaller one proved holes the stated
+    /// goal could not.
+    hole_prenormalize_not_larger: bool,
 
     /// Before egglog, replace the largest subterms shared by both sides of a
     /// hole, of at least this many nodes, by fresh constants; a hole whose
@@ -485,6 +488,7 @@ impl<'e> Elaborator<'e> {
         if self.config.hole_prenormalize {
             let started = Instant::now();
             let mut rewritten = 0;
+            let mut kept_as_stated = 0;
             for (_, step) in holes.iter_mut() {
                 let Some(conclusion) = step.clause.first().cloned() else {
                     continue;
@@ -513,15 +517,6 @@ impl<'e> Elaborator<'e> {
                         step.id,
                         term_dag_size(&conclusion)
                     );
-                } else if self.config.hole_check_only && self.config.hole_prenormalize_close_only {
-                    let normal =
-                        self.pool.add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
-                    log::info!(
-                        "hole {}: prenorm open, goal kept ({} nodes, normal form {} nodes)",
-                        step.id,
-                        term_dag_size(&conclusion),
-                        term_dag_size(&normal)
-                    );
                 } else if self.config.hole_check_only {
                     // Only the checking pass hands egglog the normalized goal.
                     // In the elaboration pass the certificate search works on
@@ -533,23 +528,34 @@ impl<'e> Elaborator<'e> {
                     // outright.  (Trying the normalized goal first and the
                     // original on a reconstruction failure would get both, at
                     // one extra child run per lost hole.)
-                    log::debug!(
-                        "hole {}: goal normalized to (= {:#} {:#})",
-                        step.id,
-                        left,
-                        right
-                    );
                     let normal =
                         self.pool.add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
-                    log::info!(
-                        "hole {}: prenorm open, goal rewritten ({} nodes to {} nodes)",
-                        step.id,
-                        term_dag_size(&conclusion),
-                        term_dag_size(&normal)
-                    );
-                    step.clause = vec![normal];
-                    rewritten += 1;
+                    let goal_size = term_dag_size(&conclusion);
+                    let normal_size = term_dag_size(&normal);
+                    if self.config.hole_prenormalize_not_larger && normal_size > goal_size {
+                        log::info!(
+                            "hole {}: prenorm open, goal kept ({} nodes, normal form {} nodes)",
+                            step.id,
+                            goal_size,
+                            normal_size
+                        );
+                        kept_as_stated += 1;
+                    } else {
+                        log::info!(
+                            "hole {}: prenorm open, goal rewritten ({} nodes to {} nodes)",
+                            step.id,
+                            goal_size,
+                            normal_size
+                        );
+                        step.clause = vec![normal];
+                        rewritten += 1;
+                    }
                 }
+            }
+            if self.config.hole_prenormalize_not_larger {
+                log::info!(
+                    "hole prenorm kept: {kept_as_stated} goals as stated, their normal form being larger"
+                );
             }
             let total = holes.len();
             holes.retain(|(_, step)| !prenormalized.contains_key(&step.id));
