@@ -4575,3 +4575,64 @@ QF_LIA 962 of 1,393, QF_LRA 181 of 204.
 **`rw2`.**  The d78da84d static binary, the checking pass folded into one
 1,500 s elaboration pass at 60 s per hole, the same sets; read against
 this run's tables.
+
+### 47.8 The elaboration side of the coarse Boolean holes (2026-09-24)
+
+After §47.6 the QF_UF holes check in milliseconds and do not reconstruct:
+`no certificate`, zero rule instances.  Four things stood between the
+search and the certificate, all in `reconstruction/search.rs` and
+`term.rs` (commit c1b8f298):
+
+- The engine proves the absorbing step `(and ... false ...) = false` on
+  the set form, with a built-in rule: no rule instance in the e-graph for
+  the search to follow, and no rule in the file for a step to cite.  The
+  rule file now states `bool-and-true/false`, `bool-or-true/false`,
+  `bool-and/or-flatten` and `bool-and/or-dup` (what cvc5's `ACI_NORM`
+  does in one step), and a `:list` rule instance matched against the goal
+  as a sequence is a goal-directed edge of the search
+  (`CandidateEdge::ListRule`, justified by the existing
+  `prove_by_list_rule`).  The rules also close the nested-`and` goals
+  whose outcome depended on the normalizer's ordering (§47.7).
+- The constant-substitution candidates of a vertex walked its positions
+  depth first with a cap of 32; an encoded variable is a dozen nodes deep,
+  so the budget went inside the first argument and the third element of
+  four, the one holding the constant, was never a candidate.  Breadth
+  first, atoms not entered, cap 256.
+- The search keeps the first edge it meets to a neighbour and bans the
+  pair when the edge fails to justify: a congruence towards the goal `F`
+  (the whole application replaced by its class constant) came before the
+  list rule towards `F`, and its failure took both down.  A vertex now
+  keeps its most replayable edge per neighbour (rule, list rule,
+  computation, ACI modulo, congruence).
+- Grounded instances and list segments come from the e-graph in its
+  re-associated chains, `(Args (Args a b) rest)`, and pair cells `(Args a
+  b)`; such a term neither decodes to Alethe nor equals the flat vertex the
+  search stands on.  Instances are read in flat chain form (which also
+  turns the re-association rewrites into identities, so no `gen-N` step
+  cites them) and a pair cell ends a chain as its last element.
+
+The k-series reconstructs in 0.3--1.1 s and re-checks `valid` at k = 4,
+16, 28; `bridge.2` (5 holes) and `dead_dnd005` (21 holes) elaborate fully
+and re-check `valid`.  The three micro goals of the §47.3 relation shape
+(`(= (= (not (not (>= P c))) (>= P' c)) true)` and its halves) elaborate
+and re-check `valid` as well.  Five samples, `rewrite` arm, elaboration at
+45 s per hole (the §47.3 table's last column against now):
+
+| proof | holes | 42a2a85b justified / pass | c1b8f298 |
+|---|---|---|---|
+| clocksynchro_3 | 196 | 191 / 93 s | **195** / 90 s |
+| cut_lemma_01_008 | 126 | 112 / 22 s | **126** / 17 s |
+| MULTIPLIER_3 | 272 | 267 / 14 s | **272** / 16 s |
+| tgc_io-safe-6 | 140 | 117 / 217 s | **140** / 12 s |
+| ring_2exp10 | 349 | 339 / 30 s | **349** / 22 s |
+
+The one hole left (clocksynchro, a `MACRO_SR_PRED_INTRO`) is the 154-node
+disjunction class of §47.7.  Every re-check is `holey` on the untagged
+holes alone (`THEORY_INFERENCE_ARITH`, `MACRO_THEORY_REWRITE_RCONS_SIMPLE`)
+plus the `arith_poly_norm_rel` trust steps the certificates still carry
+(§1).  Not done: the integer infeasibility `(= (+ (* 3 x1) (* 3 x2)) 1) =
+false` of §47.7, one benchmark, which needs a `la_generic` recipe rather
+than a rule.
+
+Regression: `elaborates_reflexive_disequality_conjunction`
+(`tests/rare/elaborate/and-reflexive.*`, six conjuncts, sort guards on).
