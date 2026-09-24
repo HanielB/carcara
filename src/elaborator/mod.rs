@@ -138,13 +138,14 @@ pub struct Config {
     /// their normal forms.
     hole_prenormalize: bool,
 
-    /// With `hole_prenormalize` in the checking pass: a hole the normalizer does not close goes to
-    /// egglog as the equality of its normal forms only when that is not larger (in DAG nodes) than
-    /// the hole's goal, or when another hole with a different goal in the same context reaches the
-    /// same normal form; as it stands otherwise.  A larger normal form never proved a hole the
-    /// stated goal did not, and on veriT's proofs it cost more per hole; a smaller one proved holes
-    /// the stated goal could not; a shared one merges egglog runs.
-    hole_prenormalize_not_larger: bool,
+    /// With `hole_prenormalize` in the checking pass, hand egglog the equality of the normal forms
+    /// of every hole the normalizer does not close.  By default the normal form is used only when
+    /// it is not larger (in DAG nodes) than the hole's goal, or when another hole with a different
+    /// goal in the same context reaches the same normal form, and the goal as stated otherwise: a
+    /// larger normal form never proved a hole the stated goal did not, and on veriT's proofs it
+    /// cost more per hole; a smaller one proved holes the stated goal could not; a shared one
+    /// merges egglog runs.
+    hole_prenormalize_rewrite_all: bool,
 
     /// Before egglog, replace the largest subterms shared by both sides of a
     /// hole, of at least this many nodes, by fresh constants; a hole whose
@@ -576,7 +577,7 @@ impl<'e> Elaborator<'e> {
                     .get(&(pointer(&normal), context_of(&holes[index].0)))
                     .map_or(1, |goals| goals.len());
                 let step = &mut holes[index].1;
-                if self.config.hole_prenormalize_not_larger
+                if !self.config.hole_prenormalize_rewrite_all
                     && normal_size > goal_size
                     && sharing < 2
                 {
@@ -588,7 +589,7 @@ impl<'e> Elaborator<'e> {
                     );
                     kept_as_stated += 1;
                 } else {
-                    if normal_size > goal_size && self.config.hole_prenormalize_not_larger {
+                    if normal_size > goal_size && !self.config.hole_prenormalize_rewrite_all {
                         shared_larger += 1;
                     }
                     log::info!(
@@ -608,7 +609,7 @@ impl<'e> Elaborator<'e> {
                     rewritten += 1;
                 }
             }
-            if self.config.hole_prenormalize_not_larger {
+            if self.config.hole_check_only && !self.config.hole_prenormalize_rewrite_all {
                 log::info!(
                     "hole prenorm kept: {kept_as_stated} goals as stated, their normal form being larger; {shared_larger} larger normal forms used, another goal reaching them"
                 );

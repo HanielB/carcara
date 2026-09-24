@@ -4819,3 +4819,11 @@ stated goals cost.  veriT keeps its 25%.  The extra hole proved is in
 `tta6`, one at its limit.  So the refined rule is at least as good as the
 default on both producers, and it is the one to run.
 
+**Now the default.**  With `--hole-prenormalize --hole-check-only` the rule
+applies without any flag; `--hole-prenormalize-not-larger` is gone, and
+`--hole-prenormalize-rewrite-all` restores the previous behaviour (every
+unclosed hole as the equality of its normal forms), for comparisons with
+the runs made before this change (`enc4`, `vb50-2`, `vnob-2`, `rw1`).  On
+`fixnet-1000` the default keeps all 500 open holes as stated and the
+opt-out rewrites all 500, verdicts identical.
+
