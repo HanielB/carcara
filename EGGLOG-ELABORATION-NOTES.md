@@ -4269,8 +4269,42 @@ Verdicts are identical, hole for hole.  The time splits by producer:
   runs egglog 234 fewer times on the cvc5 proofs (`gasburner` 574 against
   652, `spider` 316 against 358), and at 0.3 s a run that is the 73 s.
 
-So the option is right for veriT's proofs and slightly wrong for cvc5's.  A
-refinement that should get both, not implemented: keep a larger normal
-form anyway when it coincides with another hole's normal form, so the merge
-is not given up.  The earlier estimate of 1,184 s missed exactly that.
+So the size rule alone is right for veriT's proofs and slightly wrong for
+cvc5's.  The earlier estimate of 1,184 s missed exactly the merging.
+
+**Refinement: keep a larger normal form that another goal also reaches.**
+The rule now keeps a hole's larger normal form when a hole with a
+*different* stated goal, in the same context, reaches the same normal form
+(an unchanged hole counts with its goal as its normal form); duplicates of
+one stated goal do not count, since they merge anyway.  That is exactly
+the case in which rewriting saves an egglog run.  The prenormalization
+now runs in two passes, normal forms first, decisions second, and logs
+`hole prenorm kept: K goals as stated, ...; S larger normal forms used,
+another goal reaching them`.
+
+Interleaved against the default on the same twelve proofs
+(`scratchpad/closeonly/run-rn3.sh`, logs in `logs3/`):
+
+| | egglog runs | egglog seconds | holes not proved | proofs fully proved |
+|---|---|---|---|---|
+| default, all 12 | 6,166 | 1,911 | 8 | 10 |
+| refined rule, all 12 | **6,166** | **1,691** | 7 | 10 |
+| default, ten cvc5 proofs | 5,377 | 1,505 | 8 | 8 |
+| refined rule, ten cvc5 | **5,377** | 1,384 | 7 | 8 |
+| default, two veriT | 789 | 407 | 0 | 2 |
+| refined rule, two veriT | 789 | **306** | 0 | 2 |
+
+Every merge comes back: the refined rule runs egglog exactly as often as
+the default (the size rule alone ran it 234 more times).  Of the larger
+normal forms, 311 are now used because another goal reaches them
+(gasburner 78, spider 47, tta6 40, pursuit 38) and 1,633 are still kept as
+stated, all veriT's 746 among them.
+
+On cvc5 the gain is mostly one proof.  SMPT's control on identical goals
+is 1.22, i.e. its default arm ran 22% slow; without SMPT the cvc5 proofs are
+at parity (1,046 s against 1,032 s), which is what the size table
+predicts once the merges are kept: cvc5's larger normal forms cost what its
+stated goals cost.  veriT keeps its 25%.  The extra hole proved is in
+`tta6`, one at its limit.  So the refined rule is at least as good as the
+default on both producers, and it is the one to run.
 

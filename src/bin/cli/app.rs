@@ -452,7 +452,9 @@ pub struct ElaborationOptions {
     /// With --hole-prenormalize and --hole-check-only: a hole the
     /// normalizer does not close goes to egglog as the equality of its
     /// normal forms only when that is not larger (in DAG nodes) than the
-    /// hole's goal, and as it stands otherwise.
+    /// hole's goal, or when another hole with a different goal reaches the
+    /// same normal form (so the two share one egglog run); as it stands
+    /// otherwise.
     #[clap(long, requires = "hole_prenormalize")]
     pub hole_prenormalize_not_larger: bool,
 
