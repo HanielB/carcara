@@ -138,9 +138,13 @@ pub struct Config {
     /// their normal forms.
     hole_prenormalize: bool,
 
-    /// With `hole_prenormalize` in the checking pass: the normalizer only closes holes; a hole it
-    /// does not close goes to egglog as it stands, not as the equality of its normal forms.
-    hole_prenormalize_close_only: bool,
+    /// With `hole_prenormalize` in the checking pass: a hole the normalizer does not close goes to
+    /// egglog as the equality of its normal forms only when that is not larger (in DAG nodes) than
+    /// the hole's goal, or when another hole with a different goal in the same context reaches the
+    /// same normal form; as it stands otherwise.  A larger normal form never proved a hole the
+    /// stated goal did not, and on veriT's proofs it cost more per hole; a smaller one proved holes
+    /// the stated goal could not; a shared one merges egglog runs.
+    hole_prenormalize_not_larger: bool,
 
     /// Before egglog, replace the largest subterms shared by both sides of a
     /// hole, of at least this many nodes, by fresh constants; a hole whose
@@ -490,7 +494,30 @@ impl<'e> Elaborator<'e> {
         if self.config.hole_prenormalize {
             let started = Instant::now();
             let mut rewritten = 0;
-            for (_, step) in holes.iter_mut() {
+            let mut kept_as_stated = 0;
+            let mut shared_larger = 0;
+            // The context of a hole, as the checking pass's deduplication
+            // sees it: a verdict is shared only between holes with the same
+            // goal and the same assumptions.
+            let context_of = |node: &Rc<ProofNode>| -> Vec<usize> {
+                let mut context: Vec<usize> = node
+                    .get_assumptions()
+                    .iter()
+                    .map(|assumption| Rc::as_ptr(assumption) as *const () as usize)
+                    .collect();
+                context.sort_unstable();
+                context
+            };
+            let pointer = |term: &Rc<Term>| Rc::as_ptr(term) as *const () as usize;
+            // Open holes whose goal the normal forms change: (hole index,
+            // stated goal, normal form).
+            let mut changed: Vec<(usize, Rc<Term>, Rc<Term>, Rc<Term>, Rc<Term>)> = Vec::new();
+            // Per normal form and context, the distinct stated goals that
+            // reach it.  Two or more means that handing egglog the normal
+            // form merges their runs into one.
+            let mut reaching: HashMap<(usize, Vec<usize>), std::collections::HashSet<usize>> =
+                HashMap::new();
+            for (index, (node, step)) in holes.iter().enumerate() {
                 let Some(conclusion) = step.clause.first().cloned() else {
                     continue;
                 };
@@ -518,48 +545,73 @@ impl<'e> Elaborator<'e> {
                         step.id,
                         term_dag_size(&conclusion)
                     );
-                } else if self.config.hole_check_only && self.config.hole_prenormalize_close_only {
+                    reaching
+                        .entry((pointer(&conclusion), context_of(node)))
+                        .or_default()
+                        .insert(pointer(&conclusion));
+                } else {
                     let normal =
                         self.pool.add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
+                    reaching
+                        .entry((pointer(&normal), context_of(node)))
+                        .or_default()
+                        .insert(pointer(&conclusion));
+                    changed.push((index, conclusion, normal, lhs, rhs));
+                }
+            }
+            // The checking pass checks the normalized goal in place of the
+            // original.  The elaboration pass tries the normalized goal first
+            // and bridges its certificate with the normalizer's derivations;
+            // a hole whose normalized goal is not reconstructed is retried as
+            // it stands, since a normal form is a different term from the
+            // ones the rules were compiled around and the search may replay
+            // less on it.  Under `hole_prenormalize_not_larger` a normal form
+            // larger than the goal that no other goal reaches is not tried at
+            // all: it never proved a hole the stated goal did not, and in
+            // elaboration it would cost the extra child run of the retry.
+            for (index, conclusion, normal, lhs, rhs) in changed {
+                let goal_size = term_dag_size(&conclusion);
+                let normal_size = term_dag_size(&normal);
+                let sharing = reaching
+                    .get(&(pointer(&normal), context_of(&holes[index].0)))
+                    .map_or(1, |goals| goals.len());
+                let step = &mut holes[index].1;
+                if self.config.hole_prenormalize_not_larger
+                    && normal_size > goal_size
+                    && sharing < 2
+                {
                     log::info!(
                         "hole {}: prenorm open, goal kept ({} nodes, normal form {} nodes)",
                         step.id,
-                        term_dag_size(&conclusion),
-                        term_dag_size(&normal)
+                        goal_size,
+                        normal_size
                     );
+                    kept_as_stated += 1;
                 } else {
-                    log::debug!(
-                        "hole {}: goal normalized to (= {:#} {:#})",
-                        step.id,
-                        left,
-                        right
-                    );
-                    let goal = self
-                        .pool
-                        .add(Term::Op(crate::ast::Operator::Equals, vec![left, right]));
+                    if normal_size > goal_size && self.config.hole_prenormalize_not_larger {
+                        shared_larger += 1;
+                    }
                     log::info!(
-                        "hole {}: prenorm open, goal rewritten ({} nodes to {} nodes)",
+                        "hole {}: prenorm open, goal rewritten ({} nodes to {} nodes, normal form reached by {} goals)",
                         step.id,
-                        term_dag_size(&conclusion),
-                        term_dag_size(&goal)
+                        goal_size,
+                        normal_size,
+                        sharing
                     );
                     if self.config.hole_check_only {
-                        // The checking pass checks the normalized goal in
-                        // place of the original.
-                        step.clause = vec![goal];
+                        step.clause = vec![normal];
                     } else {
-                        // The elaboration pass tries the normalized goal first
-                        // and bridges its certificate; a hole whose
-                        // normalized goal is not reconstructed is retried as
-                        // it stands, since a normal form is a different term
-                        // from the ones the rules were compiled around and the
-                        // search may replay less on it.
                         let mut normalized_step = step.clone();
-                        normalized_step.clause = vec![goal];
+                        normalized_step.clause = vec![normal];
                         normalized.insert(step.id.clone(), (normalized_step, lhs, rhs));
                     }
                     rewritten += 1;
                 }
+            }
+            if self.config.hole_prenormalize_not_larger {
+                log::info!(
+                    "hole prenorm kept: {kept_as_stated} goals as stated, their normal form being larger; {shared_larger} larger normal forms used, another goal reaching them"
+                );
             }
             let total = holes.len();
             holes.retain(|(_, step)| !prenormalized.contains_key(&step.id));
