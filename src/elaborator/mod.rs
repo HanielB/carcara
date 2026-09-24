@@ -566,7 +566,7 @@ impl<'e> Elaborator<'e> {
             // a hole whose normalized goal is not reconstructed is retried as
             // it stands, since a normal form is a different term from the
             // ones the rules were compiled around and the search may replay
-            // less on it.  Under `hole_prenormalize_not_larger` a normal form
+            // less on it.  Unless `hole_prenormalize_rewrite_all`, a normal form
             // larger than the goal that no other goal reaches is not tried at
             // all: it never proved a hole the stated goal did not, and in
             // elaboration it would cost the extra child run of the retry.
