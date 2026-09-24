@@ -4827,3 +4827,28 @@ the runs made before this change (`enc4`, `vb50-2`, `vnob-2`, `rw1`).  On
 `fixnet-1000` the default keeps all 500 open holes as stated and the
 opt-out rewrites all 500, verdicts identical.
 
+
+### 47.9 Run `rw2` (submitted 2026-09-24)
+
+Arrays 32360346 (rw_QF_UF, 4,316), 32360347 (rw_QF_LIA, 2,541), 32360348
+(rw_QF_LRA, 524) on `octa`, two tasks per node, 8 cores and 60 GB each, wall
+3,100 s; results `exp/results/egglog-holes/rw2`.  The sets are the
+benchmarks cvc5 proved within 60 s in rw1 (`gen-rw-sets.py`), so no task
+is spent on a cvc5 time-out.  Same cvc5 binary as rw1; carcara 3f982c71
+(§47.6, §47.8, the merges of bounded-parallel-holes up to 873faa0c:
+smallest goal first, the normal form handed to egglog only when not
+larger or shared, and the phase on memory kills).  The checking pass is
+folded into elaboration: hoist + prune, one elaboration pass of 1,500 s
+at 60 s and 6 GB per hole (set form, normalizer, sort guards, abstraction
+16, caps 120M/20M, smallest first), re-check 900 s.  Runner
+`~/exp/egglog-holes/run-holes-rw2.sh`, keys as rw1's with the `chkp_*`
+keys `none` and two new ones per pass, `elab_killed_during_egglog` and
+`elab_killed_after_egglog`.
+
+Read: checking-only = justified + no-certificate + checker-rejected +
+killed after egglog (a worker that died in serialization or the search
+had its hole proved); checking + elaboration = justified.  The caveat is
+the budget: check and reconstruction share the 60 s per hole and the
+1,500 s per proof, so the pass covers fewer holes than a pure checking
+pass would; the checking baseline is rw1's `chkp` keys on the same
+benchmarks (§47.7), the elaboration baseline rw1's elaboration keys.
