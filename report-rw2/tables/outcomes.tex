@@ -1,0 +1,14 @@
+\begin{tabular}{p{8.6cm}rrr}
+\toprule
+outcome & QF\_UF & QF\_LIA & QF\_LRA \\
+\midrule
+re-check \texttt{valid} & 322 & 982 & 202 \\
+re-check \texttt{holey}: every hole justified, untagged holes left & 1,563 & 987 & 124 \\
+re-check \texttt{holey}: every hole justified, a trust step of the elaborator left & 22 & 294 & 0 \\
+re-check \texttt{holey}: a hole kept or skipped & 2,211 & 249 & 189 \\
+hoist + prune rejected the proof (resolution pivot) & 198 & 2 & 6 \\
+hoist + prune timeout (300 s) & 0 & 8 & 0 \\
+elaboration pass external limit (1,600 s) & 0 & 16 & 3 \\
+task killed at the job memory limit (60 GB) before the pass ended & 0 & 3 & 0 \\
+\bottomrule
+\end{tabular}

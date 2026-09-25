@@ -4958,7 +4958,7 @@ families (egglog time, not the search), the integer infeasibility of
 
 ### 47.12 The `rw2` report (2026-09-25)
 
-`EGGLOG-RW2-REPORT.md` reads the run on its own terms (yield, cost,
+`report-rw2/report.tex` (LaTeX, the structure of the first report; `make-rw2.py` renders its tables and plots from the results file) reads the run on its own terms (yield, cost,
 residue by class and family, the state of the tooling at fedf0b31) and
 plans the three open directions.  Two corrections to §47.10–§47.11 it
 makes: the SMPT 84 and rings 216 `worker-error` holes are egglog `Check
