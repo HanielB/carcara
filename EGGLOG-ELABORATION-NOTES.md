@@ -4852,3 +4852,53 @@ the budget: check and reconstruction share the 60 s per hole and the
 1,500 s per proof, so the pass covers fewer holes than a pure checking
 pass would; the checking baseline is rw1's `chkp` keys on the same
 benchmarks (§47.7), the elaboration baseline rw1's elaboration keys.
+
+### 47.10 Run `rw2` complete (2026-09-25): the read
+
+All 7,381 tasks (the benchmarks cvc5 proved in rw1, so every task has a
+proof).  Checking-only is read from the elaboration pass as justified +
+no-certificate + checker-rejected + killed after egglog; rw1's checking
+pass and enc4's `nset` arm on the same benchmarks are the baselines.
+
+| | QF_UF (4,316) | QF_LIA (2,541) | QF_LRA (524) |
+|---|---|---|---|
+| holes | 1.22 M | 748 k | 505 k |
+| **checked**, rw2 / rw1 / enc4 | 99.9% / 99.6% / 99.9% | 99.7% / 95.8% / 99.2% | 99.5% / 85.7% / 94.8% |
+| proofs checked, rw2 / rw1 / enc4 | 3,844 / 2,406 / 4,078 | 2,280 / 2,265 / 2,361 | 332 / 268 / 310 |
+| **justified** (holes), rw2 / rw1 | 99.5% / 98.9% | 99.5% / 94.3% | 99.4% / 86.2% |
+| proofs fully justified, rw2 / rw1 | 1,907 / 1,167 | 2,263 / 1,445 | 326 / 185 |
+| fully justified in one run only, rw2 / rw1 | 741 / 1 | 850 / 32 | 141 / 0 |
+| re-check `valid` (proofs without untagged holes), rw2 / rw1 | 322 (2,426) / 257 | 982 (1,393) / 962 | 202 (204) / 181 |
+| holes skipped at the budget, rw2 / rw1 (check+elab) | 33 / 401+1,007 | 481 / 24,090+13,673 | 29 / 58,147+58,758 |
+| carcara time, rw2 / rw1 (check+elab) | 80 h / 166 h | 38 h / 81 h | 21 h / 41 h |
+
+Checking at `rewrite` granularity now matches theory-rewrite on QF_UF
+(99.9%) and beats it on the arithmetic logics (QF_LIA 99.7% against
+99.2%, QF_LRA 99.5% against 94.8%), on a proof text half the size, in
+half the time of rw1, with the pass budget no longer binding anywhere
+(33 / 481 / 29 holes skipped against tens of thousands).  QF_LRA fully
+justifies 326 of 524 proofs against 185, and re-checks `valid` 202 of the
+204 proofs that have no untagged hole.
+
+**Residue.**  QF_UF: QG-classification, 2,364 of 3,851 proofs not fully
+justified on 2,103 `no-certificate` and 3,119 per-hole kills after
+egglog (search and serialization on the coarse Boolean holes; 137 checker
+rejections of an `and_simplify` step on a nested conjunction); Goel 37 of
+227.  QF_LIA: Dartagnan 76 of 78 (1,063 no-certificate, 999 kills, 225
+memory, 481 skipped), SMPT 113 of 1,520 (84 decode failures), rings 35 of
+84 (216 decode failures).  QF_LRA: the hole-heavy families `sc`, `uart`,
+`tta_startup`, `spider` (kills during egglog, 2,351 of QF_LRA's 2,377).
+
+The no-certificate holes replayed locally are Boolean simplification
+chains with many constant-valued arguments at once: `(not (=> (and ...)
+(= x x))) = false`; a Goel conjunction of `true`s and reflexive
+equalities with `(= (not true) (and ...))` among them; `(not (or (or (and
+...) (or ...)) ...)) = false` over `<=` atoms; and the integer
+infeasibility of §47.7.  The search substitutes one constant per
+congruence edge and proves the children one at a time, so a goal with
+eight reflexive equalities needs eight levels; a congruence candidate that
+replaces every constant-valued argument at once is the natural next step,
+with the decode failures (`a certificate term failed to decode`, SMPT and
+rings) and the `distinct_elim` / `and_simplify` checker rejections on
+Dartagnan and QG to reproduce and fix.  Untagged holes cap `valid` as
+before: 1,890 / 1,148 / 320 proofs have one.
