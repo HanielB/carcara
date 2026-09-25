@@ -2372,6 +2372,50 @@ fn proves_a_flattened_equality_elimination_with_a_rewritten_bound() {
     }
 }
 
+/// `ite-else-false` against a flat conjunction of three Boolean and three
+/// relation literals: the shape the normalizer hands egglog for cvc5's
+/// `(= (ite A B false) (and A B))` in `tta_startup`.  The goal is not proved
+/// by the first check, and the premise seeds over every pair of available
+/// terms (`eq-cond-deq`'s `(= s1 r1)`, the array rules' `(= i1 j1)`) then
+/// grew the e-graph past 2 GB within the next iteration.  Seeded from the
+/// rules' left-hand sides, it proves in a fraction of a second.
+#[test]
+fn proves_ite_else_false_against_a_flat_conjunction_with_bounds() {
+    let problem_path = repository_path("tests/rare/elaborate/ite-else-false-bounds.smt2");
+    let proof_path = repository_path("tests/rare/elaborate/ite-else-false-bounds.smt2.alethe");
+    let rare_path = repository_path("tests/rare/big.rare");
+    let parser_config = parser::Config::default()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let (_, proof, database, mut pool) = parser::parse_instance(
+        parser::Source::file(&problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(&proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(&rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+    )
+    .expect("the instance should parse");
+    let node = node_with_root_id(proof.commands, "t1").expect("the proof should contain the hole");
+    let conclusion = node.clause()[0].clone();
+    let options = RunEgglogOptions {
+        sort_guards: true,
+        timeout: Some(Duration::from_secs(10)),
+        growth_cap_arith: 3_000_000,
+        growth_cap_plain: 500_000,
+        ..RunEgglogOptions::default()
+    };
+    let start = Instant::now();
+    let (result, _) = run_egglog(&mut pool, (conclusion.clone(), &node), &database, options);
+    assert!(
+        result.is_ok(),
+        "{conclusion:?} after {:?}: {}",
+        start.elapsed(),
+        result.err().unwrap_or_default()
+    );
+}
+
 /// An `and`/`or` holding a literal and its negation is the connective's
 /// absorbing element, whatever the arity.  The RARE rules for it
 /// (`bool-or-taut`, `bool-and-conf`) carry `:list` parameters, which on the

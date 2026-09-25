@@ -972,6 +972,12 @@ fn set_form_rule(
     if lists.is_empty() || fixed.is_empty() {
         return Ok(None);
     }
+    // The set-form rule matches and rewrites without the rule's premises, so
+    // a conditional rule stays on the argument chain, where its premises are
+    // conditions of the rewrite.
+    if !definition.premises.is_empty() {
+        return Ok(None);
+    }
     let context = format!("translating RARE rule '{}' against the set form", definition.name);
     let set = EggExpr::Literal("elements".to_owned());
     let call = |set: EggExpr| {
@@ -1088,6 +1094,37 @@ fn construct_rules(
 
         let context = format!("translating RARE rule '{}'", definition.name);
 
+        // A premise instance must exist in the e-graph for the rule's
+        // condition to be checked, so each compound side of a premise is
+        // seeded.  When the left-hand side binds every variable of the side,
+        // the side is seeded once per match of the left-hand side (below,
+        // with the rule's sort guards): that is the only instance the rule
+        // can use.  Otherwise the side is seeded over every available term,
+        // which is quadratic in them for a two-variable side and blind to
+        // sorts: `eq-cond-deq`'s `(= s1 r1)` and the array rules' `(= i1 j1)`
+        // over all pairs, whatever their sorts.
+        let seeds_from_lhs = !conclusion_lhs.is_var();
+        let mut lhs_seeded: Vec<(Vec<String>, EggExpr)> = Vec::new();
+        let mut seed_side = |side: &Rc<Term>,
+                             translated: &EggExpr,
+                             rules: &mut IndexSet<EggStatement>,
+                             func_cache: &mut EggFunctions,
+                             var_map: &mut HashMap<String, u64>|
+         -> Result<(), String> {
+            if side.is_var() {
+                return Ok(());
+            }
+            let side_vars: Vec<String> = collect_vars(side, false).into_keys().collect();
+            if seeds_from_lhs && side_vars.iter().all(|v| premise_available_args.contains(v)) {
+                lhs_seeded.push((side_vars, translated.clone()));
+            } else if let Some(statement) =
+                create_avaliable_premise(side, func_cache, var_map, true, seed, &context)?
+            {
+                rules.insert(statement);
+            }
+            Ok(())
+        };
+
         for premise in &definition.premises {
             let Some((op @ (Operator::Equals | Operator::Distinct), lhs, rhs)) =
                 get_equational_terms(premise)
@@ -1098,71 +1135,31 @@ fn construct_rules(
                 ));
             };
             match op {
-                Operator::Equals => {
-                    if let Some(lhs) =
-                        create_avaliable_premise(lhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(lhs);
-                    }
-
+                Operator::Equals | Operator::Distinct => {
+                    let (lhs_term, rhs_term) = (lhs, rhs);
                     let lhs = Box::new(translate_term(
-                        lhs,
+                        lhs_term,
                         &subs,
                         func_cache,
                         var_map,
                         definition.is_elaborated,
                         &context,
                     )?);
-
-                    if let Some(rhs) =
-                        create_avaliable_premise(rhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(rhs);
-                    }
+                    seed_side(lhs_term, &lhs, &mut rules, func_cache, var_map)?;
                     let rhs = Box::new(translate_term(
-                        rhs,
+                        rhs_term,
                         &subs,
                         func_cache,
                         var_map,
                         definition.is_elaborated,
                         &context,
                     )?);
-
-                    premises.push(EggExpr::Equal(lhs, rhs));
-                }
-
-                Operator::Distinct => {
-                    if let Some(lhs) =
-                        create_avaliable_premise(lhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(lhs);
-                    }
-
-                    let lhs = Box::new(translate_term(
-                        lhs,
-                        &subs,
-                        func_cache,
-                        var_map,
-                        definition.is_elaborated,
-                        &context,
-                    )?);
-
-                    if let Some(rhs) =
-                        create_avaliable_premise(rhs, func_cache, var_map, true, seed, &context)?
-                    {
-                        rules.insert(rhs);
-                    }
-
-                    let rhs = Box::new(translate_term(
-                        rhs,
-                        &subs,
-                        func_cache,
-                        var_map,
-                        definition.is_elaborated,
-                        &context,
-                    )?);
-
-                    premises.push(EggExpr::Distinct(lhs, rhs));
+                    seed_side(rhs_term, &rhs, &mut rules, func_cache, var_map)?;
+                    premises.push(if op == Operator::Equals {
+                        EggExpr::Equal(lhs, rhs)
+                    } else {
+                        EggExpr::Distinct(lhs, rhs)
+                    });
                 }
                 _ => {
                     return Err(format!(
@@ -1238,7 +1235,7 @@ fn construct_rules(
             })
             .map(|(name, _)| name.clone())
             .collect();
-        let variants: Vec<(EggExpr, EggExpr)> = if on_the_set_form {
+        let variants: Vec<(EggExpr, EggExpr, Vec<String>)> = if on_the_set_form {
             Vec::new()
         } else if list_slots.len() <= MAX_LIST_SLOTS {
             (1..(1u32 << list_slots.len()))
@@ -1251,16 +1248,48 @@ fn construct_rules(
                         .collect();
                     let lhs = drop_list_slots(&egg_equations.0, &dropped)?;
                     let rhs = drop_list_slots(&egg_equations.1, &dropped)?;
-                    (lhs != *egg_equations.0).then_some((lhs, rhs))
+                    (lhs != *egg_equations.0).then_some((
+                        lhs,
+                        rhs,
+                        dropped.iter().map(|name| (*name).to_owned()).collect(),
+                    ))
                 })
                 .collect()
         } else {
             Vec::new()
         };
 
+        // The premise instances of a match, seeded from each left-hand side
+        // the rule is emitted with: the rule itself and every variant that
+        // drops list slots, minus the sides that mention a dropped slot.
+        if !lhs_seeded.is_empty() {
+            let root = EggExpr::Literal("__premise_root".to_owned());
+            let mut seed_from = |lhs: &EggExpr, dropped: &[String]| {
+                let heads: Vec<EggExpr> = lhs_seeded
+                    .iter()
+                    .filter(|(vars, _)| !vars.iter().any(|v| dropped.contains(v)))
+                    .map(|(_, head)| head.clone())
+                    .collect();
+                if heads.is_empty() {
+                    return;
+                }
+                let mut body = vec![EggExpr::Equal(Box::new(root.clone()), Box::new(lhs.clone()))];
+                body.extend(guards.iter().cloned());
+                rules.insert(EggStatement::Rule {
+                    ruleset: None,
+                    body,
+                    head: heads,
+                });
+            };
+            seed_from(&egg_equations.0, &[]);
+            for (lhs, _, dropped) in &variants {
+                seed_from(lhs, dropped);
+            }
+        }
+
         let conditional = !premises.is_empty();
         premises.extend(guards.iter().cloned());
-        for (lhs, rhs) in variants {
+        for (lhs, rhs, _) in variants {
             let statement = if !conditional {
                 EggStatement::NamedRewrite {
                     name: format!("rare:{}#{}", definition.name, rules.len()),
@@ -3032,6 +3061,68 @@ mod tests {
         let falsity = pool.add(Term::Op(Operator::False, vec![]));
         let not_truth = pool.add(Term::Op(Operator::Not, vec![truth]));
         pool.add(Term::Op(Operator::Equals, vec![not_truth, falsity]))
+    }
+
+    /// A conditional rule's premise instances are seeded from the matches of
+    /// its left-hand side, not over every combination of available terms.
+    /// The latter made `eq-cond-deq`'s `(= s1 r1)` and the array rules'
+    /// `(= i1 j1)` for every pair of terms, of any sorts, which grew a
+    /// six-literal goal past 2 GB in two rounds.  Every compound premise
+    /// side of `big.rare` is bound by its rule's left-hand side, so no seed
+    /// over available terms alone is left.
+    #[test]
+    fn premise_instances_are_seeded_from_left_hand_side_matches() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let (mut problem_text, mut proof_text, mut rare_text) =
+            (String::new(), String::new(), String::new());
+        let (_, _, database, _) = crate::parser::parse_instance(
+            crate::parser::Source::file(
+                &root.join("tests/rare/elaborate/flat-eq-elim.smt2"),
+                &mut problem_text,
+            )
+            .expect("problem should exist"),
+            crate::parser::Source::file(
+                &root.join("tests/rare/elaborate/flat-eq-elim.smt2.alethe"),
+                &mut proof_text,
+            )
+            .expect("proof should exist"),
+            Some(
+                crate::parser::Source::file(&root.join("tests/rare/big.rare"), &mut rare_text)
+                    .expect("RARE database should exist"),
+            ),
+            crate::parser::Config::default().allow_int_real_subtyping(true),
+        )
+        .expect("the instance should parse");
+        let definitions: Vec<_> = database.rules.values().cloned().collect();
+        let rules = construct_rules(
+            &definitions,
+            &mut EggFunctions::default(),
+            &mut HashMap::new(),
+            false,
+            true,
+            ListEncoding::SetForm,
+        )
+        .expect("the database should compile");
+        let available_only = |fact: &EggExpr| {
+            matches!(fact, EggExpr::Call(name, arguments) if name == "Avaliable" && arguments.len() == 1)
+        };
+        let pair_seeds: Vec<&EggStatement> = rules
+            .iter()
+            .filter(|statement| {
+                matches!(statement, EggStatement::Rule { body, .. }
+                    if body.len() >= 2 && body.iter().all(available_only))
+            })
+            .collect();
+        assert!(pair_seeds.is_empty(), "{pair_seeds:#?}");
+        let root_seed = EggExpr::Literal("__premise_root".to_owned());
+        let lhs_seeds = rules
+            .iter()
+            .filter(|statement| {
+                matches!(statement, EggStatement::Rule { body, .. }
+                    if body.iter().any(|fact| matches!(fact, EggExpr::Equal(lhs, _) if **lhs == root_seed)))
+            })
+            .count();
+        assert!(lhs_seeds > 0, "no premise seeded from a left-hand side");
     }
 
     #[test]
