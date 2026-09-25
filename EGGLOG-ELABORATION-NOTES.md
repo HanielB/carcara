@@ -4975,3 +4975,38 @@ two-`la_generic` recipe the checker accepts (`scratchpad/gcd/p.alethe`,
 `valid`), and the normalizer, contrary to §25's specification, does no
 integer tightening: it scales the relation to `(= (+ x1 x2) 1/3)` and
 stops.
+
+### 47.13 Consolidating with `egglog/bounded-parallel-holes` (2026-09-25)
+
+`main` itself has not moved (`bounded-parallel-holes` is 146 commits
+ahead of it, `rewrite-holes` 167); the trunk of the egglog work is
+`egglog/bounded-parallel-holes` in `wt-tiago`, merge base 873faa0c.  Since
+the base it has four commits, this branch twenty-one (three of them
+merges of it).  Item by item:
+
+| trunk commit | this branch | verdict |
+|---|---|---|
+| 6fa30dbf premise sides seeded per left-hand-side match (`__premise_root`), set-form compilation refuses conditional rules, list-slot variants get their own seeds, test on `big.rare` | d78da84d the same idea two days earlier (`demand_site`): one demand rule per premise at the left-hand side's occurrence, unbound premise variables from the seed relation under their sort guard, no all-pairs seeding left at all; String/RegLan sort relations; strict `relPolyOf` writes removed; saturation stopped on egglog's report; three engine tests | same fix twice, both measured (trunk: 56 to 6 kept on 23 local proofs; here: rw1 to rw2 on 7,381).  Keep `demand_site`; port the two things it lacks, demand rules for the list-slot variants and the set-form refusal of conditional rules, and their test renamed |
+| 173e122d the set-form element collection requires an `Mk` head (`aci_norm.rs`) | c1b8f298 reconstruction of set-form steps (`ListRule` edges) and the `bool-*` flatten/absorb/dup rules | complementary: the trunk fixes the e-graph's set of a derived `and`, this branch the certificate for a set-form step, which §50 lists as its open caveat.  Take both |
+| 638711fe `big.rare` without the 80 bit-vector and string rules (161 to 81) | `big.rare` plus the eight `bool-*` rules (169) | take both: 89 rules, `holes.rare` already is that file.  The String/RegLan guards of d78da84d then guard nothing in the test database and stay |
+| 141a6cbe `abstractable_size` memo fix in `abstraction.rs` | untouched here | take as is |
+
+Nothing in the trunk's four commits is absent from or better than this
+branch except the three details above; nothing of this branch's
+reconstruction, elaborator, prepass and search work (fedf0b31) exists on
+the trunk.  A dry-run merge conflicts in `engine.rs` (the two seedings),
+`big.rare` (deletion against appended rules) and the notes (§50 against
+§47.9–§47.12); `tests/mod.rs` and `abstraction.rs` merge clean.
+
+Plan: (1) merge `bounded-parallel-holes` into `rewrite-holes` resolving
+`engine.rs` for `demand_site`, `big.rare` as the 89-rule file, the notes
+by keeping both sections; (2) port the variant demand rules and the
+set-form refusal, adapt `premise_instances_are_seeded_from_left_hand_side_matches`
+to `demand_site`; (3) `cargo test --lib` (286 + the trunk's 3 new tests)
+and the five-sample local batch plus `tta_startup 6nodes` (§50's six
+holes) as the regression gate; (4) fast-forward `bounded-parallel-holes`
+to the result and have the other session rebase its worktree onto it, or
+retire that branch name; (5) the static binary and `rw3`.  Later, a
+squash onto `main` is a separate decision: the branch carries the
+`EGGLOG-*` notes and the `tests/rare/elaborate` fixtures, which belong,
+and the demo/scratch files of the worktree, which do not.
