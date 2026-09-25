@@ -1,0 +1,6 @@
+(set-logic QF_LIA)
+(declare-const r Int)
+(declare-const e Bool)
+(assert (and e (= 0 r)))
+(assert (not (and e (<= 0 r) (<= r 0))))
+(check-sat)

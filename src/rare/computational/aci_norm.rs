@@ -127,15 +127,24 @@ pub fn aci_rules(
 /// round runs: they are declared with the program, so declaring them is cheap
 /// and happens once, and they fire only when the `aciSets` goal fallback
 /// saturates that ruleset.
+///
+/// A chain's head must be a genuine element, `(Mk h)`.  Args-associativity
+/// puts `(Args (Args a b) tail)` in the class of `(Args a (Args b tail))`, and
+/// an unguarded head binds the pair `(Args a b)` there, which collected the
+/// pair as one element; `elementsOf` keeps the first value it gets, so the
+/// set of a derived `and` could come out as `{(Args a b)}` and its
+/// flattening as `{x, (Args a b)}`, equal to nothing.  With the guard every
+/// decomposition that completes is a right-nested chain of elements, and all
+/// of them give the same set.
 pub fn general_set_conversion(operators: &[&str]) -> Vec<EggStatement> {
     let mut text = String::from(
         "(function elementsOf (Term) AssocArgs :merge old)
 (relation elementsOfDemand (Term))
 (rule ((elementsOfDemand (Empty)))
       ((set (elementsOf (Empty)) (set-empty))) :ruleset set-ruleset)
-(rule ((elementsOfDemand (Args head tail)))
+(rule ((elementsOfDemand (Args head tail)) (= head (Mk element)))
       ((elementsOfDemand tail)) :ruleset set-ruleset)
-(rule ((elementsOfDemand (Args head tail)) (= (elementsOf tail) rest))
+(rule ((elementsOfDemand (Args head tail)) (= head (Mk element)) (= (elementsOf tail) rest))
       ((set (elementsOf (Args head tail)) (set-insert rest head))) :ruleset set-ruleset)
 ",
     );

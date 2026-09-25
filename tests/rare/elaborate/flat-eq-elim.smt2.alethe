@@ -1,0 +1,7 @@
+(assume a0 (and e (= 0 r)))
+(assume a1 (not (and e (<= 0 r) (<= r 0))))
+(step t1 (cl (= (and e (= 0 r)) (and e (<= 0 r) (<= r 0)))) :rule hole :args ("TRUST_THEORY_REWRITE" "la_rw_eq"))
+(step t2 (cl (= (and e (= 0 r)) (and e (>= r 0) (<= r 0)))) :rule hole :args ("TRUST_THEORY_REWRITE" "la_rw_eq"))
+(step t3 (cl (= (and e (= r 0)) (and e (<= 0 r) (<= r 0)))) :rule hole :args ("TRUST_THEORY_REWRITE" "la_rw_eq"))
+(step t4 (cl (not (= (and e (= 0 r)) (and e (<= 0 r) (<= r 0)))) (not (and e (= 0 r))) (and e (<= 0 r) (<= r 0))) :rule equiv_pos2)
+(step t5 (cl) :rule resolution :premises (t4 t1 a0 a1))
