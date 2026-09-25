@@ -786,6 +786,13 @@ impl Reconstructor<'_> {
         if !self.congruence_compatible(lhs, rhs) || lhs == rhs {
             return None;
         }
+        // Two wrapped members of a class always pass the wrapper's test;
+        // below it the applications must share a head, or the child
+        // obligation is between an `and` and an equality and nothing
+        // justifies it.
+        if !self.inner_congruence_compatible(lhs, rhs) {
+            return None;
+        }
 
         let mut current = lhs.clone();
         let mut steps = Vec::new();
@@ -955,11 +962,58 @@ impl Reconstructor<'_> {
         // still has to be routed into `poly_simp_rel` steps and may end up
         // trusted.
         self.prove_by_list_rule(source, target)
+            .or_else(|| self.prove_by_computation(source, target))
             .or_else(|| self.prove_by_congruence(source, target))
             .or_else(|| self.prove_by_transitivity(source, target, eclass))
             .or_else(|| self.prove_by_aci(source, target))
             .or_else(|| self.prove_by_arith(source, target))
             .or_else(|| self.prove_by_aci_modulo(source, target))
+    }
+
+    /// One step of a computation the checker re-decides exactly
+    /// (evaluation, ACI normalization, a complementary pair, `distinct`):
+    /// before the congruence and the search, so a goal the checker decides
+    /// in one native step is stated that way rather than through the rule
+    /// the e-graph happened to fire.  (The arithmetic normalizations stay
+    /// with `prove_by_arith`, after the rule search: they may end up
+    /// trusted.)
+    pub fn prove_by_computation(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        for kind in COMPUTATIONS {
+            if matches!(kind, Computation::ArithPolyNorm | Computation::ArithPolyNormRel) {
+                continue;
+            }
+            let Some(result) = kind.apply(source) else {
+                continue;
+            };
+            if result == *target || wrapped(&result) == wrapped(target) {
+                self.stats.computational_edges += 1;
+                return Some(Certificate::Computational {
+                    kind,
+                    lhs: source.clone(),
+                    rhs: target.clone(),
+                });
+            }
+            // A constant fold that lands on the target's own evaluation: the
+            // target is a literal the engine spells differently (`1.0`
+            // against its rational form), and the two evaluations meet.
+            if kind == Computation::Evaluation
+                && kind.apply(target).is_some_and(|folded| folded == result)
+            {
+                self.stats.computational_edges += 2;
+                let first = Certificate::Computational {
+                    kind,
+                    lhs: source.clone(),
+                    rhs: result.clone(),
+                };
+                let second = reverse(Certificate::Computational {
+                    kind,
+                    lhs: target.clone(),
+                    rhs: result.clone(),
+                });
+                return Some(chain(source.clone(), vec![first, second]));
+            }
+        }
+        None
     }
 
     /// A rule whose `:list` parameters stand for segments of an n-ary
@@ -1519,6 +1573,13 @@ impl Reconstructor<'_> {
             Vec::new()
         };
         for position in positions {
+            // Not the application itself: the wrapper with its application
+            // replaced by a constant is a congruence between two heads,
+            // which no child proof justifies; the computations on the
+            // vertex state that step when it holds.
+            if position.len() < 2 {
+                continue;
+            }
             let subterm = at_position(vertex, &position);
             let Some(class) = self.class_of(subterm) else {
                 continue;
@@ -1541,6 +1602,40 @@ impl Reconstructor<'_> {
                 self.stats.candidate_vertices += 1;
             }
             edges.push((candidate, CandidateEdge::Congruence));
+        }
+        // And every constant-valued subterm replaced at once (outermost
+        // positions only): a conjunction of a dozen reflexive equalities
+        // and `true`s is one congruence, whose child obligations are the
+        // dozen one-step proofs, and then one `aci_simp`, rather than a
+        // dozen levels of the search.
+        if vertex.op == "Mk" {
+            let mut candidate = vertex.clone();
+            let mut replaced: Vec<Vec<usize>> = Vec::new();
+            for position in subterm_positions(vertex) {
+                // Not the application itself: that is the single-position
+                // candidate above, and would shadow every element.
+                if position.len() < 2 || replaced.iter().any(|done| position.starts_with(done)) {
+                    continue;
+                }
+                let subterm = at_position(vertex, &position);
+                let Some(class) = self.class_of(subterm) else {
+                    continue;
+                };
+                let Some(constant) = self.class_constant(class, CONSTANT_DEPTH) else {
+                    continue;
+                };
+                if constant == *subterm || self.circular(subterm, &constant) {
+                    continue;
+                }
+                candidate = replace_at_position(&candidate, &position, &constant);
+                replaced.push(position);
+            }
+            if replaced.len() >= 2 && !edges.iter().any(|(neighbour, _)| *neighbour == candidate) {
+                if graph.discovered.insert(candidate.clone()) {
+                    self.stats.candidate_vertices += 1;
+                }
+                edges.push((candidate, CandidateEdge::Congruence));
+            }
         }
         for goal in [&graph.source, &graph.target] {
             if *goal == *vertex {
@@ -1570,29 +1665,33 @@ impl Reconstructor<'_> {
             } else if let Some(kind) = arith_kind(vertex, goal, self.sorts) {
                 self.stats.computational_edges += 1;
                 edges.push((goal.clone(), CandidateEdge::Computational { kind }));
-            } else if self.congruence_compatible(vertex, goal)
+            } else if self.inner_congruence_compatible(vertex, goal)
                 && !self.circular_congruence(vertex, goal)
             {
+                // Below the wrapper too: two wrapped members of a class
+                // always pass the wrapper's test, whatever their heads, and
+                // a congruence between an `and` and an equality is an
+                // obligation nothing justifies.
                 edges.push((goal.clone(), CandidateEdge::Congruence));
             }
         }
         edges.retain(|(neighbour, _)| !graph.banned.contains(&(vertex.clone(), neighbour.clone())));
-        // One edge per neighbour, the most replayable kind: the search keeps
-        // the first edge it meets to a vertex, and a failed edge bans the
-        // pair, so a congruence towards the goal found before the list rule
-        // towards the same goal took both down -- `(and ... false ...) = F`
-        // by `bool-and-false` was never tried.
-        let rank = |edge: &CandidateEdge| match edge {
-            CandidateEdge::Rule { .. } => 0,
-            CandidateEdge::ListRule { .. } => 1,
-            CandidateEdge::Computational { .. } => 2,
-            CandidateEdge::AciModulo => 3,
-            CandidateEdge::Congruence => 4,
-        };
+        // One edge per neighbour: the search keeps the first edge it meets
+        // to a vertex, and a failed edge bans the pair, so a congruence
+        // towards the goal found before the list rule towards the same goal
+        // took both down -- `(and ... false ...) = F` by `bool-and-false`
+        // was never tried.  A congruence is dropped in favour of any other
+        // edge to the same neighbour; among the others the first found
+        // stays, in the order above (rules, computations, list rules).
         let mut best: Vec<(Term, CandidateEdge)> = Vec::with_capacity(edges.len());
         for (neighbour, edge) in edges {
             match best.iter_mut().find(|(seen, _)| *seen == neighbour) {
-                Some((_, kept)) if rank(&edge) < rank(kept) => *kept = edge,
+                Some((_, kept))
+                    if matches!(kept, CandidateEdge::Congruence)
+                        && !matches!(edge, CandidateEdge::Congruence) =>
+                {
+                    *kept = edge;
+                }
                 Some(_) => {}
                 None => best.push((neighbour, edge)),
             }

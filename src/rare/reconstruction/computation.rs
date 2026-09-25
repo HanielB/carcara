@@ -110,7 +110,8 @@ pub fn aci_equal(lhs: &Term, rhs: &Term) -> bool {
     flatten_aci(rhs, operator, identity, &mut right);
     let left: HashSet<_> = left.into_iter().collect();
     let right: HashSet<_> = right.into_iter().collect();
-    !left.is_empty() && left == right
+    // Both empty: each side is the identity (`(and true true)` and `true`).
+    left == right
 }
 
 // ---------------------------------------------------------------------
@@ -607,6 +608,11 @@ impl Computation {
             // elimination (identity as the second element, as the rule has
             // it).
             Self::AciComplement => aci_complement(term),
+            // The checker's `aci_simp` in full: nested applications of the
+            // operator flattened, identity elements dropped, duplicates
+            // dropped, a single element left standing on its own.  One
+            // step for a conjunction of many `true`s and repeated literals
+            // rather than one per element.
             Self::AciNorm => {
                 let (operator, elements) = encoded_application(term)?;
                 let identity = match operator {
@@ -614,12 +620,19 @@ impl Computation {
                     "@or" => false,
                     _ => return None,
                 };
-                match elements.as_slice() {
-                    [x] if x.op == "Mk" => Some(x.clone()),
-                    [x, y] if x == y && x.op == "Mk" => Some(x.clone()),
-                    [x, y] if x.op == "Mk" && bool_value(y) == Some(identity) => Some(x.clone()),
-                    _ => None,
+                if elements.iter().any(|element| element.op != "Mk") {
+                    return None;
                 }
+                let mut literals = Vec::new();
+                flatten_aci(term, operator, identity, &mut literals);
+                let mut seen = HashSet::new();
+                literals.retain(|literal| seen.insert(literal.clone()));
+                let normal = match literals.as_slice() {
+                    [] => encoded_bool(identity),
+                    [x] => x.clone(),
+                    _ => encoded_app(operator, literals),
+                };
+                (normal != *term).then_some(normal)
             }
         }
     }

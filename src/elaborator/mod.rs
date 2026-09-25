@@ -566,10 +566,10 @@ impl<'e> Elaborator<'e> {
             // a hole whose normalized goal is not reconstructed is retried as
             // it stands, since a normal form is a different term from the
             // ones the rules were compiled around and the search may replay
-            // less on it.  Unless `hole_prenormalize_rewrite_all`, a normal form
-            // larger than the goal that no other goal reaches is not tried at
-            // all: it never proved a hole the stated goal did not, and in
-            // elaboration it would cost the extra child run of the retry.
+            // less on it.  In the checking pass, unless
+            // `hole_prenormalize_rewrite_all`, a normal form larger than the
+            // goal that no other goal reaches is not handed over: it never
+            // proved a hole the stated goal did not.
             for (index, conclusion, normal, lhs, rhs) in changed {
                 let goal_size = term_dag_size(&conclusion);
                 let normal_size = term_dag_size(&normal);
@@ -577,7 +577,15 @@ impl<'e> Elaborator<'e> {
                     .get(&(pointer(&normal), context_of(&holes[index].0)))
                     .map_or(1, |goals| goals.len());
                 let step = &mut holes[index].1;
-                if !self.config.hole_prenormalize_rewrite_all
+                // The size rule is the checking pass's: there the normal
+                // form replaces the goal, and a larger one never proved a
+                // hole the stated goal did not.  The elaboration pass tries
+                // the normal form first and the stated goal on a failure,
+                // and a larger normal form can be the reconstructable one --
+                // `(<= p p)` inside a disjunction is closed by the
+                // normalizer and has no rule for the search.
+                if self.config.hole_check_only
+                    && !self.config.hole_prenormalize_rewrite_all
                     && normal_size > goal_size
                     && sharing < 2
                 {
