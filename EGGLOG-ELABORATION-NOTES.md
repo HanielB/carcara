@@ -4955,3 +4955,23 @@ candidate replace levels of search.  Regression fixtures:
 rest).  Left: the arithmetic chains of Dartagnan, the hole-heavy QF_LRA
 families (egglog time, not the search), the integer infeasibility of
 §47.7.
+
+### 47.12 The `rw2` report (2026-09-25)
+
+`EGGLOG-RW2-REPORT.md` reads the run on its own terms (yield, cost,
+residue by class and family, the state of the tooling at fedf0b31) and
+plans the three open directions.  Two corrections to §47.10–§47.11 it
+makes: the SMPT 84 and rings 216 `worker-error` holes are egglog `Check
+failed` verdicts (goals egglog could not prove as stated), not decode
+failures -- the decode class is 46 holes in all, 42 of them Dartagnan;
+and 294 QF_LIA proofs that are fully justified with no untagged hole
+re-check `holey` on the `arith_poly_norm_rel` trust steps the elaborator
+emits when the relation routing does not cover an obligation.  New
+facts from the local replays behind the plans: `sc-5.base.cvc` (415
+holes) keeps 14 under fedf0b31 -- 7 goals of 59 nodes egglog cannot
+prove, 5 of 114 nodes it does not finish in 60 s, 2 without certificate;
+the integer infeasibility `(= (+ (* 3 x1) (* 3 x2)) 1) = false` has a
+two-`la_generic` recipe the checker accepts (`scratchpad/gcd/p.alethe`,
+`valid`), and the normalizer, contrary to §25's specification, does no
+integer tightening: it scales the relation to `(= (+ x1 x2) 1/3)` and
+stops.
