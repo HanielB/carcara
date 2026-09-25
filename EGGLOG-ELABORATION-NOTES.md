@@ -4316,3 +4316,106 @@ the runs made before this change (`enc4`, `vb50-2`, `vnob-2`, `rw1`).  On
 `fixnet-1000` the default keeps all 500 open holes as stated and the
 opt-out rewrites all 500, verdicts identical.
 
+
+## 50. The set-form anomaly and the `ite` residue, resolved in the engine (2026-09-25)
+
+Items 11 and 12 of the list that produced `VERIT-PLAN.md`, done after the
+normal-form rule (§49) and the smallest-first schedule (§48).  All
+measurements local, one run at a time; scripts in `scratchpad/micro/`
+(`micro.py` builds one-hole proofs), `scratchpad/guard/`,
+`scratchpad/seed91/` and `scratchpad/tta6/`.
+
+**Item 11: the flattening anomaly was a set-form bug** (`173e122d`).
+`(and e (= 0 r))` against `(and e (<= 0 r) (<= r 0))` ran to the budget
+while the nested form proved at once (§43).  Queried in the live e-graph
+after the first round: both rewrites had fired and the right side's set
+form existed, but the left side's flattened set did not, because the set
+of the `and` that `arith-eq-elim-int` made held the *pair*
+`(Args a b)` as one element.  Args-associativity keeps
+`(Args (Args a b) tail)` in the class of `(Args a (Args b tail))`; the
+element collection matched `(Args head tail)` with `head` unguarded and
+`elementsOf` keeps its first value.  The per-call conversions already
+required `head` to be an `Mk` term; the general conversion now does too.
+The anomaly had been masked in the experiment file since 2026-09-24 by
+the `bool-and-flatten` rule another session added; on the 161-rule base
+it reproduced exactly.  Twenty-three proofs, interleaved: verdicts
+identical, Boolean-heavy veriT proofs faster (`repgen006` 351 s to 113 s).
+
+**The rule files lose bit-vectors and strings** (`638711fe`).  The
+evaluation is QF_UF, QF_LIA and QF_LRA; the 80 rules over bit-vectors and
+strings (50 `bv-`, 14 `str-`, 14 `re-`, 2 `uf-int2bv-`) could only fire on
+terms their own premise seeds manufactured.  `tests/rare/big.rare` goes
+from 161 to 81 rules; the experiment file `~/exp/egglog-holes/holes.rare`,
+outside the repository, from 171 to 91 (the old one is kept as
+`holes-171-with-bv-str.rare.bak`).  The fixed cost of a hole roughly
+halves (0.10 s to 0.05 s on one-hole proofs).  Every measurement before
+this point used the larger files.
+
+**Item 12: the `ite` residue was premise seeding** (`6fa30dbf`).  The
+residue of the cvc5 `tta_startup` proofs under the default normalizer was
+seven memory kills, one of them `(= (ite A B false) (and A B))` over two
+ten-literal conjunctions.  Its six-literal version, with the right side
+flattened as the normalizer hands it over, proves in 0.1 s unnormalized
+(the first check succeeds) and died past 2 GB normalized.  egglog's per-
+rule report showed why: the first iteration was dominated by seed rules
+`(rule ((Avaliable x1) (Avaliable y1)) ((Mk (@= x1 y1))))`, 361 matches
+each over 19 goal terms, building premise terms of conditional rules for
+every pair of available terms, whatever their sorts (string and
+bit-vector ones over Booleans and reals included).  When the first check
+fails, the fallback plans run another iteration over all of them, and
+the pairs grow with the terms.  The trimmed rule file alone does not fix
+it: `eq-cond-deq`'s `(= s1 r1)` and the array rules' `(= i1 j1)` are still
+pair seeds.  Seeding a premise side from the matches of the rule's
+left-hand side, under its sort guards, does; the old seeding stays for a
+side with a variable the left-hand side does not bind (none in the
+current database).  The set-form compilation, which drops premises, now
+refuses conditional rules (none were affected).
+
+On the 23 proofs, interleaved per proof on the 91-rule file:
+
+| | holes not proved | pass seconds |
+|---|---|---|
+| old seeding | 56 | 903 |
+| new seeding | **6** | **475** |
+
+All 50 verdict changes go from kept to proved.  By group: veriT QF_UF 49
+kept in 278 s to none in 13 s; cvc5 QF_LRA 413 s to 296 s (per hole 0.83);
+cvc5 QF_UF the same; cvc5 QF_LIA 6% slower per hole, the one cost found.
+With the 171-rule file the new seeding had cost cvc5's QF_UF holes about
+10% more; that cost went with the bit-vector and string rules, most likely
+`str-eq-len-false`, whose left-hand side `(= x1 y1)` matches every
+equality and seeded a string term for each.
+
+**The last six: shared-subterm abstraction had a bug** (this commit).
+The six holes left, all in `tta_startup 6nodes`, were sliced out and run
+alone (`carcara slice --from`; its two output files come out swapped
+relative to the help text).  Four are a one-step rewrite at the top of
+two sides sharing an `ite` whose condition has hundreds of nodes, e.g.
+`(= (< (ite C 4.0 6.0) 4.0) (not (>= (ite C 4.0 6.0) 4.0)))`; egglog
+rewrites all of `C` and dies.  `--hole-abstract-shared` exists for exactly
+this and found nothing above four nodes: `abstractable_size` memoized a
+variable or constant as `None` (not abstractable by itself), and at its
+second occurrence returned that `None` as its size, so any term in which
+a variable or constant occurs twice was never abstracted.  It may also be
+why §45 saw it fire on `calypto` but not on Dartagnan, where the shared
+parts it found were three-node atoms; not re-measured.  The memo now
+keeps sizes.
+
+| hole | before | fixed abstraction (16 nodes), with or without the normalizer |
+|---|---|---|
+| `t6699`, `t6710`, `t6891` | memory kill, 38-41 s | proved, 0.2 s |
+| `t17932.t21` | memory kill, 34 s | proved, 0.07 s |
+| `t17932.t16`, `t17964` | memory kill, 34 s | memory kill, 13-21 s |
+
+The two left are `(= X true)` with `X` a formula of 535 and 666 distinct
+subterms, 24 equality atoms under nested `ite`s, that cvc5's rewriter
+found valid in one step; nothing is shared, so nothing is abstracted, and
+egglog has to rewrite the whole formula.  Abstraction is off by default;
+the cluster runner `run-holes-rw.sh` passes 16.
+
+**Caveats.**  The seeding regression has no unchanged-goal control, so the
+6% QF_LIA figure is within what drift has produced before (§49).  The
+elaboration pass was not measured on any of this: with the 161-rule base,
+egglog now proves the flattening goals but the certificate search finds
+no certificate for the set-form flattening; with the experiment file it
+cites `bool-and-flatten` and re-checks valid.
