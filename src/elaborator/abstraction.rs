@@ -31,10 +31,13 @@ pub struct Abstraction {
 /// instantiated before it is inserted.
 const PREFIX: &str = "@abs_";
 
-/// The node count of a term that may be abstracted, or `None` for one that
-/// may not: a variable or constant (nothing to gain), or a term with a
-/// binder or `let` inside (the substitution and the child's declarations
-/// are for closed first-order terms).
+/// The node count of a term, or `None` for one with a binder or `let`
+/// inside (the substitution and the child's declarations are for closed
+/// first-order terms).  A variable or constant counts as one node; that it
+/// is never abstracted by itself is the caller's rule, not a size, so the
+/// memo keeps sizes only: it used to keep a leaf as `None`, and a second
+/// occurrence of any variable or constant then made every term above it
+/// non-abstractable.
 fn abstractable_size(term: &Rc<Term>, memo: &mut HashMap<Rc<Term>, Option<usize>>) -> Option<usize> {
     if let Some(known) = memo.get(term) {
         return *known;
@@ -42,32 +45,31 @@ fn abstractable_size(term: &Rc<Term>, memo: &mut HashMap<Rc<Term>, Option<usize>
     let size = match term.as_ref() {
         Term::Op(_, args) => {
             let mut total = 1;
+            let mut closed = true;
             for arg in args {
-                total += abstractable_size(arg, memo)?;
+                match abstractable_size(arg, memo) {
+                    Some(size) => total += size,
+                    None => closed = false,
+                }
             }
-            Some(total)
+            closed.then_some(total)
         }
         Term::App(function, args) => {
             let mut total = 1 + abstractable_size(function, memo).unwrap_or(1);
+            let mut closed = true;
             for arg in args {
-                total += abstractable_size(arg, memo)?;
+                match abstractable_size(arg, memo) {
+                    Some(size) => total += size,
+                    None => closed = false,
+                }
             }
-            Some(total)
+            closed.then_some(total)
         }
         Term::Var(..) | Term::Const(_) => Some(1),
         _ => None,
     };
-    // A variable or constant is never abstracted, but counts as one node
-    // inside a term that is.
-    let eligible = match term.as_ref() {
-        Term::Var(..) | Term::Const(_) => None,
-        _ => size,
-    };
-    memo.insert(term.clone(), eligible);
-    if let Term::Var(..) | Term::Const(_) = term.as_ref() {
-        return Some(1);
-    }
-    eligible
+    memo.insert(term.clone(), size);
+    size
 }
 
 /// The maximal subterms of `side` that also occur in `other`, top-down, each
@@ -247,6 +249,31 @@ mod tests {
         let goal = pool.add(Term::Op(Operator::Equals, vec![not_not, conj]));
         assert!(abstract_shared(&mut pool, &goal, 10).is_none());
         assert!(abstract_shared(&mut pool, &goal, 3).is_some());
+    }
+
+    /// A shared subterm in which a variable occurs twice is abstracted like
+    /// any other: `(ite (and (>= x 1) (<= x 2)) 4.0 6.0)` on both sides of
+    /// `(= (< t 4.0) (not (>= t 4.0)))` becomes one constant.
+    #[test]
+    fn a_shared_subterm_with_a_repeated_variable_is_abstracted_whole() {
+        let mut pool = PrimitivePool::new();
+        let real = pool.add_sort(Sort::Real);
+        let x = pool.add(Term::Var("x".to_owned(), real));
+        let one = pool.add(Term::new_real(rug::Rational::from(1)));
+        let two = pool.add(Term::new_real(rug::Rational::from(2)));
+        let four = pool.add(Term::new_real(rug::Rational::from(4)));
+        let six = pool.add(Term::new_real(rug::Rational::from(6)));
+        let lower = pool.add(Term::Op(Operator::GreaterEq, vec![x.clone(), one]));
+        let upper = pool.add(Term::Op(Operator::LessEq, vec![x, two]));
+        let condition = pool.add(Term::Op(Operator::And, vec![lower, upper]));
+        let ite = pool.add(Term::Op(Operator::Ite, vec![condition, four.clone(), six]));
+        let less = pool.add(Term::Op(Operator::LessThan, vec![ite.clone(), four.clone()]));
+        let geq = pool.add(Term::Op(Operator::GreaterEq, vec![ite, four]));
+        let not_geq = pool.add(Term::Op(Operator::Not, vec![geq]));
+        let goal = pool.add(Term::Op(Operator::Equals, vec![less, not_geq]));
+        let abstraction = abstract_shared(&mut pool, &goal, 4).expect("the ite is shared");
+        assert_eq!(abstraction.bindings.len(), 1, "{:#}", abstraction.goal);
+        assert_eq!(format!("{:#}", abstraction.goal), "(= (< @abs_0 4.0) (not (>= @abs_0 4.0)))");
     }
 
     #[test]
