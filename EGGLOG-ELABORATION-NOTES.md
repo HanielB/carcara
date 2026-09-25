@@ -5112,3 +5112,16 @@ elaboration pass was not measured on any of this: with the 161-rule base,
 egglog now proves the flattening goals but the certificate search finds
 no certificate for the set-form flattening; with the experiment file it
 cites `bool-and-flatten` and re-checks valid.
+
+**Applied (2026-09-25, merge 1124ff62).**  Steps 1–4 done: `engine.rs`
+keeps `demand_site` and gains the per-variant demand rules with the rule's
+sort guards and the set-form refusal of conditional rules; the trunk's
+seeding test runs against `demand_site`; `big.rare` is 89 rules (the
+trunk's 81 plus the eight `bool-*`), `holes.rare` unchanged at 91.
+`cargo test --lib` 290 passed.  Gates: the six `tta_startup 6nodes` holes
+of §50 behave as recorded (four proved in 0.1–0.3 s, `t17932.t16` and
+`t17964` memory kills at 20 s and 16 s); the five samples of §47.11 keep
+their justified counts (195, 126, 272, 140, 349), `clocksynchro` 65 s to
+48 s, the rest unchanged.  `egglog/bounded-parallel-holes` is
+fast-forwarded to 1124ff62 in `wt-tiago` (clean at the time); the static
+binary is rebuilt at 1124ff62.  Step 5, `rw3`, needs a staged proposal.
