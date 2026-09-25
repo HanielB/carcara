@@ -2401,10 +2401,14 @@ pub fn residue_class(reason: &str) -> &'static str {
         "hole-time"
     } else if reason.contains("no certificate found") {
         "no-certificate"
-    } else if reason.contains("rejected") {
+    } else if reason.contains("rejected") || reason.contains("checking the reconstructed steps") {
         "checker-rejected"
-    } else if reason.contains("egglog check for") {
+    } else if reason.contains("egglog check for") || reason.contains("Check failed") {
+        // The worker's tail carries egglog's own `Check failed` for a goal
+        // it could not prove; the runner tallied that as a worker error.
         "unproved"
+    } else if reason.contains("failed to decode") {
+        "decode-failed"
     } else if reason.contains("killed by signal 6") || reason.contains("killed by signal 9") {
         "memory"
     } else if reason.contains("killed by signal") {
