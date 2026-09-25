@@ -5129,3 +5129,78 @@ their justified counts (195, 126, 272, 140, 349), `clocksynchro` 65 s to
 48 s, the rest unchanged.  `egglog/bounded-parallel-holes` is
 fast-forwarded to 1124ff62 in `wt-tiago` (clean at the time); the static
 binary is rebuilt at 1124ff62.  Step 5, `rw3`, needs a staged proposal.
+
+### 47.14 Integer tightening, relation orientation, and the structural descent (2026-09-25)
+
+Three changes, the first two in the normalizer's `relation_step`
+(`prenorm.rs`), the third in the hole worker (`rare_hole.rs`); the report's
+§7 planned the first and the third, the second is what the third found.
+
+**Integer tightening.**  Over Int, a relation whose scaled bound is not an
+integer is rounded (`>=` up, `<=` down) or decided (`=` is `false`), and a
+strict relation becomes the non-strict one of the adjacent integer.  The
+certificate is a `la_generic` pair through the `equiv_neg` tautologies
+(the `emit_bound_flip` recipe, with the scale as the stated relation's
+coefficient); a decided equality refutes the helper bound `(>= P ceil b)`
+both ways and states `(= from false)` by `equiv_simplify` and `equiv2`.
+`la_generic`'s integer strengthening does the rounding.  Fourteen
+`certificates_check` cases, among them `(= (+ (* 3 x) (* 3 y)) 1)` to
+`false` and `(and (> x 2) (< x 4))` to `(= x 3)` through the fold;
+fixture `int-tighten` closes a hole with both shapes in the normalizer and
+re-checks `valid`.  The specification of §25 said this was there; it was
+not.
+
+**Relation orientation.**  `<=` and `<` are the `>=` and `>` of the
+negated difference, certified by the same `la_generic` pair when a
+relation is mirrored (`poly_simp_rel` keeps the symbol and stays for the
+rest).  This is §37's proposal, done in the normalizer with a core rule
+rather than `comp_simplify`.  The `la_rw_eq` fold pairs bounds by
+polynomial and is orientation-agnostic.  What it does not reach: a
+negated relation, `(not (>= x 2))` for `(<= x 1)`, which is cvc5's
+`>=`-only normal form over Int; the normalizer does not look through
+`not`.
+
+**Structural descent** (`--rare-descend-min-nodes N`, option
+`descend_min_nodes`, passed to the child).  A goal of at least `N` nodes
+whose sides share a Boolean skeleton (`and`, `or`, `not`, `=>`, `xor`, an
+`ite` or `=` over Booleans) is proved by `cong` from its argument pairs,
+recursively; a pair the skeleton does not share is a goal of its own,
+`{id}.d{n}`, through egglog, the snapshot, the search and the elaboration,
+under the hole's remaining budget.  Under `and`/`or` the arguments are
+matched, not paired by position (the normal forms order them by address):
+identical ones first, the rest by the leaves they share, with an
+`aci_simp` step on each side around the `cong`.  `(= (= a b) (= b a))`
+is `eq_symmetric`.  The whole goal is the fallback when a pair fails.
+The checking pass has the same descent (`check_by_descent`), each pair an
+egglog check.  The child reports `phase descent=<pairs>` on success and
+`descent-failed=<seconds>` on a fallback, which the parent's phases line
+carries.  Fixture `descent`: two atom pairs under an `and`/`or` skeleton,
+`.d1`/`.d2` steps, `valid`.
+
+**Measured** (four workers, the run's options, `--rare-descend-min-nodes
+32` where said):
+
+| proof | before (merge 1124ff62) | tightening | + orientation | + descent |
+|---|---|---|---|---|
+| `sc-5.base.cvc` (415) | 399, 445 s | 399, 439 s | **413, 11 s** | 413, 10 s (22 descents, 0 failed) |
+| Dartagnan `benchmark20_conjunctive` (231) | 200 | 201 | 201 | 202 (15 descents, 32 failed) |
+| `int_incompleteness1` | unproved | closed by the normalizer, `valid` | | |
+| five samples (195/126/272/140/349) | | | unchanged | unchanged, 45 descents, 2 failed |
+
+The orientation is the `sc` fix: 214 of 415 holes close in the normalizer
+(139 before) and every normal form handed to egglog proves; the two left
+are `no-certificate`.  The descent found it: run at debug on `sc-5`, its
+fifteen failed pairs were all one atom, `(<= (+ x (* -1 (ite (<= (+ (* -1
+a) b) 0) b a))) 0)` against `(>= (+ (* -1 x) (ite (>= (+ a (* -1 b)) 0) b
+a)) 0)`, the §37 mirror with the `ite` condition mirrored the same way.
+On Dartagnan its 28 failed pairs are all `no-certificate` on `and` blocks
+whose arity differs between the sides: `(and (= x 1) ...)` against
+`(and (not (>= x 2)) (>= x 1) ...)`, cvc5's negated `>=` form, which the
+normalizer does not orient and the fold therefore does not close.  That
+is the next normalizer item, `(not (>= P c))` to `(< P c)` and then the
+tightening, certified the same way once the double negation is handled.
+Caveat: before the orientation, `sc-5` with the descent had five memory
+kills where the plain run had none, the sub-goal e-graphs of one worker
+accumulating address space; with the orientation the kills are gone, but
+a descent over many heavy pairs still runs them in one process.
+`cargo test --lib`: 292.

@@ -1,0 +1,7 @@
+(set-logic QF_LIA)
+(declare-const x1 Int)
+(declare-const x2 Int)
+(declare-const y Int)
+(declare-const p Bool)
+(assert (not (= (or p (= (+ (* 3 x1) (* 3 x2)) 1) (> y 2)) (or p (>= y 3)))))
+(check-sat)

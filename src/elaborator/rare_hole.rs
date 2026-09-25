@@ -1104,6 +1104,14 @@ pub fn reconstruct_from_input(
         if replaced > 0 {
             eprintln!("substituted {replaced} normal forms into the goal");
         }
+        // The structural descent checks the atom pairs of a shared Boolean
+        // skeleton one by one; the whole goal is the fallback.  The normal
+        // forms are exported from the whole goal's e-graph only.
+        if !export_normal_forms {
+            if let Some(verdict) = check_by_descent(&mut pool, &node, &goal, &database, options, phase) {
+                return verdict.map(|()| Vec::new());
+            }
+        }
         return check_hole_exporting(
             &mut pool,
             &node,
@@ -1579,6 +1587,10 @@ fn run_hole_worker_inner(
         arguments.push("--memory-soft-cap".into());
         arguments.push(options.memory_soft_cap_mb.to_string().into());
     }
+    if options.descend_min_nodes > 0 {
+        arguments.push("--descend-min-nodes".into());
+        arguments.push(options.descend_min_nodes.to_string().into());
+    }
     if check_only {
         arguments.push("--check-only".into());
     }
@@ -1909,6 +1921,381 @@ pub fn reconstruct_steps_timed(
     let deadline = options
         .timeout
         .and_then(|timeout| Instant::now().checked_add(timeout));
+    if let Some(steps) = reconstruct_by_descent(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
+        return Ok(steps);
+    }
+    reconstruct_goal(pool, node, conclusion, &step.id, rules, options, deadline, phase)
+}
+
+/// Whether the structural descent looks through `term`: a Boolean
+/// connective, or an `ite` or `=` over Boolean arguments.  Atoms (relations,
+/// equalities of terms, applications) are where a pair becomes a goal of
+/// its own.
+fn descends_through(pool: &mut dyn TermPool, term: &crate::ast::Rc<crate::ast::Term>) -> bool {
+    use crate::ast::Operator::*;
+    let crate::ast::Term::Op(op, args) = term.as_ref() else {
+        return false;
+    };
+    let boolean = |pool: &mut dyn TermPool, t: &crate::ast::Rc<crate::ast::Term>| {
+        matches!(pool.sort(t).as_ref(), crate::ast::Sort::Bool)
+    };
+    match op {
+        And | Or | Not | Implies | Xor => true,
+        Ite => args.get(1).is_some_and(|a| boolean(pool, a)),
+        Equals => args.first().is_some_and(|a| boolean(pool, a)),
+        _ => false,
+    }
+}
+
+/// The sides of `(= lhs rhs)` share a skeleton the descent looks through.
+fn shares_skeleton(
+    pool: &mut dyn TermPool,
+    lhs: &crate::ast::Rc<crate::ast::Term>,
+    rhs: &crate::ast::Rc<crate::ast::Term>,
+) -> bool {
+    match (lhs.as_ref(), rhs.as_ref()) {
+        (crate::ast::Term::Op(f, fa), crate::ast::Term::Op(g, ga)) => {
+            f == g && fa.len() == ga.len() && descends_through(pool, lhs)
+        }
+        _ => false,
+    }
+}
+
+/// The structural descent of `(= lhs rhs)`: over a shared Boolean skeleton
+/// the equality follows by `cong` from the equalities of the argument pairs
+/// that differ, recursively; a pair the skeleton does not share is a goal
+/// of its own, handed to `base` with its number.  Returns the id of the
+/// step concluding `(= lhs rhs)`, `None` when the sides are identical; the
+/// `cong` steps go to `out`, numbered `{id}.{position}`, so that the last
+/// step pushed is the conclusion.
+#[allow(clippy::too_many_arguments)]
+fn descend(
+    pool: &mut dyn TermPool,
+    lhs: &crate::ast::Rc<crate::ast::Term>,
+    rhs: &crate::ast::Rc<crate::ast::Term>,
+    id: &str,
+    out: &mut Vec<String>,
+    goals: &mut usize,
+    base: &mut dyn FnMut(
+        &mut dyn TermPool,
+        &crate::ast::Rc<crate::ast::Term>,
+        &crate::ast::Rc<crate::ast::Term>,
+        usize,
+        &mut Vec<String>,
+    ) -> Result<String, String>,
+) -> Result<Option<String>, String> {
+    if lhs == rhs {
+        return Ok(None);
+    }
+    // `(= (= a b) (= b a))`, the orientation of an equality, is
+    // `eq_symmetric`; pairing the arguments by position would fail.
+    if let (
+        crate::ast::Term::Op(crate::ast::Operator::Equals, fa),
+        crate::ast::Term::Op(crate::ast::Operator::Equals, ga),
+    ) = (lhs.as_ref(), rhs.as_ref())
+    {
+        if fa.len() == 2 && ga.len() == 2 && fa[0] == ga[1] && fa[1] == ga[0] {
+            let step_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule eq_symmetric)"
+            ));
+            return Ok(Some(step_id));
+        }
+    }
+    if shares_skeleton(pool, lhs, rhs) {
+        let (crate::ast::Term::Op(op, fa), crate::ast::Term::Op(_, ga)) = (lhs.as_ref(), rhs.as_ref())
+        else {
+            unreachable!("a shared skeleton is an operator application")
+        };
+        let op = *op;
+        // Under `and`/`or` the arguments are matched, not paired by
+        // position: the normal forms order them by term address, so the
+        // identical ones align but the rewritten ones need not.  A
+        // reordering is an `aci_simp` step on each side around the `cong`.
+        let (fa, ga) = if matches!(op, crate::ast::Operator::And | crate::ast::Operator::Or) {
+            align_aci(fa, ga)
+        } else {
+            (fa.clone(), ga.clone())
+        };
+        let aligned_lhs = pool.add(crate::ast::Term::Op(op, fa.clone()));
+        let aligned_rhs = pool.add(crate::ast::Term::Op(op, ga.clone()));
+        let mut premises = Vec::new();
+        for (a, b) in fa.iter().zip(ga.iter()) {
+            if let Some(step) = descend(pool, a, b, id, out, goals, base)? {
+                premises.push(step);
+            }
+        }
+        let mut chain = Vec::new();
+        if aligned_lhs != *lhs {
+            let step_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {step_id} (cl (= {lhs:#} {aligned_lhs:#})) :rule aci_simp)"
+            ));
+            chain.push(step_id);
+        }
+        let step_id = format!("{id}.{}", out.len() + 1);
+        out.push(format!(
+            "(step {step_id} (cl (= {aligned_lhs:#} {aligned_rhs:#})) :rule cong :premises ({}))",
+            premises.join(" ")
+        ));
+        chain.push(step_id);
+        if aligned_rhs != *rhs {
+            let step_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {step_id} (cl (= {aligned_rhs:#} {rhs:#})) :rule aci_simp)"
+            ));
+            chain.push(step_id);
+        }
+        if chain.len() == 1 {
+            return Ok(chain.pop());
+        }
+        let step_id = format!("{id}.{}", out.len() + 1);
+        out.push(format!(
+            "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({}))",
+            chain.join(" ")
+        ));
+        return Ok(Some(step_id));
+    }
+    *goals += 1;
+    base(pool, lhs, rhs, *goals, out).map(Some)
+}
+
+/// `term` printed, cut to a line for a log message.
+fn abbreviated(term: &crate::ast::Rc<crate::ast::Term>) -> String {
+    let text = format!("{term:#}");
+    if text.len() <= 240 {
+        text
+    } else {
+        format!("{}...", &text[..240])
+    }
+}
+
+/// The leaves (variables and constants) of `term`, for matching arguments.
+fn leaves(
+    term: &crate::ast::Rc<crate::ast::Term>,
+    out: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
+) {
+    match term.as_ref() {
+        crate::ast::Term::Op(_, args) => args.iter().for_each(|a| leaves(a, out)),
+        crate::ast::Term::App(function, args) => {
+            out.insert(function.clone());
+            args.iter().for_each(|a| leaves(a, out));
+        }
+        _ => {
+            out.insert(term.clone());
+        }
+    }
+}
+
+/// The arguments of two `and`/`or` terms of the same arity, reordered so
+/// that identical arguments align first and the rest are paired by the
+/// leaves they share (a rewritten atom shares its variables with its
+/// original), in the left side's order.
+fn align_aci(
+    fa: &[crate::ast::Rc<crate::ast::Term>],
+    ga: &[crate::ast::Rc<crate::ast::Term>],
+) -> (
+    Vec<crate::ast::Rc<crate::ast::Term>>,
+    Vec<crate::ast::Rc<crate::ast::Term>>,
+) {
+    let mut used = vec![false; ga.len()];
+    let (mut out_f, mut out_g) = (Vec::with_capacity(fa.len()), Vec::with_capacity(ga.len()));
+    let mut rest_f = Vec::new();
+    for a in fa {
+        match (0..ga.len()).find(|&j| !used[j] && ga[j] == *a) {
+            Some(j) => {
+                used[j] = true;
+                out_f.push(a.clone());
+                out_g.push(ga[j].clone());
+            }
+            None => rest_f.push(a.clone()),
+        }
+    }
+    let rest_g: Vec<_> = (0..ga.len()).filter(|&j| !used[j]).map(|j| ga[j].clone()).collect();
+    let leaves_of = |t: &crate::ast::Rc<crate::ast::Term>| {
+        let mut set = std::collections::HashSet::new();
+        leaves(t, &mut set);
+        set
+    };
+    let g_leaves: Vec<_> = rest_g.iter().map(leaves_of).collect();
+    let mut taken = vec![false; rest_g.len()];
+    for a in &rest_f {
+        let a_leaves = leaves_of(a);
+        let best = (0..rest_g.len())
+            .filter(|&j| !taken[j])
+            .max_by_key(|&j| (a_leaves.intersection(&g_leaves[j]).count(), std::cmp::Reverse(j)));
+        if let Some(j) = best {
+            taken[j] = true;
+            out_f.push(a.clone());
+            out_g.push(rest_g[j].clone());
+        }
+    }
+    (out_f, out_g)
+}
+
+/// The goal's sides, when the descent applies to it: an equality whose
+/// sides share a skeleton and whose size reaches the option's threshold.
+fn descent_sides(
+    pool: &mut dyn TermPool,
+    conclusion: &crate::ast::Rc<crate::ast::Term>,
+    options: crate::checker::RunEgglogOptions,
+) -> Option<(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>)> {
+    if options.descend_min_nodes == 0 {
+        return None;
+    }
+    let (_, lhs, rhs) = crate::rare::util::get_equational_terms(conclusion)?;
+    if !shares_skeleton(pool, lhs, rhs)
+        || super::term_dag_size(conclusion) < options.descend_min_nodes
+    {
+        return None;
+    }
+    Some((lhs.clone(), rhs.clone()))
+}
+
+/// Reconstructs `(= lhs rhs)` by the structural descent, each atom pair a
+/// reconstruction of its own under `{id}.d{n}`, or `None` when the descent
+/// does not apply or a pair fails, in which case the whole goal is the
+/// caller's fallback.  The phases of the pairs are reported summed, once.
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_by_descent(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    conclusion: &crate::ast::Rc<crate::ast::Term>,
+    id: &str,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    deadline: Option<Instant>,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Option<Vec<String>> {
+    let (lhs, rhs) = descent_sides(pool, conclusion, options)?;
+    let started = Instant::now();
+    let mut timed: Vec<(String, Duration)> = Vec::new();
+    let mut out = Vec::new();
+    let mut goals = 0;
+    let mut base = |pool: &mut dyn TermPool,
+                    a: &crate::ast::Rc<crate::ast::Term>,
+                    b: &crate::ast::Rc<crate::ast::Term>,
+                    n: usize,
+                    out: &mut Vec<String>|
+     -> Result<String, String> {
+        let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        if remaining.is_some_and(|r| r.is_zero()) {
+            return Err("descent: budget exhausted".to_owned());
+        }
+        let prefix = format!("{id}.d{n}");
+        let goal = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![a.clone(), b.clone()],
+        ));
+        let sub_options = crate::checker::RunEgglogOptions {
+            timeout: remaining.or(options.timeout),
+            descend_min_nodes: 0,
+            ..options
+        };
+        let mut accumulate = |name: &str, spent: Duration| {
+            match timed.iter_mut().find(|(seen, _)| seen == name) {
+                Some((_, total)) => *total += spent,
+                None => timed.push((name.to_owned(), spent)),
+            }
+        };
+        let steps =
+            reconstruct_goal(pool, node, &goal, &prefix, rules, sub_options, deadline, &mut accumulate)
+                .map_err(|reason| format!("{reason}; atom goal {n}: {}", abbreviated(&goal)))?;
+        let last = format!("{prefix}.{}", steps.len());
+        out.extend(steps);
+        Ok(last)
+    };
+    match descend(pool, &lhs, &rhs, id, &mut out, &mut goals, &mut base) {
+        Ok(Some(_)) => {
+            for (name, total) in timed {
+                phase(&name, total);
+            }
+            eprintln!("phase descent={goals}");
+            log::debug!("hole {id}: descent over {goals} atom goals, {} steps", out.len());
+            Some(out)
+        }
+        Ok(None) => None,
+        Err(reason) => {
+            eprintln!("phase descent-failed={:.3}", started.elapsed().as_secs_f64());
+            log::debug!("hole {id}: descent failed after {goals} atom goals: {reason}");
+            None
+        }
+    }
+}
+
+/// The checking-only descent: every atom pair of the shared skeleton is
+/// checked by egglog on its own; `None` when the descent does not apply,
+/// `Some(Err)` when a pair is not proved (the whole goal is the fallback).
+fn check_by_descent(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    goal: &crate::ast::Rc<crate::ast::Term>,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Option<Result<(), String>> {
+    let (lhs, rhs) = descent_sides(pool, goal, options)?;
+    let deadline = options
+        .timeout
+        .and_then(|timeout| Instant::now().checked_add(timeout));
+    let started = Instant::now();
+    let mut out = Vec::new();
+    let mut goals = 0;
+    let mut base = |pool: &mut dyn TermPool,
+                    a: &crate::ast::Rc<crate::ast::Term>,
+                    b: &crate::ast::Rc<crate::ast::Term>,
+                    n: usize,
+                    _out: &mut Vec<String>|
+     -> Result<String, String> {
+        let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        if remaining.is_some_and(|r| r.is_zero()) {
+            return Err("descent: budget exhausted".to_owned());
+        }
+        let goal = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![a.clone(), b.clone()],
+        ));
+        let sub_options = crate::checker::RunEgglogOptions {
+            timeout: remaining.or(options.timeout),
+            descend_min_nodes: 0,
+            ..options
+        };
+        let (result, _) = run_egglog(pool, (goal.clone(), node), rules, sub_options);
+        result
+            .map(|_| format!("d{n}"))
+            .map_err(|error| format!("egglog check: {error}; atom goal {n}: {}", abbreviated(&goal)))
+    };
+    let verdict = descend(pool, &lhs, &rhs, "check", &mut out, &mut goals, &mut base);
+    match verdict {
+        Ok(Some(_)) => {
+            phase("egglog", started.elapsed());
+            eprintln!("phase descent={goals}");
+            Some(Ok(()))
+        }
+        Ok(None) => None,
+        Err(reason) => {
+            eprintln!("phase descent-failed={:.3}", started.elapsed().as_secs_f64());
+            log::debug!("descent failed after {goals} atom goals: {reason}");
+            None
+        }
+    }
+}
+
+/// Reconstructs one goal `(= lhs rhs)` through egglog, the snapshot, the
+/// certificate search and the Alethe elaboration, the steps numbered under
+/// `id`; `deadline` bounds the whole of it.
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_goal(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    conclusion: &crate::ast::Rc<crate::ast::Term>,
+    id: &str,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    deadline: Option<Instant>,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Result<Vec<String>, String> {
+    let stage = |stage: &str, detail: String| format!("{stage}: {detail}");
     let clock = Instant::now();
     let (result, program) = run_egglog(pool, (conclusion.clone(), node), rules, options);
     phase("egglog", clock.elapsed());
@@ -1962,9 +2349,9 @@ pub fn reconstruct_steps_timed(
     let clock = Instant::now();
     let names = goal_variable_names(&lhs, &rhs, conclusion);
     let index = rare_arguments(&rules.rules);
-    let steps = AletheElaborator::elaborate_in(&certificate, &step.id, names, index, sorts)
+    let steps = AletheElaborator::elaborate_in(&certificate, id, names, index, sorts)
         .ok_or_else(|| {
-            log::debug!("hole {}: certificate that failed to elaborate: {certificate:?}", step.id);
+            log::debug!("hole {id}: certificate that failed to elaborate: {certificate:?}");
             stage(
                 "alethe elaboration",
                 "a certificate term failed to decode".to_owned(),

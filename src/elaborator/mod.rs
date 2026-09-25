@@ -1857,7 +1857,7 @@ impl IdHelper {
 /// The number of nodes of a term, walking through applications only.
 /// The number of distinct nodes of `term`: its size as a DAG, which is what
 /// egglog loads, where the tree count of a shared term can be astronomical.
-fn term_dag_size(term: &Rc<Term>) -> usize {
+pub(crate) fn term_dag_size(term: &Rc<Term>) -> usize {
     fn walk(term: &Rc<Term>, seen: &mut std::collections::HashSet<*const Term>) {
         if !seen.insert(Rc::as_ptr(term)) {
             return;

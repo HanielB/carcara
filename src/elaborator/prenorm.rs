@@ -55,6 +55,19 @@ struct TopStep {
     /// Set on a `la_rw_eq` fold of two bounds of a conjunction (see
     /// `la_rw_eq_fold`), whose certificate is a small chain of its own.
     fold: Option<Fold>,
+    /// Set on an integer tightening (see `relation_step`), certified by a
+    /// pair of `la_generic` steps rather than by `poly_simp_rel`.
+    tighten: Option<Tighten>,
+}
+
+/// An integer tightening: the relation's difference scaled by `scale` has
+/// integral coefficients, and its bound is not an integer (or the relation
+/// is strict), so the relation is rounded or decided.  `helper` is the
+/// bound `(>= P k)` a decided equality is refuted through.
+#[derive(Clone)]
+struct Tighten {
+    scale: Rational,
+    helper: Option<Rc<Term>>,
 }
 
 /// The pieces of a `la_rw_eq` fold: the two bounds of the conjunction as
@@ -322,6 +335,7 @@ impl Normalizer {
                         equality,
                         rest,
                     }),
+                    tighten: None,
                 });
             }
         }
@@ -342,6 +356,7 @@ impl Normalizer {
                 premises: Vec::new(),
                 flipped: false,
                 fold: None,
+                tighten: None,
             })
         };
         // `evaluate`: a ground term is its value.
@@ -395,6 +410,27 @@ impl Normalizer {
         sort: ArithSort,
     ) -> Option<TopStep> {
         let difference = Polynomial::from_term(x1).sub(Polynomial::from_term(x2));
+        // Orientation: `<=` and `<` are the `>=` and `>` of the negated
+        // difference, so that a bound and its mirror image (cvc5's
+        // `(<= s t)` against `(>= (- t s) 0)`) reach one normal form.  A
+        // mirrored relation is certified by a `la_generic` pair, as a
+        // tightening is; `poly_simp_rel` keeps the relation symbol.
+        let (op, difference, mirrored) = match op {
+            Operator::LessEq | Operator::LessThan => {
+                let mut negated = difference;
+                for c in negated.0.values_mut() {
+                    *c = Rational::from(-c.clone());
+                }
+                negated.1 = Rational::from(-negated.1);
+                let op = if op == Operator::LessEq {
+                    Operator::GreaterEq
+                } else {
+                    Operator::GreaterThan
+                };
+                (op, negated, true)
+            }
+            _ => (op, difference, false),
+        };
         let constant = difference.1.clone();
         let mut poly = difference;
         poly.1 = Rational::new();
@@ -435,7 +471,64 @@ impl Normalizer {
             *c *= &scale;
         }
         let y1 = self.term_of_polynomial(pool, &poly, sort);
-        let y2 = self.constant_term(pool, &Rational::from(-constant * &scale), sort);
+        let bound = Rational::from(-constant * &scale);
+        // Integer tightening: over Int, a relation whose scaled bound is not
+        // an integer is rounded (`>=` up, `<=` down) or decided (`=` is
+        // `false`), and a strict relation becomes the non-strict one of the
+        // adjacent integer.  Certified by `la_generic`, whose integer
+        // strengthening does the rounding, so it stays a core-rule step.
+        if sort == ArithSort::Int && !poly.0.is_empty() {
+            let integral = bound.is_integer();
+            let floor = || Integer::from(bound.floor_ref());
+            let ceil = || Integer::from(bound.ceil_ref());
+            let relation = |pool: &mut dyn TermPool, op, k: Integer| {
+                let k = pool.add(Term::new_int(k));
+                pool.add(Term::Op(op, vec![y1.clone(), k]))
+            };
+            let (to, helper) = match op {
+                Operator::Equals if !integral => {
+                    let helper = relation(pool, Operator::GreaterEq, ceil());
+                    (Some(pool.bool_false()), Some(helper))
+                }
+                Operator::GreaterEq if !integral => {
+                    (Some(relation(pool, Operator::GreaterEq, ceil())), None)
+                }
+                Operator::LessEq if !integral => {
+                    (Some(relation(pool, Operator::LessEq, floor())), None)
+                }
+                Operator::GreaterThan => {
+                    (Some(relation(pool, Operator::GreaterEq, floor() + 1)), None)
+                }
+                Operator::LessThan => {
+                    (Some(relation(pool, Operator::LessEq, ceil() - 1)), None)
+                }
+                _ => (None, None),
+            };
+            if let Some(to) = to {
+                return Some(TopStep {
+                    rule: "la_generic",
+                    from: term.clone(),
+                    to,
+                    premises: Vec::new(),
+                    flipped: false,
+                    fold: None,
+                    tighten: Some(Tighten { scale, helper }),
+                });
+            }
+        }
+        let y2 = self.constant_term(pool, &bound, sort);
+        if mirrored {
+            let to = pool.add(Term::Op(op, vec![y1, y2]));
+            return Some(TopStep {
+                rule: "la_generic",
+                from: term.clone(),
+                to,
+                premises: Vec::new(),
+                flipped: false,
+                fold: None,
+                tighten: Some(Tighten { scale, helper: None }),
+            });
+        }
         if y1 == *x1 && y2 == *x2 {
             return None;
         }
@@ -454,6 +547,7 @@ impl Normalizer {
             premises: vec![Premise::PolySimp(left, right)],
             flipped: false,
             fold: None,
+            tighten: None,
         })
     }
 
@@ -699,6 +793,11 @@ impl Normalizer {
                     at = top.to.clone();
                     continue;
                 }
+                if let Some(tighten) = &top.tighten {
+                    chain.push(emitter.emit_tighten(pool, &top.from, &top.to, tighten));
+                    at = top.to.clone();
+                    continue;
+                }
                 let premises: Vec<String> = top
                     .premises
                     .iter()
@@ -846,10 +945,77 @@ impl Emitter {
     }
 
     fn emit_bound_flip(&mut self, pool: &mut dyn TermPool, a: &Rc<Term>, b: &Rc<Term>) -> String {
+        self.emit_equivalence(pool, a, b, "1.0 1.0", "1.0 1.0")
+    }
+
+    /// The certificate of an integer tightening `(= from to)`: the two
+    /// relations imply each other by `la_generic` (the stated relation with
+    /// the scale as its coefficient, the tightened one with 1), or, for an
+    /// equality decided `false`, the stated equality refutes the helper
+    /// bound both ways, and `(= from false)` follows from `(not from)` by
+    /// `equiv_simplify` and `equiv2`.
+    fn emit_tighten(
+        &mut self,
+        pool: &mut dyn TermPool,
+        from: &Rc<Term>,
+        to: &Rc<Term>,
+        tighten: &Tighten,
+    ) -> String {
+        let scale = tighten.scale.to_string();
+        let Some(helper) = &tighten.helper else {
+            return self.emit_equivalence(
+                pool,
+                from,
+                to,
+                &format!("{scale} 1"),
+                &format!("1 {scale}"),
+            );
+        };
+        let negated_scale = Rational::from(-tighten.scale.clone()).to_string();
+        let above = self.emit_clause(
+            &format!("(not {from:#}) {helper:#}"),
+            "la_generic",
+            &[],
+            &format!("{scale} 1"),
+        );
+        let below = self.emit_clause(
+            &format!("(not {from:#}) (not {helper:#})"),
+            "la_generic",
+            &[],
+            &format!("{negated_scale} 1"),
+        );
+        let refuted =
+            self.emit_clause(&format!("(not {from:#})"), "resolution", &[above, below], "");
+        let simplified = self.emit_clause(
+            &format!("(= (= {from:#} false) (not {from:#}))"),
+            "equiv_simplify",
+            &[],
+            "",
+        );
+        let split = self.emit_clause(
+            &format!("(= {from:#} false) (not (not {from:#}))"),
+            "equiv2",
+            &[simplified],
+            "",
+        );
+        self.emit(pool, from, to, "resolution", &[split, refuted])
+    }
+
+    /// `(= a b)` from `(cl (not a) b)` and `(cl (not b) a)`, each by
+    /// `la_generic` with the given coefficients, through the `equiv_neg`
+    /// tautologies and resolution.  Returns the last step's id.
+    fn emit_equivalence(
+        &mut self,
+        pool: &mut dyn TermPool,
+        a: &Rc<Term>,
+        b: &Rc<Term>,
+        args_a_b: &str,
+        args_b_a: &str,
+    ) -> String {
         let a_implies_b =
-            self.emit_clause(&format!("(not {a:#}) {b:#}"), "la_generic", &[], "1.0 1.0");
+            self.emit_clause(&format!("(not {a:#}) {b:#}"), "la_generic", &[], args_a_b);
         let b_implies_a =
-            self.emit_clause(&format!("(not {b:#}) {a:#}"), "la_generic", &[], "1.0 1.0");
+            self.emit_clause(&format!("(not {b:#}) {a:#}"), "la_generic", &[], args_b_a);
         let neg2 = self.emit_clause(
             &format!("(= {a:#} {b:#}) {a:#} {b:#}"),
             "equiv_neg2",
@@ -1110,6 +1276,29 @@ mod tests {
                 "(not (and (>= (+ x (* (- 2) y)) 0) (<= (+ x (* (- 2) y)) 0)))",
             ),
             (REALS, "(and (>= a b) (<= a b))", "(= (- a b) 0.0)"),
+            // integer tightening
+            (INTS, "(= (+ (* 3 x) (* 3 y)) 1)", "false"),
+            (INTS, "(= (* 2 x) 5)", "false"),
+            (INTS, "(= 5 (* (- 2) x))", "false"),
+            (INTS, "(>= (* 2 x) 3)", "(>= x 2)"),
+            (INTS, "(<= (* 2 x) 3)", "(<= x 1)"),
+            (INTS, "(>= (* (- 2) x) 3)", "(>= (- x) 2)"),
+            (INTS, "(> x 2)", "(>= x 3)"),
+            (INTS, "(> (* 2 x) 3)", "(>= x 2)"),
+            (INTS, "(< x y)", "(<= (- x y) (- 1))"),
+            (INTS, "(< (* 3 x) (- 2))", "(<= x (- 1))"),
+            (INTS, "(< (* 3 x) 2)", "(<= x 0)"),
+            (INTS, "(and (> x 2) (< x 4))", "(= x 3)"),
+            (INTS, "(not (>= (* 2 x) 1))", "(not (>= x 1))"),
+            (REALS, "(> a 2.0)", "(> (- a 2.0) 0.0)"),
+            // orientation
+            (REALS, "(<= a b)", "(>= (- b a) 0.0)"),
+            (REALS, "(<= (+ a (* (- 1.0) b)) 0.0)", "(>= (+ (* (- 1.0) a) b) 0.0)"),
+            (REALS, "(< (* 2.0 a) b)", "(> (+ (* 0.5 b) (- a)) 0.0)"),
+            (INTS, "(<= x y)", "(>= (- y x) 0)"),
+            (INTS, "(< x y)", "(>= (- y x) 1)"),
+            (INTS, "(<= (* 2 x) 3)", "(>= (- x) (- 1))"),
+            (INTS, "(and (<= x 3) (<= 3 x))", "(= x 3)"),
         ] {
             match certified(problem, lhs, rhs) {
                 Ok(_) => {}

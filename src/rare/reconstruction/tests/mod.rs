@@ -2460,6 +2460,113 @@ fn elaborates_a_complement_inside_a_nested_connective() {
     );
 }
 
+/// The structural descent: a goal over a shared Boolean skeleton is proved
+/// by `cong` from its atom pairs, each an egglog goal of its own (`.d1`,
+/// `.d2` steps), the `and`/`or` arguments aligned by `aci_simp` first.
+#[test]
+fn elaborates_a_boolean_skeleton_by_descent() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let problem_path = Path::new("tests/rare/elaborate/descent.smt2");
+    let proof_path = Path::new("tests/rare/elaborate/descent.smt2.alethe");
+    let rare_path = Path::new("tests/rare/big.rare");
+    let parser_config = parser::Config::default()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let (_, problem, elaborated, mut pool) = crate::check_and_elaborate(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        elaborator::Config::new()
+            .elaborate_hole_rewrites(true)
+            .hole_prenormalize(true)
+            .hole_rewrite_options(crate::RunEgglogOptions {
+                timeout: Some(std::time::Duration::from_secs(20)),
+                sort_guards: true,
+                descend_min_nodes: 1,
+                ..Default::default()
+            }),
+        vec![ElaborationPass::Hole],
+        false,
+    )
+    .expect("the proof should check and elaborate");
+    let mut printed = Vec::new();
+    crate::ast::printer::write_proof_to_dest(
+        &mut pool,
+        &problem.prelude,
+        &elaborated,
+        &mut printed,
+        false,
+    )
+    .expect("the elaborated proof should print");
+    let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+    assert!(!printed.contains(":rule hole"), "{printed}");
+    assert!(
+        printed.contains(".d1.") && printed.contains(".d2."),
+        "the two atom pairs should be goals of their own:\n{printed}"
+    );
+}
+
+/// The normalizer's integer tightening: an equality with a non-integral
+/// scaled bound is `false`, a strict bound the non-strict one of the
+/// adjacent integer, both certified by `la_generic` pairs, so the hole is
+/// closed without egglog.
+#[test]
+fn elaborates_an_integer_tightening_in_the_normalizer() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let problem_path = Path::new("tests/rare/elaborate/int-tighten.smt2");
+    let proof_path = Path::new("tests/rare/elaborate/int-tighten.smt2.alethe");
+    let rare_path = Path::new("tests/rare/big.rare");
+    let parser_config = parser::Config::default()
+        .expand_lets(true)
+        .allow_int_real_subtyping(true)
+        .parse_hole_args(true);
+    let (mut problem_text, mut proof_text, mut rare_text) =
+        (String::new(), String::new(), String::new());
+    let (_, problem, elaborated, mut pool) = crate::check_and_elaborate(
+        parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+        parser::Source::file(proof_path, &mut proof_text).expect("proof should exist"),
+        Some(parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist")),
+        parser_config,
+        crate::checker::Config::new(),
+        elaborator::Config::new()
+            .elaborate_hole_rewrites(true)
+            // The normalizer prepass runs on the worklist, which the
+            // sequential single-threaded path does not use.
+            .hole_threads(2)
+            .hole_prenormalize(true)
+            .hole_rewrite_options(crate::RunEgglogOptions {
+                timeout: Some(std::time::Duration::from_secs(20)),
+                sort_guards: true,
+                ..Default::default()
+            }),
+        vec![ElaborationPass::Hole],
+        false,
+    )
+    .expect("the proof should check and elaborate");
+    let mut printed = Vec::new();
+    crate::ast::printer::write_proof_to_dest(
+        &mut pool,
+        &problem.prelude,
+        &elaborated,
+        &mut printed,
+        false,
+    )
+    .expect("the elaborated proof should print");
+    let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+    assert!(!printed.contains(":rule hole"), "{printed}");
+    assert!(
+        printed.contains(":rule la_generic") && printed.contains(":rule equiv_simplify"),
+        "the tightening should be certified by la_generic:\n{printed}"
+    );
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.

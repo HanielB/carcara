@@ -128,6 +128,12 @@ pub struct RunEgglogOptions {
     /// [`ListEncoding`]; the two are measurably different and both are kept
     /// so an experiment can run either.
     pub list_encoding: ListEncoding,
+
+    /// The structural descent: a goal of at least this many nodes whose
+    /// sides share a Boolean skeleton is proved by `cong` from its argument
+    /// pairs, each pair that differs an egglog goal of its own, the whole
+    /// goal the fallback.  Zero disables it.
+    pub descend_min_nodes: usize,
 }
 
 /// The two compilations of a `:list` parameter, which stands for a possibly
@@ -161,6 +167,7 @@ impl Default for RunEgglogOptions {
             growth_cap_plain: 0,
             memory_soft_cap_mb: 0,
             list_encoding: ListEncoding::SetForm,
+            descend_min_nodes: 0,
         }
     }
 }

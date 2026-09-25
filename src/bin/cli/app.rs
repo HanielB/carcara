@@ -102,6 +102,10 @@ pub struct ReconstructHoleOptions {
     #[clap(long)]
     pub sort_guards: bool,
 
+    /// See `--rare-descend-min-nodes`.
+    #[clap(long, value_name = "NODES")]
+    pub descend_min_nodes: Option<usize>,
+
     /// See `--rare-list-encoding`.
     #[clap(long, value_enum, default_value = "set-form")]
     pub list_encoding: ListEncodingArg,
@@ -303,6 +307,13 @@ pub struct CheckingOptions {
     /// equalities over other sorts.
     #[clap(long)]
     pub rare_sort_guards: bool,
+
+    /// The structural descent: a hole goal of at least NODES nodes whose
+    /// sides share a Boolean skeleton is proved by `cong` from its argument
+    /// pairs, each pair that differs an egglog goal of its own, the whole
+    /// goal the fallback.
+    #[clap(long, value_name = "NODES")]
+    pub rare_descend_min_nodes: Option<usize>,
 
     /// How a RARE rule's `:list` parameters are compiled.  `set-form`
     /// compiles a rule over `and`/`or` once, against the ACI set form, where
@@ -745,6 +756,7 @@ impl IntoConfig for (CheckingOptions, ToolOptions) {
                 print_egglog: c.print_egglog,
                 seed_from_goal: c.rare_seed_from_goal,
                 sort_guards: c.rare_sort_guards,
+                descend_min_nodes: c.rare_descend_min_nodes.unwrap_or(0),
                 list_encoding: c.rare_list_encoding.into(),
                 growth_cap_arith: c.rare_growth_cap_arith.unwrap_or(0),
                 growth_cap_plain: c.rare_growth_cap_plain.unwrap_or(0),
