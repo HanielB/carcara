@@ -4902,3 +4902,56 @@ with the decode failures (`a certificate term failed to decode`, SMPT and
 rings) and the `distinct_elim` / `and_simplify` checker rejections on
 Dartagnan and QG to reproduce and fix.  Untagged holes cap `valid` as
 before: 1,890 / 1,148 / 320 proofs have one.
+
+### 47.11 rw2's residue, reproduced and fixed (2026-09-25)
+
+Replayed locally, the smallest proofs of each residue class of §47.10
+(commits 36cc79fa, fedf0b31):
+
+- **Decode failures** (SMPT 84, rings 216, Rodin): a congruence spine
+  the search met from the far side arrives under `Symm` nodes, a
+  reversed chain being the reversed legs in reverse order; the spine
+  descent found no `cong` premises in it.  It reads `Symm` as a flip now.
+- **Checker rejections of `and_simplify` / `or_simplify`** (QG 137,
+  SMPT): the `AciComplement` computation finds the complementary pair
+  through nested `and`/`or`, the checker's rule reads the direct arguments
+  only.  The flat form is stated first by `aci_simp`.
+- **`no-certificate` on Boolean chains with many constant arguments**
+  (QG-classification, Goel, CLEARSY, SMPT): the search substituted one
+  constant per congruence edge and spent its four rejustifications on
+  congruences between an `and` and an equality, both wrapped members of
+  the `true` class.  Now: a candidate with every constant-valued subterm
+  replaced at once (outermost positions, not the application itself); the
+  ACI computation as the checker's `aci_simp` in full (flatten, drop
+  identities and duplicates, a lone element or the identity left); a
+  one-step checker computation tried before the congruence and the search;
+  no congruence between two heads (the application-level constant
+  candidate is gone, `congruence_certificate` and the goal-directed
+  congruence require one head below the wrapper); among several edges to
+  one neighbour a congruence yields to any other kind.
+- **`(<= p p)` inside a disjunction** (SMPT RC-07): no rule states a
+  reflexive relation (cvc5 normalizes it), the normalizer closes it, and
+  the not-larger rule had kept the stated goal (26 nodes against 27).  The
+  rule is confined to the checking pass; the elaboration pass tries the
+  normal form first whatever its size, the stated goal on a failure.
+
+Every reproducer elaborates and re-checks (`valid`, or `holey` on the
+untagged holes alone).  The Dartagnan proof of §47.10: 200 of 231
+justified (198 before), no checker rejection or decode failure, 22
+`no-certificate` left on arithmetic Boolean chains.  Five samples,
+elaboration at 45 s per hole, against §47.8:
+
+| proof | c1b8f298 justified / pass | fedf0b31 |
+|---|---|---|
+| clocksynchro_3 | 195 / 90 s | 195 / 65 s |
+| cut_lemma_01_008 | 126 / 17 s | 126 / 7 s |
+| MULTIPLIER_3 | 272 / 16 s | 272 / 7 s |
+| tgc_io-safe-6 | 140 / 12 s | 140 / 5 s |
+| ring_2exp10 | 349 / 22 s | 349 / 11 s |
+
+Passes twice as fast: the one-step computations and the all-constants
+candidate replace levels of search.  Regression fixtures:
+`reversed-spine`, `nested-complement` (§47.8's `and-reflexive` covers the
+rest).  Left: the arithmetic chains of Dartagnan, the hole-heavy QF_LRA
+families (egglog time, not the search), the integer infeasibility of
+§47.7.
