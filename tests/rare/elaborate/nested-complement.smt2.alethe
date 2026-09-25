@@ -1,0 +1,3 @@
+(assume a0 (not (= (not (or (or p q) (not p))) (not (or r (not r))))))
+(step t1 (cl (= (not (or (or p q) (not p))) (not (or r (not r))))) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step t2 (cl) :rule resolution :premises (a0 t1))

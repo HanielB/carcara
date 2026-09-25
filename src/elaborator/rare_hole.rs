@@ -65,10 +65,17 @@ impl AletheElaborator {
 
     pub fn emit(&mut self, lhs: &Term, rhs: &Term, rule: &str, tail: &str) -> Option<String> {
         let id = format!("{}.{}", self.prefix, self.steps.len() + 1);
+        let decoded = |term: &Term, names: &HashMap<String, String>| {
+            let text = decode_any(term, names);
+            if text.is_none() {
+                log::debug!("certificate term failed to decode ({rule}): {}", term.to_egglog());
+            }
+            text
+        };
         self.steps.push(format!(
             "(step {id} (cl (= {} {})) :rule {rule}{tail})",
-            decode_any(lhs, &self.names)?,
-            decode_any(rhs, &self.names)?,
+            decoded(lhs, &self.names)?,
+            decoded(rhs, &self.names)?,
         ));
         Some(id)
     }
@@ -380,6 +387,26 @@ impl AletheElaborator {
 
     /// The step id proving `(= lhs rhs)` for this certificate node.
     pub fn step_for(&mut self, certificate: &Certificate) -> Option<String> {
+        let step = self.step_for_inner(certificate);
+        if step.is_none() && log::log_enabled!(log::Level::Debug) {
+            let kind = match certificate {
+                Certificate::Refl { .. } => "refl".to_owned(),
+                Certificate::Rule { name, .. } => format!("rule {name}"),
+                Certificate::Computational { kind, .. } => format!("computational {kind:?}"),
+                Certificate::Symm { .. } => "symm".to_owned(),
+                Certificate::Congruence { child_index, .. } => format!("congruence at {child_index}"),
+                Certificate::Trans { .. } => "trans".to_owned(),
+            };
+            log::debug!(
+                "no step for {kind}: {} = {}",
+                certificate.lhs().to_egglog(),
+                certificate.rhs().to_egglog()
+            );
+        }
+        step
+    }
+
+    fn step_for_inner(&mut self, certificate: &Certificate) -> Option<String> {
         match certificate {
             Certificate::Refl { term } => self.emit(term, term, "refl", ""),
             Certificate::Rule { name, lhs, rhs, substitution } => {
@@ -449,7 +476,49 @@ impl AletheElaborator {
                         }
                     };
                     let rule = connective(lhs).or_else(|| connective(rhs))?;
-                    self.emit(lhs, rhs, rule, "")
+                    // The checker's rule reads the complementary pair off
+                    // the direct arguments; the computation found it
+                    // through nested `and`/`or` too.  A nested side is first
+                    // flattened by `aci_simp`, and the rule applies to the
+                    // flat form.
+                    let (side, constant, reversed) = if connective(lhs).is_some() {
+                        (lhs, rhs, false)
+                    } else {
+                        (rhs, lhs, true)
+                    };
+                    let wrapped_side = if side.op == "Mk" {
+                        side.clone()
+                    } else {
+                        Term::new("Mk", vec![side.clone()])
+                    };
+                    let (operator, identity) = match encoded_application(&wrapped_side) {
+                        Some(("@and", _)) => ("@and", true),
+                        _ => ("@or", false),
+                    };
+                    let mut literals = Vec::new();
+                    flatten_aci(&wrapped_side, operator, identity, &mut literals);
+                    let flat = encoded_app(operator, literals);
+                    let flat = if side.op == "Mk" {
+                        flat
+                    } else {
+                        flat.children[0].clone()
+                    };
+                    if flat == *side || literals_of(&wrapped_side).is_some_and(|direct| direct.len() == flat_arity(&flat)) {
+                        return self.emit(lhs, rhs, rule, "");
+                    }
+                    let flattened = self.emit(side, &flat, "aci_simp", "")?;
+                    let absorbed = self.emit(&flat, constant, rule, "")?;
+                    let chained = self.emit(
+                        side,
+                        constant,
+                        "trans",
+                        &format!(" :premises ({flattened} {absorbed})"),
+                    )?;
+                    if reversed {
+                        self.emit(lhs, rhs, "symm", &format!(" :premises ({chained})"))
+                    } else {
+                        Some(chained)
+                    }
                 }
                 Computation::ArithPolyNorm => self.emit(lhs, rhs, "poly_simp", ""),
                 // `poly_simp_rel` states one relation as another under a
@@ -511,7 +580,7 @@ impl AletheElaborator {
                     return self.step_for(child);
                 }
                 let mut arguments = Vec::new();
-                spine_arguments(certificate, &mut arguments)?;
+                spine_arguments(certificate, false, &mut arguments)?;
                 let premises = arguments
                     .iter()
                     .map(|argument| self.step_for(argument))
@@ -526,31 +595,43 @@ impl AletheElaborator {
 /// Descend an encoded congruence spine (`Mk` wrapper, application node,
 /// `Args` cells, and the transitivity chains congruence builds when several
 /// arguments differ), collecting the certificates of the differing
-/// arguments in argument order — one `cong` premise each.
-pub fn spine_arguments<'c>(
-    certificate: &'c Certificate,
-    out: &mut Vec<&'c Certificate>,
+/// arguments in argument order — one `cong` premise each.  A spine the
+/// search traversed backwards arrives under `Symm` nodes (a reversed chain
+/// is the reversed legs in reverse order, a reversed congruence its child
+/// reversed): those are read with `flipped`, so `(= (not (not (not E))) E)
+/// = (= (not E) (not (not E)))`, met from the far side, still has its two
+/// argument steps.
+pub fn spine_arguments(
+    certificate: &Certificate,
+    flipped: bool,
+    out: &mut Vec<Certificate>,
 ) -> Option<()> {
     match certificate {
         Certificate::Refl { .. } => Some(()),
+        Certificate::Symm { proof, .. } => spine_arguments(proof, !flipped, out),
         Certificate::Congruence { lhs, child_index, child, .. } => {
             match (lhs.op.as_str(), child_index) {
                 // Wrapper and application layers pass straight through.
-                ("Mk", 0) => spine_arguments(child, out),
-                (operator, 0) if operator.starts_with('@') => spine_arguments(child, out),
+                ("Mk", 0) => spine_arguments(child, flipped, out),
+                (operator, 0) if operator.starts_with('@') => spine_arguments(child, flipped, out),
                 // An Args cell: index 0 is a differing element itself, index 1
                 // continues along the list spine.
                 ("Args", 0) => {
-                    out.push(child);
+                    out.push(if flipped {
+                        reverse(child.as_ref().clone())
+                    } else {
+                        child.as_ref().clone()
+                    });
                     Some(())
                 }
-                ("Args", 1) => spine_arguments(child, out),
+                ("Args", 1) => spine_arguments(child, flipped, out),
                 _ => None,
             }
         }
         Certificate::Trans { first, second, .. } => {
-            spine_arguments(first, out)?;
-            spine_arguments(second, out)
+            let (first, second) = if flipped { (second, first) } else { (first, second) };
+            spine_arguments(first, flipped, out)?;
+            spine_arguments(second, flipped, out)
         }
         _ => None,
     }
@@ -1883,6 +1964,7 @@ pub fn reconstruct_steps_timed(
     let index = rare_arguments(&rules.rules);
     let steps = AletheElaborator::elaborate_in(&certificate, &step.id, names, index, sorts)
         .ok_or_else(|| {
+            log::debug!("hole {}: certificate that failed to elaborate: {certificate:?}", step.id);
             stage(
                 "alethe elaboration",
                 "a certificate term failed to decode".to_owned(),
@@ -2032,4 +2114,19 @@ fn decode_sequence(term: &Term, names: &HashMap<String, String>) -> Option<Strin
         .map(|element| decode_any(element, names))
         .collect::<Option<Vec<_>>>()?;
     Some(format!("(rare-list {})", decoded.join(" ")))
+}
+
+/// The direct arguments of an encoded `and`/`or`, if the term is one.
+fn literals_of(term: &Term) -> Option<Vec<Term>> {
+    encoded_application(term).map(|(_, elements)| elements)
+}
+
+/// The number of direct arguments of an encoded application, wrapped or not.
+fn flat_arity(term: &Term) -> usize {
+    let wrapped = if term.op == "Mk" {
+        term.clone()
+    } else {
+        Term::new("Mk", vec![term.clone()])
+    };
+    encoded_application(&wrapped).map_or(0, |(_, elements)| elements.len())
 }
