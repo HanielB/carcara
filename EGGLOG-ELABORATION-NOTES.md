@@ -4966,7 +4966,11 @@ failed` verdicts (goals egglog could not prove as stated), not decode
 failures -- the decode class is 46 holes in all, 42 of them Dartagnan;
 and 294 QF_LIA proofs that are fully justified with no untagged hole
 re-check `holey` on the `arith_poly_norm_rel` trust steps the elaborator
-emits when the relation routing does not cover an obligation.  New
+emits when the relation routing does not cover an obligation.  A third
+correction, found by checksum against the cluster's copy: rw2 ran on the
+171-rule `holes-rw2.rare` (bit-vector and string rules included); the
+local `holes.rare` was trimmed to 91 rules on 2026-09-24 after the
+upload (§50), so every rw2 number is with the larger file.  New
 facts from the local replays behind the plans: `sc-5.base.cvc` (415
 holes) keeps 14 under fedf0b31 -- 7 goals of 59 nodes egglog cannot
 prove, 5 of 114 nodes it does not finish in 60 s, 2 without certificate;

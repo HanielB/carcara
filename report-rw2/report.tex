@@ -93,10 +93,14 @@ had its goal proved by egglog. The derivation is conservative in one
 direction only -- check and reconstruction share the 60\,s, so a goal a
 pure checking pass would have proved but that was killed \emph{inside}
 egglog here counts as lost. The pass uses the RARE file
-\code{holes-rw2.rare} (91 rules: cvc5's \code{big.rare} without the
-bit-vector and string rules, plus \code{ite-eq}, \code{distinct-false}
-and the eight Boolean absorption, flattening and duplicate rules over
-\code{:list} parameters). Carcara is the static build of commit
+\code{holes-rw2.rare}, 171 rules: cvc5's \code{big.rare} of the time,
+including its 80 bit-vector and string rules, plus \code{ite-eq},
+\code{distinct-false} and the eight Boolean absorption, flattening and
+duplicate rules over \code{:list} parameters. (The local file was trimmed
+to 91 rules after the upload, on 2026-09-24; the cluster's copy, checked
+by checksum, is the 171-rule one, so every number here is with the
+larger file. The trimmed file roughly halves the fixed cost of a hole in
+local measurements.) Carcara is the static build of commit
 \code{3f982c71}.
 
 \paragraph{Limits.} Per-hole limits are hard kills of the worker; the
