@@ -388,7 +388,7 @@ egglog time-out was replayed locally with the run's options (notes
     form first whatever its size, the stated goal on a failure.
 \end{itemize}
 Every reproducer elaborates and re-checks. The Dartagnan proof
-\code{benchmark02\_linear-O0} goes from 198 to 200 of 231 justified with
+\code{benchmark20\_conjunctive-O0} goes from 198 to 200 of 231 justified with
 no rejection or decode failure left; the smallest \code{rings} proof with
 unproved holes in the run justifies 349 of 349; \code{uart-5.base.cvc},
 whose family had 347 no-certificate holes, keeps one of 299 (a memory kill
@@ -493,7 +493,7 @@ not yet uploaded.
 
 \paragraph{Dartagnan's arithmetic Boolean chains (\LIA{}).} 78 proofs, 2
 fully justified, 3,019 holes lost; after the fixes,
-\code{benchmark02\_linear-O0} still keeps 31 of 231 (22 no certificate, 4
+\code{benchmark20\_conjunctive-O0} still keeps 31 of 231 (22 no certificate, 4
 memory, 2 time). The goals are cvc5's rewrite of a whole assertion: an
 implication whose antecedent is a conjunction of bound pairs
 \code{(and (<= a b) (>= a b))} and equalities \code{(= x 1)}, rewritten into
