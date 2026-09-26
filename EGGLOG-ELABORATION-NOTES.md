@@ -5525,3 +5525,32 @@ goal's size (about four million term nodes of candidates, never below
 32 states).  `t2439` ends at the time limit with the worker alive instead
 of dying at 6 GB; whether it can be proved in the time is the next
 question, not a crash.
+
+**The whole goal first, and a fresh process after a failure** (6cb264c3,
+3b1f0dfd).  The alignment of 27522e8f regressed `t2764` and `t3103`: a
+mispaired sub-goal (an atom against the wrong block) blew the pair's
+e-graph past the memory limit and the worker died before the whole goal,
+which egglog proves in seconds, was ever tried.  The order is now: the
+whole goal on a quarter of the budget, the descent, the whole goal on the
+rest (`descend_first` keeps the old order for the tests of the descent
+itself).  A pair's caps were first set to the production ones (3 M
+arithmetic, 500 k plain, 2 GB), which is what a theory-rewrite hole gets
+and where a pair should land; that lost `t3098`, whose four-pair block
+needs more than 500 k plain tuples, and did not save `t1194` and `t1427`,
+whose mispaired pair grows past the address space long before any tuple
+cap.  So a pair gets a sixth of the whole goal's caps (20 M / 4 M / 2 GB)
+and the memory is left to the address-space limit.  After a failed
+descent the worker cannot try the whole goal in the same process: the
+pairs' e-graphs are freed but the address space they grew is not given
+back, and the second egglog run starts a few gigabytes into the limit.
+The worker now returns `DESCENT_RETRY` in that case and the CLI re-runs
+itself, same arguments without `--descend-min-nodes`, the remaining
+`--rare-check-timeout`, the input on stdin, and exits with the child's
+code; the parent sees one worker.  `t1208` closes in 84 s, `t2764` and
+`t3103` again in seconds.
+
+A label to fix some day: the parent attributes a kill to the first phase
+whose name it has not yet seen in the worker's `phase …` lines, so a
+worker that reported the whole-first phases and then died in a descent
+pair is logged as killed "during emit".  The class (`[memory]`) and the
+counts are right; only the phase name is not.
