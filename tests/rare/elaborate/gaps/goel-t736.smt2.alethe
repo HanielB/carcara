@@ -1,0 +1,3 @@
+(step t736 (cl (! (= (! (and (! (not (! (= y$v_time y$n1s8) :named @p_3)) :named @p_2) (! (not (! (= y$v_time (! (ite (! true :named @p_7) (! (ite @p_7 y$v_time (! (Extract_8_7_0_32 (! (Add_32_32_32 y$n1s32 (! (Concat_32_8_24 y$v_time y$n0s24) :named @p_11)) :named @p_10)) :named @p_9)) :named @p_8) @p_9) :named @p_6)) :named @p_5)) :named @p_4) (! (not (! (= y$n1s8 @p_6) :named @p_13)) :named @p_12)) :named @p_1) (! false :named @p_14)) :named @p_0)) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step slice_end (cl) :rule hole :premises (t736) :args ("trust"))
+

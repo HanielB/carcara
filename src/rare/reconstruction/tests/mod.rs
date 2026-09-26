@@ -2567,6 +2567,88 @@ fn elaborates_an_integer_tightening_in_the_normalizer() {
     );
 }
 
+/// The elaboration-gap corpus: one-hole proofs sliced from the residue of
+/// the cluster runs (Dartagnan's Boolean chains over integer bounds, a QG
+/// congruence chain, a `uart` relation under `ite`, a Goel `ite` on a
+/// constant condition), every one of them a goal egglog proves.  Given the
+/// budget, each must be elaborated to a proof with no hole left but the
+/// slice's own closing step and no trust step of the elaborator.
+#[test]
+fn every_checked_hole_of_the_gap_corpus_is_elaborated() {
+    use crate::elaborator::{self, ElaborationPass};
+
+    let dir = Path::new("tests/rare/elaborate/gaps");
+    let mut problems: Vec<_> = std::fs::read_dir(dir)
+        .expect("the gap corpus should exist")
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "smt2"))
+        .collect();
+    problems.sort();
+    assert!(!problems.is_empty());
+    let rare_path = Path::new("tests/rare/big.rare");
+    let mut failures = Vec::new();
+    for problem_path in &problems {
+        let proof_path = problem_path.with_extension("smt2.alethe");
+        let parser_config = parser::Config::default()
+            .expand_lets(true)
+            .allow_int_real_subtyping(true)
+            .parse_hole_args(true);
+        let (mut problem_text, mut proof_text, mut rare_text) =
+            (String::new(), String::new(), String::new());
+        let result = crate::check_and_elaborate(
+            parser::Source::file(problem_path, &mut problem_text).expect("problem should exist"),
+            parser::Source::file(&proof_path, &mut proof_text).expect("proof should exist"),
+            Some(
+                parser::Source::file(rare_path, &mut rare_text).expect("RARE database should exist"),
+            ),
+            parser_config,
+            crate::checker::Config::new(),
+            elaborator::Config::new()
+                .elaborate_hole_rewrites(true)
+                .hole_threads(2)
+                .hole_prenormalize(true)
+                .hole_abstract_shared(16)
+                .hole_rewrite_options(crate::RunEgglogOptions {
+                    timeout: Some(std::time::Duration::from_secs(120)),
+                    sort_guards: true,
+                    growth_cap_arith: 120_000_000,
+                    growth_cap_plain: 20_000_000,
+                    descend_min_nodes: 32,
+                    ..Default::default()
+                }),
+            vec![ElaborationPass::Hole],
+            false,
+        );
+        let name = problem_path.file_name().unwrap().to_string_lossy().into_owned();
+        let (_, problem, elaborated, mut pool) = match result {
+            Ok(r) => r,
+            Err(error) => {
+                failures.push(format!("{name}: {error}"));
+                continue;
+            }
+        };
+        let mut printed = Vec::new();
+        crate::ast::printer::write_proof_to_dest(
+            &mut pool,
+            &problem.prelude,
+            &elaborated,
+            &mut printed,
+            false,
+        )
+        .expect("the elaborated proof should print");
+        let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
+        let holes_left = printed
+            .lines()
+            .filter(|line| line.contains(":rule hole") && !line.starts_with("(step slice_end "))
+            .count();
+        let trust = printed.matches("TRUST_THEORY_REWRITE").count();
+        if holes_left > 0 || trust > 0 {
+            failures.push(format!("{name}: {holes_left} holes left, {trust} trust steps"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.
