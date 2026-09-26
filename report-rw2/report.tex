@@ -10,6 +10,7 @@
 \captionsetup{font=small,labelfont=bf}
 \graphicspath{{plots/}}
 \input{tables/macros}
+\input{tables/rw3-macros}
 \emergencystretch=2em
 
 \newcommand{\UF}{QF\_UF}
@@ -20,7 +21,8 @@
 \title{Justifying cvc5 rewrite holes with egglog and RARE:\\
   run \code{rw2} on \UF{}, \LIA{} and \LRA{}, and the state of the tooling}
 \author{Carcara branch \code{egglog/rewrite-holes}}
-\date{Run of 2026-09-24/25 (binary \code{3f982c71}) -- report of 2026-09-25 (tooling at \code{fedf0b31})}
+\date{Run of 2026-09-24/25 (binary \code{3f982c71}) -- report of 2026-09-25 (tooling at \code{fedf0b31})\\
+  Addendum \S\ref{sec:rw3}: run \code{rw3} and the \code{dsl1} comparison arm of 2026-09-25/26}
 
 \begin{document}
 \maketitle
@@ -570,13 +572,148 @@ fixture from \code{int\_incompleteness1}'s hole; (4) both \code{check}
 benchmarks fully justified, and the count of \code{arith-geq-tighten}
 certificates in the Dartagnan and SMPT replays before and after.
 
+\clearpage
+\section{Addendum: run \code{rw3}, and cvc5's own expansion as the comparison arm}\label{sec:rw3}
+
+Two runs of 2026-09-25, read on 2026-09-26, on \code{rw2}'s benchmarks.
+\code{rw3} is the pipeline at commit \code{f0a15e53}: the fixes of
+\S\ref{sec:fixed}, the trunk branch merged, the normalizer's integer
+tightening and relation orientation, the structural descent of
+\S\ref{sec:next} at 32 nodes, the 91-rule file, and the re-check at
+1,200\,s; everything else as in \S1. \code{dsl1} is new: the same cvc5
+binary at \code{--proof-granularity=dsl-rewrite} within 60\,s -- every
+rewrite expanded by cvc5's own RARE reconstruction into
+\code{rare\_rewrite} steps -- and the proof checked by \code{carcara check}
+with the 171-rule file (900\,s), no egglog, no elaboration. It answers what
+the egglog pipeline is competing with: the producer's own expansion, checked
+by the same checker.
+
+\paragraph{\code{rw3} against \code{rw2}.} Table~\ref{tab:rw3} has the pass
+side by side. The orientation is what moved \LRA{}: the normalizer now
+closes 56\% of its holes, the \code{sc} family's saturation kills are gone,
+and the pass takes 13 hours instead of 21. The reconstruction fixes moved
+\UF{}: kept holes fall from 5,648 to 1,728 and the pass takes half the
+time. \LIA{}'s \code{valid} rises from 982 to 1,350 because the trust steps
+of \S\ref{sec:limits} fell from 294 proofs to 11. The descent proved
+7.6k / 20.2k / 33.9k holes and failed on 44.9k / 4.3k / 1.6k pairs; its
+cost shows in fifteen LassoRanker proofs fully justified in \code{rw2} and
+not in \code{rw3}, each lost to a few time kills after failed descents,
+and in \LIA{}'s skipped holes (643, from 481).
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/rw3-vs-rw2}}
+\caption{\code{rw3} against \code{rw2}, holes of the proofs that ran the
+  pass. ``trust steps left'' counts the fully justified proofs without an
+  untagged hole that still re-check \code{holey} on a step the elaborator
+  emitted.}\label{tab:rw3}
+\end{table}
+
+Two defects of the elaborator surfaced in \UF{} and are fixed since
+(\code{6824bb8a}): 534 kept holes were a \code{cong} whose premises came
+out of argument order on a spine met from the far side, and 661 fully
+justified proofs re-checked \code{holey} on \code{TRUST\_THEORY\_REWRITE}
+steps emitted for engine-internal \code{gen-}$N$ rewrites (the set-form
+identity removal, $(\mathit{and}\ A\ \mathit{true}) = A$, and its kin) --
+the accounting gap of the first report, reopened by a search that now finds
+those edges. A \code{gen} step whose sides are equal modulo ACI is now the
+checker's \code{aci\_simp}; of twelve such proofs replayed, nine re-check
+\code{valid}, and the three left keep a conditional rule's instance, which
+has no name in the program and stays trusted. The premises are sorted by the
+argument they justify. In \UF{} every trust step left is the elaborator's
+(cvc5 prints none there), so the honest \UF{} numbers of \code{rw3} are
+2,907 proofs with every hole justified, 1,336 of them without an untagged
+hole, 675 \code{valid} -- and most of the 661 lift with the fix.
+
+\paragraph{\code{dsl1}.} Table~\ref{tab:dsl1}. At this granularity cvc5
+loses 24 proofs to the 60\,s limit (10 \LIA{}, 14 \LRA{}: Dartagnan,
+LassoRanker) and prints \emph{no} arithmetic preprocessing hole: the
+\code{THEORY\_INFERENCE\_ARITH} and \code{MACRO\_THEORY\_REWRITE\_RCONS\_SIMPLE}
+steps that cap the pipeline's \code{valid} at rewrite granularity
+(\S\ref{sec:limits}) are expanded. What remains is \UF{}'s
+\code{THEORY\_LEMMA}, in 1,789 proofs, which the pipeline does not attempt
+either. The check errors are the 205 resolution-pivot proofs (198 / 2 / 5,
+the cvc5 defect of Table~\ref{tab:outcomes}) and 114 proofs citing
+\code{bool-implies-or-distrib}, which neither rule file had; the rule has
+since been added to both files, and all 114 proofs, regenerated locally,
+check \code{valid} with it. The four \LIA{} check time-outs are Dartagnan
+proofs of 5--12\,MB at 900\,s.
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/dsl1}}
+\caption{cvc5 at \code{dsl-rewrite} granularity, checked by Carcara.
+  ``holes left'' are the \code{hole} steps in the complete proofs, all
+  \code{THEORY\_LEMMA}; ``rule missing'' the proofs citing a rule the
+  171-rule file lacked.}\label{tab:dsl1}
+\end{table}
+
+\paragraph{Head to head.} Table~\ref{tab:h2h} and
+Figures~\ref{fig:dsl-cdf}--\ref{fig:dsl-scatter} put the two on the same
+benchmarks. A proof counts when nothing trusted is left: \code{valid} on
+both sides. Three arms of the pipeline are drawn: with elaboration, a proof
+that re-checks \code{valid}; with elaboration, a proof with every hole
+justified (untagged holes allowed, the engine's own ceiling); and checking
+only, an \emph{estimate} from the same run -- the elaboration pass with the
+reconstruction phases of its holes (serialize, index, search, emit) taken
+out, summed over the holes and divided by the eight workers, and no
+re-check -- since \code{rw3} folded the checking pass into the elaboration
+pass. The estimate keeps the pass's parsing, the checking of the non-hole
+steps and every egglog phase, which is what a checking-only pass does; a
+measured checking-only run is the way to firm it up.
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/head-to-head}}
+\caption{The same benchmarks: proofs with no hole left, and the time from
+  benchmark to checked proof (cvc5 plus check for \code{dsl1}; cvc5, hoist,
+  elaboration pass and re-check for \code{rw3}; the checking-only
+  estimate as described).}\label{tab:h2h}
+\end{table}
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=\textwidth]{dsl-cdf}
+\caption{Time to a checked proof, as a cumulative distribution over the
+  benchmarks of each set; a benchmark an arm does not finish is drawn at the
+  right edge, so a curve's height at the edge is the arm's coverage. Solid:
+  cvc5 at \code{dsl-rewrite} plus the check. Dashed: the pipeline with
+  elaboration, proofs re-checked \code{valid}. Dash-dotted: the pipeline
+  with elaboration, every hole justified (untagged holes allowed).
+  Dotted: the pipeline checking only, the estimate, every hole
+  proved.}\label{fig:dsl-cdf}
+\end{figure}
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=.48\textwidth]{dsl-scatter-elab}\hfill
+\includegraphics[width=.48\textwidth]{dsl-scatter-check}
+\caption{Per proof: cvc5 at \code{dsl-rewrite} plus the check ($x$)
+  against the pipeline with elaboration (left, $y$: a proof re-checked
+  \code{valid}) and against the checking-only estimate (right, $y$: every
+  hole proved). A proof an arm does not finish sits on the edge; the dotted
+  line is $y = x$.}\label{fig:dsl-scatter}
+\end{figure}
+
+cvc5's expansion closes \dslvalid{} of the 7,381 proofs with nothing
+trusted left against the pipeline's \rwthreevalid{}, and every proof the
+pipeline closes it closes too (\dslonly{} are its alone); it does so in
+\dslhours{} hours of cvc5-plus-check against the pipeline's
+\rwthreehours{} with elaboration and about \rwthreecheckhours{} checking
+only, a median of a second against tens of seconds. The gap is not the
+engine: \code{rw3} justifies 99.5--99.85\% of the holes it is given and
+\rwthreefully{} proofs have every hole justified. It is the untagged holes
+cvc5 prints at rewrite granularity and expands at \code{dsl-rewrite},
+plus the fixed cost of a saturation per hole. What the pipeline has that
+the expansion does not is independence from the producer's reconstruction:
+a hole is closed from the rule set and the checker's own normal forms,
+which is the case the first sections make; on the producer's own proofs,
+the producer's expansion is the cheaper way to a \code{valid} verdict.
+
 \appendix
 \section{Files}
 \begin{itemize}
   \item Results: \code{\textasciitilde/exp/results/egglog-holes/rw2/results.json.gz}
-    (JSONL; one record per benchmark with the runner's full output).
+    (JSONL; one record per benchmark with the runner's full output);
+    \code{rw3/} and \code{dsl1/} likewise for \S\ref{sec:rw3}.
   \item Analysis: \code{report-rw2/make-rw2.py} in the worktree, which
-    produced every table and figure here;
+    produced every table and figure of \S1--\S7, and \code{make-rw3.py}
+    those of \S\ref{sec:rw3};
     \code{\textasciitilde/exp/egglog-holes/analysis-rw2/} holds the readers
     behind the notes.
   \item Runner and submission: \code{\textasciitilde/exp/egglog-holes/run-holes-rw2.sh},

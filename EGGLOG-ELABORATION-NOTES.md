@@ -5312,3 +5312,69 @@ and does not print at `dsl-rewrite`, not the engine (rw3 justifies 99.5--
 99.85% of the holes it is given).  Against the pipeline's own numbers the
 comparison at the hole level stands: where cvc5 leaves a `THEORY_LEMMA`
 (QF_UF, 1,789 proofs) the pipeline does not attempt it either.
+
+### 47.16 The rule `bool-implies-or-distrib`, the report's addendum, and the plan for the elaboration's gaps (2026-09-26)
+
+`bool-implies-or-distrib` (`(=> (or y1 y2 ys1) z1)` to `(and (=> y1 z1)
+(=> (or y2 ys1) z1))`; cvc5's `eo::list_singleton_elim` is implicit in how
+the checker reads a `:list` parameter) is in `big.rare` (90 rules),
+`holes.rare` (92) and `holes-dsl.rare` (172, the dsl arm's file for a next
+run).  The 114 dsl1 proofs that cited it, regenerated locally, all check
+`valid` with it.  The report (`report-rw2/report.tex`) has an addendum
+for rw3 and dsl1 with `make-rw3.py`: the run tables, a CDF of the time to
+a checked proof over the sets (dsl1; the pipeline with elaboration, valid
+and every-hole-justified; the pipeline checking only, *estimated* from
+rw3's per-hole phases: pass time minus the reconstruction phases summed
+over the holes divided by the eight workers, no re-check), and per-proof
+scatters.  Over the 7,381: dsl1 `valid` 5,245 in 9.2 h, the pipeline
+2,228 in 110.6 h with elaboration and about 98.9 h checking only.  A
+measured checking-only run (`CHECK_PASS=1 ELABORATE=0` in the runner)
+would replace the estimate.
+
+**The gaps left in the elaboration, and the plan**, by what each is worth
+on rw3's residue:
+
+1. **cvc5's untagged holes** (3,358 proofs at rewrite granularity;
+   `THEORY_INFERENCE_ARITH` 86k in QF_LRA, `MACRO_THEORY_REWRITE_RCONS_SIMPLE`
+   127k and `THEORY_INFERENCE_ARITH` 53k in QF_LIA, `DIAMONDS` and
+   `THEORY_LEMMA` in QF_UF).  The ceiling on `valid`, and the one dsl1
+   shows is the producer's: at `dsl-rewrite` cvc5 expands all but
+   `THEORY_LEMMA`.  Plan, on the cvc5 side of the rewrite-granularity
+   patch: print the arithmetic preprocessing and the subtype-elimination
+   trust steps as tagged holes too (they are equalities and implications
+   over one rewriter call, the same shape as `MACRO_REWRITE`), so the
+   pipeline attempts them; measure how many the normalizer and egglog
+   close.  `THEORY_LEMMA` and `DIAMONDS` are theory lemmas, not rewrites,
+   and stay out of scope.
+2. **Negated relations in the normalizer** (Dartagnan: 852 no-certificate
+   and 790 hole-time holes, all on `and` blocks mixing `(= x 1)` with
+   `(not (>= x 2))`, cvc5's `>=`-only Int form).  Plan: `relation_step`
+   looks through `not`: `(not (>= P c))` is `(< P c)`, then tightened and
+   oriented as §47.14 does; certificate a `la_generic` pair with the
+   double negation discharged by `not_not`, or the pair stated on the
+   positive relation and closed by `equiv_neg`.  This is the item the
+   descent's failed pairs point at on QF_LIA.
+3. **Conditional rule instances** (`gen-44` and kin: the Goel proofs'
+   trust steps, and part of the QF_LIA `TRUST_THEORY_REWRITE` left).
+   Plan: name conditional rewrites in the engine (`rare:<name>` with the
+   premise instances), have the search cite them with the premise's own
+   certificate (an equality of the e-graph, itself reconstructed), and
+   emit `rare_rewrite` with `:premises`; count the class first with the
+   per-tag key of rw3 once the names are there.
+4. **The descent's cost** (15 LassoRanker proofs, QF_LIA's 643 skipped;
+   44.9k failed pairs in QF_UF).  Plan: a failed pair aborts the descent
+   at once (today every pair is tried), the whole-goal fallback gets the
+   hole's full budget again, and a per-hole log line names the failing
+   pair so the QF_UF failures can be classified; the QG-classification
+   pairs that fail are the next micro-reproducers.
+5. **Honest `unproved` goals** (789: rings 522, ezsmt 212): rule gaps.
+   Plan: the per-family micro-reproducers, the missing rules added to
+   the file or the shape to the normalizer where it is arithmetic.
+6. **`uart`'s 339 no-certificate** on 43-node goals and the 484 QF_LRA
+   no-certificate in all: search gaps on relation goals under `ite`;
+   micro-reproducers as for Dartagnan (§7.1 of the report).
+7. **Checker and hoist limits**: 22 re-check time-outs and 8 hoist
+   time-outs on Dartagnan proofs of 1–12 MB, and the 205 resolution-pivot
+   proofs (cvc5's, at every granularity).  Plan: profile the checker on
+   one of the 22 (the polynomial steps are the suspect), and report the
+   pivot defect upstream with a reproducer.
