@@ -495,12 +495,15 @@ fn reconstruct_hole_command(options: ReconstructHoleOptions) -> CliResult<()> {
         seed_from_goal: options.seed_from_goal,
         sort_guards: options.sort_guards,
         descend_min_nodes: options.descend_min_nodes.unwrap_or(0),
+        // This worker can re-execute itself without the descent.
+        fresh_fallback: options.descend_min_nodes.unwrap_or(0) > 0,
         list_encoding: options.list_encoding.into(),
         growth_cap_arith: options.growth_cap_arith.unwrap_or(0),
         growth_cap_plain: options.growth_cap_plain.unwrap_or(0),
         memory_soft_cap_mb: options.memory_soft_cap.unwrap_or(0),
         ..carcara::RunEgglogOptions::default()
     };
+    let started = std::time::Instant::now();
     let rules = parser::Source::new(std::path::Path::new(&options.rare_file), &rare_text);
     if options.batch {
         // Each verdict is printed and flushed as it is reached, so a parent
@@ -545,6 +548,46 @@ fn reconstruct_hole_command(options: ReconstructHoleOptions) -> CliResult<()> {
                     .map_err(|e| carcara::Error::Io { inner: e, file: "<stdout>".into() })?;
             }
             Ok(())
+        }
+        Err(error) if error == carcara::elaborator::rare_hole::DESCENT_RETRY => {
+            // The whole goal in a fresh process, with what is left of the
+            // budget: the same command line without the descent, the same
+            // input on its stdin, its output relayed as this worker's.
+            let remaining = options
+                .rare_check_timeout
+                .map(|ms| ms.saturating_sub(started.elapsed().as_millis() as u64).max(1));
+            let mut arguments: Vec<String> = Vec::new();
+            let mut skip = false;
+            for argument in std::env::args().skip(1) {
+                if skip {
+                    skip = false;
+                    continue;
+                }
+                match argument.as_str() {
+                    "--descend-min-nodes" | "--rare-check-timeout" => skip = true,
+                    _ => arguments.push(argument),
+                }
+            }
+            if let Some(remaining) = remaining {
+                arguments.push("--rare-check-timeout".to_owned());
+                arguments.push(remaining.to_string());
+            }
+            let exe = std::env::current_exe()
+                .map_err(|e| carcara::Error::Io { inner: e, file: "<exe>".into() })?;
+            let mut child = std::process::Command::new(exe)
+                .args(&arguments)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()
+                .map_err(|e| carcara::Error::Io { inner: e, file: "<fresh worker>".into() })?;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(input.as_bytes());
+            }
+            let status = child
+                .wait()
+                .map_err(|e| carcara::Error::Io { inner: e, file: "<fresh worker>".into() })?;
+            std::process::exit(status.code().unwrap_or(1));
         }
         Err(error) => {
             eprintln!("{error}");

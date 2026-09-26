@@ -134,6 +134,18 @@ pub struct RunEgglogOptions {
     /// pairs, each pair that differs an egglog goal of its own, the whole
     /// goal the fallback.  Zero disables it.
     pub descend_min_nodes: usize,
+
+    /// After a failed descent, ask the caller to retry the whole goal in a
+    /// fresh process instead of in this one: the sub-goals' e-graphs leave
+    /// the address space fragmented, and the whole goal's run then dies at
+    /// the memory limit where a fresh process proves it.  Set by the
+    /// isolated worker, which can re-execute itself.
+    pub fresh_fallback: bool,
+
+    /// Skip the whole-goal attempt that precedes the descent (a test's
+    /// setting, to exercise the descent on a goal the whole attempt would
+    /// close first).
+    pub descend_first: bool,
 }
 
 /// The two compilations of a `:list` parameter, which stands for a possibly
@@ -168,6 +180,8 @@ impl Default for RunEgglogOptions {
             memory_soft_cap_mb: 0,
             list_encoding: ListEncoding::SetForm,
             descend_min_nodes: 0,
+            fresh_fallback: false,
+            descend_first: false,
         }
     }
 }

@@ -2126,10 +2126,44 @@ pub fn reconstruct_steps_timed(
     let deadline = options
         .timeout
         .and_then(|timeout| Instant::now().checked_add(timeout));
-    if let Some(steps) = reconstruct_by_descent(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
-        return Ok(steps);
+    // The whole goal first, on a quarter of the budget: most holes close
+    // that way in a second, and a descent pair the alignment got wrong can
+    // take the worker's memory with it.  Then the descent on half of what
+    // is left, then the whole goal again with the rest, in a fresh process
+    // when the caller can give one.
+    if !options.descend_first && descent_sides(pool, conclusion, options).is_some() {
+        let started = Instant::now();
+        let quarter = deadline.map(|d| started + d.saturating_duration_since(started) / 4);
+        if let Ok(steps) =
+            reconstruct_goal(pool, node, conclusion, &step.id, rules, options, quarter, phase)
+        {
+            return Ok(steps);
+        }
+        eprintln!("phase whole-first={:.3}", started.elapsed().as_secs_f64());
+    }
+    match reconstruct_by_descent(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
+        Descent::Proved(steps) => return Ok(steps),
+        Descent::Failed if options.fresh_fallback => {
+            // The whole goal in a fresh process: the caller re-executes
+            // itself without the descent (see `DESCENT_RETRY`).
+            return Err(DESCENT_RETRY.to_owned());
+        }
+        Descent::Failed | Descent::NotApplicable => {}
     }
     reconstruct_goal(pool, node, conclusion, &step.id, rules, options, deadline, phase)
+}
+
+/// The error a worker returns when its descent failed and the whole goal
+/// is to be retried in a fresh process (`RunEgglogOptions::fresh_fallback`).
+pub const DESCENT_RETRY: &str = "descent failed: retry the whole goal in a fresh process";
+
+/// What the structural descent made of a goal.
+pub enum Descent {
+    /// The goal's sides share no skeleton, or it is below the size bound.
+    NotApplicable,
+    Proved(Vec<String>),
+    /// A pair could not be proved; the whole goal is the fallback.
+    Failed,
 }
 
 /// Whether the structural descent looks through `term`: a Boolean
@@ -2437,6 +2471,28 @@ fn align_aci(
     Some((out_f, out_g))
 }
 
+/// The engine options of one pair of the descent: the remaining time,
+/// and caps well below the whole goal's, so that a pair the alignment got
+/// wrong fails fast instead of taking the worker's memory with it (a
+/// mispaired Dartagnan atom asked egglog for 6 GB in one allocation where
+/// the whole goal proves in 6 s).
+fn descent_pair_options(
+    options: crate::checker::RunEgglogOptions,
+    remaining: Option<Duration>,
+) -> crate::checker::RunEgglogOptions {
+    let capped = |cap: usize, at: usize| if cap == 0 { at } else { cap.min(at) };
+    crate::checker::RunEgglogOptions {
+        timeout: remaining.or(options.timeout),
+        descend_min_nodes: 0,
+        // The production caps of the theory-rewrite runs: a pair is one
+        // atom against its rewrite, which those caps hold with room.
+        growth_cap_arith: capped(options.growth_cap_arith, 3_000_000),
+        growth_cap_plain: capped(options.growth_cap_plain, 500_000),
+        memory_soft_cap_mb: capped(options.memory_soft_cap_mb, 2_000),
+        ..options
+    }
+}
+
 /// The goal's sides, when the descent applies to it: an equality whose
 /// sides share a skeleton and whose size reaches the option's threshold.
 fn descent_sides(
@@ -2459,9 +2515,9 @@ fn descent_sides(
 }
 
 /// Reconstructs `(= lhs rhs)` by the structural descent, each atom pair a
-/// reconstruction of its own under `{id}.d{n}`, or `None` when the descent
-/// does not apply or a pair fails, in which case the whole goal is the
-/// caller's fallback.  The phases of the pairs are reported summed, once.
+/// reconstruction of its own under `{id}.d{n}`; when the descent does not
+/// apply or a pair fails, the whole goal is the caller's fallback.  The
+/// phases of the pairs are reported summed, once.
 #[allow(clippy::too_many_arguments)]
 fn reconstruct_by_descent(
     pool: &mut dyn TermPool,
@@ -2472,8 +2528,10 @@ fn reconstruct_by_descent(
     options: crate::checker::RunEgglogOptions,
     deadline: Option<Instant>,
     phase: &mut dyn FnMut(&str, Duration),
-) -> Option<Vec<String>> {
-    let (lhs, rhs) = descent_sides(pool, conclusion, options)?;
+) -> Descent {
+    let Some((lhs, rhs)) = descent_sides(pool, conclusion, options) else {
+        return Descent::NotApplicable;
+    };
     let started = Instant::now();
     // The descent gets half of what is left: a descent that fails late
     // would otherwise leave the whole-goal fallback nothing (rw3 lost
@@ -2497,11 +2555,7 @@ fn reconstruct_by_descent(
             crate::ast::Operator::Equals,
             vec![a.clone(), b.clone()],
         ));
-        let sub_options = crate::checker::RunEgglogOptions {
-            timeout: remaining.or(options.timeout),
-            descend_min_nodes: 0,
-            ..options
-        };
+        let sub_options = descent_pair_options(options, remaining);
         let mut accumulate = |name: &str, spent: Duration| {
             match timed.iter_mut().find(|(seen, _)| seen == name) {
                 Some((_, total)) => *total += spent,
@@ -2522,13 +2576,13 @@ fn reconstruct_by_descent(
             }
             eprintln!("phase descent={goals}");
             log::debug!("hole {id}: descent over {goals} atom goals, {} steps", out.len());
-            Some(out)
+            Descent::Proved(out)
         }
-        Ok(None) => None,
+        Ok(None) => Descent::NotApplicable,
         Err(reason) => {
             eprintln!("phase descent-failed={:.3}", started.elapsed().as_secs_f64());
             log::debug!("hole {id}: descent failed after {goals} atom goals: {reason}");
-            None
+            Descent::Failed
         }
     }
 }
@@ -2565,11 +2619,7 @@ fn check_by_descent(
             crate::ast::Operator::Equals,
             vec![a.clone(), b.clone()],
         ));
-        let sub_options = crate::checker::RunEgglogOptions {
-            timeout: remaining.or(options.timeout),
-            descend_min_nodes: 0,
-            ..options
-        };
+        let sub_options = descent_pair_options(options, remaining);
         let (result, _) = run_egglog(pool, (goal.clone(), node), rules, sub_options);
         result
             .map(|_| format!("d{n}"))

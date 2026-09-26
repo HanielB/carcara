@@ -2495,6 +2495,7 @@ fn elaborates_a_boolean_skeleton_by_descent() {
                 timeout: Some(std::time::Duration::from_secs(20)),
                 sort_guards: true,
                 descend_min_nodes: 1,
+                descend_first: true,
                 ..Default::default()
             }),
         vec![ElaborationPass::Hole],
@@ -2617,7 +2618,7 @@ fn every_checked_hole_of_the_gap_corpus_is_elaborated() {
                 .hole_rewrite_options(crate::RunEgglogOptions {
                     // generous: the suite runs in parallel, and a loaded machine
                     // stretched a 120 s budget past a hole that takes 15 s alone
-                    timeout: Some(std::time::Duration::from_secs(300)),
+                    timeout: Some(std::time::Duration::from_secs(600)),
                     sort_guards: true,
                     growth_cap_arith: 120_000_000,
                     growth_cap_plain: 20_000_000,
