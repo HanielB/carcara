@@ -5469,3 +5469,21 @@ snapshot cap of 4 M tuples after a proof, and a descent's sub-goal
 e-graphs sharing one worker's address space.  The Dartagnan slices with
 `memory` kills are egglog's, not the elaboration's (the checking pass
 does not prove them either).  `cargo test --lib`: 294.
+
+**The corpus run with the final binary (2026-09-26, after 679d8c1b).**
+47 slices, 300 s per hole: of the 42 holes the checking pass proves, 34
+elaborate to a closed proof (Dartagnan 21 of 26 in 1--302 s, Goel 7 of
+7, calypto 4, the QG, uart and `eq-cond-deq` probes); 4 are egglog's own
+memory kills inside saturation, which the checking pass loses too; 8 are
+left: three killed by memory in the search after egglog had proved them
+(two calypto goals of 160k nodes, one Dartagnan), one killed by memory in
+a descent sub-goal, two Dartagnan `no-certificate` of 300--380 nodes
+(the one-to-many `and` alignment the descent lacks), two calypto goals
+whose egglog run did not finish.  Tried and reverted: a search bounded by
+the resident-memory cap instead of a rejustification count -- the kill is
+at the address-space limit, which the resident set does not predict, and
+without the rejustification bound the no-certificate hole ran to the
+300 s limit instead of failing in 9 s.  The two memory classes are the
+snapshot's and the search graph's size on goals of 10^5 nodes, a
+resource limit to be met by a partial snapshot around the goal's classes,
+not by a certificate the search lacks.
