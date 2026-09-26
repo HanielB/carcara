@@ -5378,3 +5378,33 @@ on rw3's residue:
    proofs (cvc5's, at every granularity).  Plan: profile the checker on
    one of the 22 (the polynomial steps are the suspect), and report the
    pivot defect upstream with a reproducer.
+
+**Item 1 done (2026-09-26).**  `THEORY_INFERENCE_ARITH`, `ARITH_STATIC_LEARN`,
+`MACRO_THEORY_REWRITE_RCONS_SIMPLE` and `SUBTYPE_ELIMINATION` join
+`THEORY_REWRITE_TAGS`: all premise-free unit equalities in the proofs
+(`(= t (and (<= x y) (>= x y)))`, `(= t (ite c (<= 1 1) (<= 0 1)))`,
+re-typed rewrites), so the pipeline attempts them; `THEORY_LEMMA` and
+`DIAMONDS` are clauses and stay out.  No cvc5 change.  The runner
+(`run-holes-rw3.sh`, `TAGS_RE`) counts them as attempted.  Replayed with
+the run's options: every one of the newly attempted holes closes --
+`cut_lemma` 191 of 191 (65 were `RCONS_SIMPLE`), `MULTIPLIER_3` 362 of
+362 (61 + 29), `tgc` 301 of 301 (161 `THEORY_INFERENCE_ARITH`),
+`ring_2exp10` 499 of 499 (143 + 7), all four re-checking **`valid`** for
+the first time; `clocksynchro` 273 of 274 (78 new, the one left the
+154-node disjunction); Dartagnan 232 of 261 (30 new, all closed; the 29
+`MACRO_REWRITE` left as before).
+
+**Item 2, corrected.**  egglog *does* prove the Dartagnan blocks: the 852
+holes are `no-certificate`, egglog's verdict is positive and the search
+cannot build the certificate -- an `and` of arity 4 against one of arity
+8, `(= x 1)` expanded by `arith-eq-elim-int` into two bounds, the
+conjunction flattened, each bound rewritten to cvc5's negated `>=` form
+through `arith-elim-*`, `arith-geq-tighten` and the relational polynomial
+keys: three or four rejustifications per atom, times the atoms.  So the
+fix is not in the normalizer.  It is in the descent's alignment: when the
+sides are `and`/`or` of different arity, align one atom of one side with
+the group of atoms of the other side that share its leaves, and pose
+`(= a (and b1 b2))` as the pair's goal -- egglog proves it at once and the
+search certifies a two-atom goal; the block's certificate is `cong` over
+the aligned pairs, `aci_simp` to flatten the nested `and` and reorder.
+One-to-many alignment in `align_aci`, no normalizer change.

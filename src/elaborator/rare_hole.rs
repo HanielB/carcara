@@ -693,15 +693,30 @@ pub const MAX_SNAPSHOT_TUPLES: usize = 4_000_000;
 /// `"preprocessing"` on the holes veriT prints for a preprocessing stage
 /// under `--proof-coarse-preprocessing`.
 ///
+/// The four last ones are the trust steps cvc5 prints at rewrite
+/// granularity for what it does not expand there and does at
+/// `dsl-rewrite`: the arithmetic preprocessing's rewrites
+/// (`THEORY_INFERENCE_ARITH`, `ARITH_STATIC_LEARN`) and subtype
+/// elimination's re-typed rewrites (`MACRO_THEORY_REWRITE_RCONS_SIMPLE`,
+/// `SUBTYPE_ELIMINATION`); premise-free unit equalities as well, so the
+/// pipeline attempts them like any other (run rw3 left 127k, 139k and 1k
+/// of them in the elaborated proofs, the ceiling on `valid`).  Theory
+/// lemmas (`THEORY_LEMMA`, `DIAMONDS`) are clauses, not rewrites, and stay
+/// out.
+///
 /// All of them are unit equalities that the producer states without
 /// premises; a macro step that carries substitution premises is printed by
 /// cvc5 under its rule name and is not recognized here.
-pub const THEORY_REWRITE_TAGS: [&str; 5] = [
+pub const THEORY_REWRITE_TAGS: [&str; 9] = [
     "TRUST_THEORY_REWRITE",
     "untranslated rewrite",
     "MACRO_REWRITE",
     "MACRO_SR_PRED_INTRO",
     "preprocessing",
+    "THEORY_INFERENCE_ARITH",
+    "ARITH_STATIC_LEARN",
+    "MACRO_THEORY_REWRITE_RCONS_SIMPLE",
+    "SUBTYPE_ELIMINATION",
 ];
 
 /// Whether `step` is a rewrite hole: a `hole` step with one of the
