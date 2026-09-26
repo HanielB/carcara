@@ -5554,3 +5554,91 @@ whose name it has not yet seen in the worker's `phase …` lines, so a
 worker that reported the whole-first phases and then died in a descent
 pair is logged as killed "during emit".  The class (`[memory]`) and the
 counts are right; only the phase name is not.
+
+**Corpus gen6** (3b1f0dfd, `out-gen6`): 35 of 42 checked holes closed,
+4 not checked (calypto-ho33, dart-t1988, dart-t2148, dart-t3372).
+`t2764`, `t3103` and `t1208` close again; left are calypto-t202 and
+calypto-t513 (memory in the search; t513 closed in gen3 in 154 s, so the
+search bounds of 25282dce cost it -- to look at), dart-t1194, dart-t1427,
+dart-t2755 and dart-t3098 (memory in a descent pair; t3098 closed in gen4
+in 2 s, and in gen6 the whole-first quarter, 75 s, ended in the search
+before the descent died -- the pair's memory, not the caps, is the
+question), and dart-t2439 (time, no crash).
+
+### 47.19 The `unproved` residue of rings and ezsmt is not a rule gap (2026-09-26)
+
+Reproduced locally at rw3's settings: `ring_2exp10_3vars_1ite_unsat`
+(408 holes, 9 `unproved`, the pass 120 s) and ezsmt
+`090-incremental_scheduling-15444-0` (550 holes, 11 `unproved`, 79 s).
+The rings goals are relations over sums that hold a numeric `ite` the
+producer rewrote, `(ite (< (* v2 2) 1024) (* 4 v2) (ite (< (* v2 2) 2048)
+(- (* 4 v2) 2048) (- (* 4 v2) 4096)))` against `(ite (>= v2 512) (ite (>=
+v2 1024) (+ -4096 (* 4 v2)) (+ -2048 (* 4 v2))) (* 4 v2))`, with the sum
+around it reordered.  The ezsmt goals apply the benchmark's `max`, which
+cvc5 prints as a lambda application, and rewrite a relation
+`(>= (* -1 (+ st 2)) 0)` to `(not (>= st -1))` under the `ite`.  Micro
+goals, egglog alone (`--rare-list-encoding set-form`, sort guards, no
+normalizer):
+
+| goal | egglog |
+|---|---|
+| every relation step at the top: `<` to `not >=`, the gcd, the negated bound, `<=` to `not >=` | proved |
+| the same steps under an `ite` condition, one at a time | proved |
+| `(ite (>= (* -1 st) 2) a b)` = `(ite (>= st -1) b a)` | **failed** |
+| `(ite c a (- (* 4 v2) 2048))` = `(ite c a (+ -2048 (* 4 v2)))`, `(f (+ v2 1))` = `(f (+ 1 v2))` | **failed** (the normalizer closes them at the top) |
+
+Every rule the goals need is in the file (`arith-elim-lt`,
+`arith-elim-int-lt`, `arith-int-geq-tighten`, `ite-not-cond`, ...).  What
+the engine did not do (a36095b7):
+
+1. **Polynomial keys only at the top.**  `arithGoalPolyNfOf` was demanded
+   for the goal's sides and, in the all-relations fallback, for relation
+   atoms; an arithmetic term under an `ite` branch or a function argument
+   had no key, so two spellings of one polynomial never met there.  The
+   last-resort fallback now demands the key of every `+`/`-`/`*`
+   application (`arith_term_all`) and unions the terms whose keys agree
+   (`arith_term_merge`), constant-only keys left out (a bare constant of
+   one sort must not meet the other sort's); the e-graph's congruence
+   carries the union up, and the certificate is `poly_simp` under `cong`.
+2. **No node for the mirror of a negatively led relation.**  The keys
+   identify `(>= (* -1 st) 2)` with `(not (>= st -1))` when both nodes
+   exist; when the goal holds only `(>= st -1)` under the `ite`, nothing
+   creates the negation.  The fallback now unions a `>=` whose canonical
+   key leads with a negative coefficient with `(not (> x2 x1))`
+   (`arith_rel_flip`, sort-independent; the inner relation leads
+   positively, so it does not fire again), then keys the new nodes; the
+   certificate is the relation computation (`poly_simp_rel` or the
+   `la_generic` equivalence), and `ite-not-cond` does the rest.
+3. **The keys are computed once, before the rules union the atoms.**  A
+   sum's key names its `ite` atom by the atom's class at demand time; the
+   `ite`s of the two sides union later (after 1 and 2), and the keys are
+   `:merge old`.  With the normalizer the rings goals of the `>=`/`<=`
+   kind close anyway (both sums normalize to one layout, the `ite`
+   pair is the only difference, congruence closes it), but a `<` against
+   a `not >=` does not: the negated side is not normalized (§47.16, on
+   purpose), the layouts differ, and the stale keys do not meet.  An
+   **atom alignment** now precedes the whole goal when the structural
+   descent does not apply: the numeric `ite`/application/`div`/`mod`
+   atoms one side has and the other lacks are paired by shared leaves
+   (most first, one partner each), each pair is a goal of its own
+   (`{id}.a{n}`, the pair caps, half the budget), the left side with the
+   pairs substituted is derived by `cong` (`rewrite_atoms`), and the
+   rewritten goal is one egglog goal (`{id}.w`) whose keys see one atom;
+   `trans` closes.  The check-only pass does the same (`check_by_atoms`).
+   Phases `atoms=<pairs>` / `atoms-failed=<s>`; a failure falls back to
+   the whole goal (and the fresh process, as the descent does).
+
+**Lambda applications are out of scope.**  Haniel's decision: beta
+reduction will be handled differently later; a goal that applies a lambda
+is tallied `out-of-scope` (like the pivot defect) rather than attempted
+-- `out_of_scope` at the worker's two entries, class `out-of-scope` in
+`residue_class`, key `elab_kept_out-of-scope` in the runner's tally.
+
+**Result.**  rings: 408 of 408 justified, re-check **valid**, the pass
+14 s (from 120 s).  ezsmt: 539 justified, the 11 kept all `out-of-scope`,
+20 s (from 79 s).  Fixtures `rings-ho56` (the `<` against `not >=` shape)
+and `ezsmt-flip` (the sign flip under an `ite`) in the corpus test.  On
+the way: the descent's and the alignment's sort tests now read the term
+(`is_boolean`, `is_numeric`) -- an in-process worker's pool starts empty
+and `pool.sort` panicked on a numeric `ite` fixture; the isolated workers
+never saw it.  Not looked at: Dartagnan's 50 and SMPT's 5 `unproved`.
