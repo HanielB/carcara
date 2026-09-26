@@ -2216,6 +2216,10 @@ fn reconstruct_by_descent(
 ) -> Option<Vec<String>> {
     let (lhs, rhs) = descent_sides(pool, conclusion, options)?;
     let started = Instant::now();
+    // The descent gets half of what is left: a descent that fails late
+    // would otherwise leave the whole-goal fallback nothing (rw3 lost
+    // fifteen LassoRanker proofs that way).
+    let deadline = deadline.map(|d| started + d.saturating_duration_since(started) / 2);
     let mut timed: Vec<(String, Duration)> = Vec::new();
     let mut out = Vec::new();
     let mut goals = 0;
