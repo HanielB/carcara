@@ -314,6 +314,30 @@ impl AletheElaborator {
         id
     }
 
+    /// The factor by which the variable part of `right`'s difference is
+    /// that of `left`'s, in absolute value: the coefficient of the stated
+    /// relation in each `la_generic` implication; `None` when the parts
+    /// are not proportional.
+    fn relation_scale(&self, left: &Term, right: &Term) -> Option<String> {
+        use crate::rare::reconstruction::computation::poly_of;
+        let difference = |relation: &Term| -> Option<_> {
+            let (_, sides) = encoded_application(relation)?;
+            let [a, b] = sides.as_slice() else {
+                return None;
+            };
+            Some(poly_of(a)?.sub(&poly_of(b)?).without_constant())
+        };
+        let (p1, p2) = (difference(left)?, difference(right)?);
+        let k = match (p1.leading(), p2.leading()) {
+            (Some(k1), Some(k2)) if k1 != 0 => k2 / k1,
+            _ => return None,
+        };
+        if p2.sub(&p1.scale(&k)).as_constant().is_none_or(|c| c != 0) {
+            return None;
+        }
+        Some(k.abs().to_string())
+    }
+
     /// `(= lhs rhs)` for two linear relations whose variable parts are
     /// proportional, each implying the other by `la_generic` (whose
     /// integer strengthening covers the tightened forms), the implications
@@ -324,7 +348,6 @@ impl AletheElaborator {
     /// are joined under `cong`.  Equalities are left to the routing: the
     /// negation of an equality is no `la_generic` literal.
     pub(crate) fn la_generic_equivalence(&mut self, lhs: &Term, rhs: &Term) -> Option<String> {
-        use crate::rare::reconstruction::computation::poly_of;
         let relation = |term: &Term| -> Option<(bool, Term)> {
             match encoded_application(term)? {
                 ("@not", inner) if inner.len() == 1 => match encoded_application(&inner[0])? {
@@ -338,26 +361,60 @@ impl AletheElaborator {
         let (left_polarity, left) = relation(lhs)?;
         let (right_polarity, right) = relation(rhs)?;
         if left_polarity != right_polarity {
-            return None;
-        }
-        let difference = |relation: &Term| -> Option<_> {
-            let (_, sides) = encoded_application(relation)?;
-            let [a, b] = sides.as_slice() else {
-                return None;
+            // `(= (not R1) R2)`: R1 and R2 exclude each other and cover
+            // every case, each by `la_generic`, and the equivalence follows
+            // through the `equiv_neg` tautologies on the negated side.
+            let (negated, positive, swapped) = if left_polarity {
+                (right.clone(), left.clone(), true)
+            } else {
+                (left.clone(), right.clone(), false)
             };
-            Some(poly_of(a)?.sub(&poly_of(b)?).without_constant())
-        };
-        let (p1, p2) = (difference(&left)?, difference(&right)?);
-        // p2 = k p1 on the variable parts; the coefficient of the stated
-        // relation in each implication is |k|.
-        let k = match (p1.leading(), p2.leading()) {
-            (Some(k1), Some(k2)) if k1 != 0 => k2 / k1,
-            _ => return None,
-        };
-        if p2.sub(&p1.scale(&k)).as_constant().is_none_or(|c| c != 0) {
-            return None;
+            let scale = self.relation_scale(&negated, &positive)?;
+            let (r1, r2) = (
+                decode_any(&negated, &self.names)?,
+                decode_any(&positive, &self.names)?,
+            );
+            let cover = self.emit_clause(&format!("{r1} {r2}"), "la_generic", &[], &format!("{scale} 1"));
+            let exclude = self.emit_clause(
+                &format!("(not {r1}) (not {r2})"),
+                "la_generic",
+                &[],
+                &format!("{scale} 1"),
+            );
+            let neg2 = self.emit_clause(
+                &format!("(= (not {r1}) {r2}) (not {r1}) {r2}"),
+                "equiv_neg2",
+                &[],
+                "",
+            );
+            let with_r2 =
+                self.emit_clause(&format!("(= (not {r1}) {r2}) {r2}"), "resolution", &[neg2, cover], "");
+            let neg1 = self.emit_clause(
+                &format!("(= (not {r1}) {r2}) (not (not {r1})) (not {r2})"),
+                "equiv_neg1",
+                &[],
+                "",
+            );
+            let with_not_r2 = self.emit_clause(
+                &format!("(= (not {r1}) {r2}) (not {r2})"),
+                "resolution",
+                &[neg1, exclude],
+                "",
+            );
+            let not_r1 = encoded_app("@not", vec![negated.clone()]);
+            let step = self.emit(
+                &not_r1,
+                &positive,
+                "resolution",
+                &format!(" :premises ({with_r2} {with_not_r2})"),
+            )?;
+            return if swapped {
+                self.emit(lhs, rhs, "symm", &format!(" :premises ({step})"))
+            } else {
+                Some(step)
+            };
         }
-        let scale = k.abs().to_string();
+        let scale = self.relation_scale(&left, &right)?;
         let (a, b) = (
             decode_any(&left, &self.names)?,
             decode_any(&right, &self.names)?,

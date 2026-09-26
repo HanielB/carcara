@@ -2702,6 +2702,19 @@ fn la_generic_equivalence_certifies_relations_the_routing_cannot() {
             "(not (>= x 2))",
             "(not (> x 1))",
         ),
+        // mixed polarity, the negated side left and right
+        (
+            encoded_app("@not", vec![encoded_app("@<", vec![var("7"), encoded_num(2)])]),
+            encoded_app("@>=", vec![var("7"), encoded_num(2)]),
+            "(not (< x 2))",
+            "(>= x 2)",
+        ),
+        (
+            encoded_app("@>", vec![var("7"), encoded_num(1)]),
+            encoded_app("@not", vec![encoded_app("@<=", vec![times_two(var("7")), encoded_num(2)])]),
+            "(> x 1)",
+            "(not (<= (* 2 x) 2))",
+        ),
     ];
     for (lhs, rhs, left, right) in cases {
         let mut elaborator = AletheElaborator {
