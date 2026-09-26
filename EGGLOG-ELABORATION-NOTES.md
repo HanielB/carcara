@@ -5487,3 +5487,41 @@ without the rejustification bound the no-certificate hole ran to the
 snapshot's and the search graph's size on goals of 10^5 nodes, a
 resource limit to be met by a partial snapshot around the goal's classes,
 not by a certificate the search lacks.
+
+### 47.18 One-to-many alignment, predicates to true, and where the search's memory went (2026-09-26)
+
+**Alignment** (27522e8f).  Under `and`/`or` of different arity the descent
+aligned nothing; now the arguments left after the identical ones are
+grouped: every argument of the smaller side gets its best partner first
+(best pairs first, so none is left empty by a greedy grouping), then the
+rest of the larger side joins the argument it shares most leaves with, and
+a group is a nested application, so an atom the producer expanded into
+several bounds is one pair, `(= a (and b1 b2))`; the `aci_simp` steps
+around the `cong` flatten it back.  Dartagnan `t1208` (86 against 97
+nodes, five bound pairs): 96 s to 5 s; `t3098` (312 against 144): no
+certificate to 56 s with four pairs.  `t2755` (378 against 169) stays: its
+negated conjunctions are redistributed across the sides, the leaf heuristic
+pairs them wrong, egglog refutes the pair after 150 s and the whole goal
+does not finish in what is left.
+
+**Predicates to true.**  `(= (= a b) true)`, cvc5's `MACRO_SR_PRED_INTRO`
+shape, descends on the equality's sides, then `cong` to `(= b b)` and
+`eq-refl`.
+
+**The search's memory** (25282dce).  Not the snapshot: over rw3's 7,381
+proofs the 4 M-tuple cap and a kill in serialization never occurred, and
+on the corpus's memory kills serialization took milliseconds, so a partial
+snapshot around the goal's classes has no case (egglog's `root_eclasses`
+only labels roots anyway).  The kills were in the search, and not from
+copies of a large goal either: `dart-t2439` is 40 nodes.  A `:list` rule
+over a long chain has a match per segmentation, and every match is
+grounded to a term of its own; with the deadline-bound states of §47.17
+a few expansions filled 6 GB.  Now: the matches of one signature are
+capped at 2,048, the grounding loop checks the budget every 64 matches,
+a timed search's budget includes a virtual-memory cap at the engine's
+soft cap (the resident set does not predict an address-space kill, the
+first attempt used it and failed), and the state bound is scaled to the
+goal's size (about four million term nodes of candidates, never below
+32 states).  `t2439` ends at the time limit with the worker alive instead
+of dying at 6 GB; whether it can be proved in the time is the next
+question, not a crash.
