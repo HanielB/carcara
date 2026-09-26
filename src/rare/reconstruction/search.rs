@@ -78,6 +78,17 @@ impl SearchStrategy {
         }
     }
 
+    /// The state bound scaled to the goal: about four million term nodes
+    /// of candidate vertices in all, never below 32 states (a goal of
+    /// 10^5 nodes copied 256 times is gigabytes).
+    pub fn sized_for(self, goal_nodes: usize) -> Self {
+        let states = (1usize << 22) / goal_nodes.max(1);
+        Self {
+            max_states: states.clamp(32, self.max_states),
+            ..self
+        }
+    }
+
     fn out_of_time(&self) -> bool {
         self.deadline
             .is_some_and(|deadline| Instant::now() >= deadline)

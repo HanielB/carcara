@@ -2160,7 +2160,10 @@ fn shares_skeleton(
 ) -> bool {
     match (lhs.as_ref(), rhs.as_ref()) {
         (crate::ast::Term::Op(f, fa), crate::ast::Term::Op(g, ga)) => {
-            f == g && fa.len() == ga.len() && descends_through(pool, lhs)
+            f == g
+                && (fa.len() == ga.len()
+                    || matches!(f, crate::ast::Operator::And | crate::ast::Operator::Or))
+                && descends_through(pool, lhs)
         }
         _ => false,
     }
@@ -2192,6 +2195,36 @@ fn descend(
     if lhs == rhs {
         return Ok(None);
     }
+    // `(= (= a b) true)`, the shape of a predicate rewritten to `true`
+    // (cvc5's `MACRO_SR_PRED_INTRO`): the equality's two sides are the
+    // pair to prove, then `(= (= a b) (= b b))` by `cong` and
+    // `(= (= b b) true)` by `eq-refl`.
+    if let (crate::ast::Term::Op(crate::ast::Operator::Equals, fa), true) =
+        (lhs.as_ref(), rhs.is_bool_true())
+    {
+        if fa.len() == 2 && fa[0] != fa[1] {
+            let (a, b) = (fa[0].clone(), fa[1].clone());
+            let inner = descend(pool, &a, &b, id, out, goals, base)?
+                .ok_or_else(|| "descent: identical sides under an equality".to_owned())?;
+            let reflexive = pool.add(crate::ast::Term::Op(
+                crate::ast::Operator::Equals,
+                vec![b.clone(), b.clone()],
+            ));
+            let cong_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {cong_id} (cl (= {lhs:#} {reflexive:#})) :rule cong :premises ({inner}))"
+            ));
+            let refl_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {refl_id} (cl (= {reflexive:#} {rhs:#})) :rule rare_rewrite :args (\"eq-refl\" {b:#}))"
+            ));
+            let step_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({cong_id} {refl_id}))"
+            ));
+            return Ok(Some(step_id));
+        }
+    }
     // `(= (= a b) (= b a))`, the orientation of an equality, is
     // `eq_symmetric`; pairing the arguments by position would fail.
     if let (
@@ -2218,7 +2251,8 @@ fn descend(
         // identical ones align but the rewritten ones need not.  A
         // reordering is an `aci_simp` step on each side around the `cong`.
         let (fa, ga) = if matches!(op, crate::ast::Operator::And | crate::ast::Operator::Or) {
-            align_aci(fa, ga)
+            align_aci(pool, op, fa, ga)
+                .ok_or_else(|| "descent: the arguments do not align".to_owned())?
         } else {
             (fa.clone(), ga.clone())
         };
@@ -2265,6 +2299,12 @@ fn descend(
     base(pool, lhs, rhs, *goals, out).map(Some)
 }
 
+/// The size of an encoded term as a tree (the `Args` cells and wrappers
+/// included), what a candidate vertex of the search costs to hold.
+fn term_nodes(term: &Term) -> usize {
+    1 + term.children.iter().map(term_nodes).sum::<usize>()
+}
+
 /// `term` printed, cut to a line for a log message.
 fn abbreviated(term: &crate::ast::Rc<crate::ast::Term>) -> String {
     let text = format!("{term:#}");
@@ -2297,12 +2337,14 @@ fn leaves(
 /// leaves they share (a rewritten atom shares its variables with its
 /// original), in the left side's order.
 fn align_aci(
+    pool: &mut dyn TermPool,
+    op: crate::ast::Operator,
     fa: &[crate::ast::Rc<crate::ast::Term>],
     ga: &[crate::ast::Rc<crate::ast::Term>],
-) -> (
+) -> Option<(
     Vec<crate::ast::Rc<crate::ast::Term>>,
     Vec<crate::ast::Rc<crate::ast::Term>>,
-) {
+)> {
     let mut used = vec![false; ga.len()];
     let (mut out_f, mut out_g) = (Vec::with_capacity(fa.len()), Vec::with_capacity(ga.len()));
     let mut rest_f = Vec::new();
@@ -2317,25 +2359,82 @@ fn align_aci(
         }
     }
     let rest_g: Vec<_> = (0..ga.len()).filter(|&j| !used[j]).map(|j| ga[j].clone()).collect();
+    if rest_f.is_empty() != rest_g.is_empty() {
+        log::debug!(
+            "descent: {} arguments left on one side and none on the other",
+            rest_f.len().max(rest_g.len())
+        );
+        return None;
+    }
+    // The side with more arguments left is grouped onto the other: every
+    // argument of it goes to the argument of the other side it shares the
+    // most leaves with, and a group becomes a nested application, so that
+    // an atom the producer expanded into several (`(= x 1)` into two
+    // bounds) is one pair, `(= a (and b1 b2))`.  An argument with no leaf
+    // in common with anything, or an argument left without a partner, is
+    // no alignment.
     let leaves_of = |t: &crate::ast::Rc<crate::ast::Term>| {
         let mut set = std::collections::HashSet::new();
         leaves(t, &mut set);
         set
     };
-    let g_leaves: Vec<_> = rest_g.iter().map(leaves_of).collect();
-    let mut taken = vec![false; rest_g.len()];
-    for a in &rest_f {
-        let a_leaves = leaves_of(a);
-        let best = (0..rest_g.len())
-            .filter(|&j| !taken[j])
-            .max_by_key(|&j| (a_leaves.intersection(&g_leaves[j]).count(), std::cmp::Reverse(j)));
-        if let Some(j) = best {
-            taken[j] = true;
+    let (few, many, few_is_left) = if rest_f.len() <= rest_g.len() {
+        (&rest_f, &rest_g, true)
+    } else {
+        (&rest_g, &rest_f, false)
+    };
+    let few_leaves: Vec<_> = few.iter().map(leaves_of).collect();
+    let many_leaves: Vec<_> = many.iter().map(leaves_of).collect();
+    let overlap = |i: usize, j: usize| few_leaves[i].intersection(&many_leaves[j]).count();
+    let mut groups: Vec<Vec<crate::ast::Rc<crate::ast::Term>>> = vec![Vec::new(); few.len()];
+    let mut taken = vec![false; many.len()];
+    // First a partner for every argument of the smaller side, best pairs
+    // first, so that none is left empty by the greedy grouping; then the
+    // rest of the larger side joins the argument it shares most with.
+    for _ in 0..few.len() {
+        let best = (0..few.len())
+            .filter(|&i| groups[i].is_empty())
+            .flat_map(|i| (0..many.len()).filter(|&j| !taken[j]).map(move |j| (overlap(i, j), i, j)))
+            .max_by_key(|&(shared, i, j)| (shared, std::cmp::Reverse(i), std::cmp::Reverse(j)))?;
+        if best.0 == 0 {
+            log::debug!("descent: no partner shares a leaf with {}", abbreviated(&few[best.1]));
+            return None;
+        }
+        taken[best.2] = true;
+        groups[best.1].push(many[best.2].clone());
+    }
+    for (j, b) in many.iter().enumerate() {
+        if taken[j] {
+            continue;
+        }
+        let best = (0..few.len())
+            .map(|i| (overlap(i, j), std::cmp::Reverse(i)))
+            .max()?;
+        if best.0 == 0 {
+            log::debug!("descent: no partner shares a leaf with {}", abbreviated(b));
+            return None;
+        }
+        groups[best.1 .0].push(b.clone());
+    }
+    for (i, a) in few.iter().enumerate() {
+        let group = std::mem::take(&mut groups[i]);
+        let grouped = match group.len() {
+            0 => {
+                log::debug!("descent: nothing aligned with {}", abbreviated(a));
+                return None;
+            }
+            1 => group[0].clone(),
+            _ => pool.add(crate::ast::Term::Op(op, group)),
+        };
+        if few_is_left {
             out_f.push(a.clone());
-            out_g.push(rest_g[j].clone());
+            out_g.push(grouped);
+        } else {
+            out_f.push(grouped);
+            out_g.push(a.clone());
         }
     }
-    (out_f, out_g)
+    Some((out_f, out_g))
 }
 
 /// The goal's sides, when the descent applies to it: an equality whose
@@ -2349,7 +2448,9 @@ fn descent_sides(
         return None;
     }
     let (_, lhs, rhs) = crate::rare::util::get_equational_terms(conclusion)?;
-    if !shares_skeleton(pool, lhs, rhs)
+    let predicate_to_true = rhs.is_bool_true()
+        && matches!(lhs.as_ref(), crate::ast::Term::Op(crate::ast::Operator::Equals, fa) if fa.len() == 2);
+    if !(shares_skeleton(pool, lhs, rhs) || predicate_to_true)
         || super::term_dag_size(conclusion) < options.descend_min_nodes
     {
         return None;
@@ -2547,9 +2648,11 @@ fn reconstruct_goal(
         &rewrites,
         &sorts,
         // A timed search is bounded by its deadline, not by the fixed
-        // state count of the default strategy.
+        // state count of the default strategy -- and by the goal's size:
+        // a candidate vertex is a copy of the goal's term, so the state
+        // bound is what fits in a worker's memory for terms of that size.
         if deadline.is_some() {
-            SearchStrategy::generous(deadline)
+            SearchStrategy::generous(deadline).sized_for(term_nodes(&lhs) + term_nodes(&rhs))
         } else {
             SearchStrategy::default()
         },
