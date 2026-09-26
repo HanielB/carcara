@@ -434,6 +434,13 @@ impl AletheElaborator {
                         return self.emit(lhs, rhs, "rare_rewrite", &tail);
                     }
                 }
+                // An engine-internal rewrite (`gen-N`: the set-form
+                // conversions, identity and duplicate removal) has no RARE
+                // name; when its sides are equal modulo ACI it is the
+                // checker's `aci_simp`, otherwise it stays trusted.
+                if crate::rare::reconstruction::computation::aci_equal(lhs, rhs) {
+                    return self.emit(lhs, rhs, "aci_simp", "");
+                }
                 self.trusted(lhs, rhs, name)
             }
             Certificate::Computational { kind, lhs, rhs } => match kind {
@@ -581,6 +588,17 @@ impl AletheElaborator {
                 }
                 let mut arguments = Vec::new();
                 spine_arguments(certificate, false, &mut arguments)?;
+                // The premises in argument order: a spine met from the far
+                // side, or a chain the search composed out of order, lists
+                // its legs otherwise, and `cong` reads them by position.
+                if let Some((_, elements)) = encoded_application(lhs) {
+                    arguments.sort_by_key(|argument| {
+                        elements
+                            .iter()
+                            .position(|element| element == argument.lhs())
+                            .unwrap_or(usize::MAX)
+                    });
+                }
                 let premises = arguments
                     .iter()
                     .map(|argument| self.step_for(argument))
