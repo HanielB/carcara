@@ -5408,3 +5408,64 @@ the group of atoms of the other side that share its leaves, and pose
 search certifies a two-atom goal; the block's certificate is `cong` over
 the aligned pairs, `aci_simp` to flatten the nested `and` and reorder.
 One-to-many alignment in `align_aci`, no normalizer change.
+
+### 47.17 Closing the elaboration's gaps against a local corpus (2026-09-26)
+
+The aim: every hole egglog proves is elaborated, given the time.  The
+instrument: `~/exp/egglog-holes/gaps/` -- one-hole proofs sliced
+(`carcara slice --from`) from the residue of the local replays and of
+rw3 (Dartagnan's 29 kept holes, Goel's 7, the QG, uart and calypto
+proofs picked from rw3's tables), the harness `gaps.sh` (checking-only
+pass, elaboration at 300 s per hole with the descent, trust steps
+counted, re-check; a slice ends in its own `slice_end` hole, so `closed`
+is holey with nothing else left), and in the repository
+`tests/rare/elaborate/gaps/` with the test
+`every_checked_hole_of_the_gap_corpus_is_elaborated` over the smallest
+representative of each class.  What the corpus found, in order:
+
+1. **The search stopped at 256 candidate states and depth 8 whatever the
+   time left** (`SearchStrategy::default`), and at four rejustifications:
+   `dart-ho120`, a 16-node `(= (ite c true true) true) = true`, had 901
+   candidates and no meeting.  A timed search now uses 65,536 states,
+   depth 64 and 64 rejustifications and is stopped by its deadline
+   (f165e0fa); four Dartagnan holes of the class justify in 2--96 s, the
+   QG and uart holes in 6 s and 2 s.
+2. **Engine-internal `gen-N` rewrites** (an `ite` on a constant
+   condition, the built-in evaluations, the set-form conversions) were
+   trust steps: the Goel holes' `gen-47` was `(ite true x y) = x`.  A
+   `gen` step is now stated through the checker's computation that
+   re-decides it (`ite_simplify`, `evaluate`, `aci_simp`, `distinct_elim`)
+   when one does (9bd42898).
+3. **Conditional rules were not certificate edges**: `eq-cond-deq` on
+   `(= (= x 1) (= x 2))` proved in egglog, no certificate in 0.09 s.  The
+   engine emits a conditional rule as a named rewrite with its premises
+   among the conditions, the program reader takes them off the rule's
+   body, the search grounds them with the instance and keeps it only
+   where the snapshot holds both sides of every premise in one class, the
+   certificate carries a proof of each, verified with the rule, and the
+   elaborator emits `rare_rewrite` with those proofs as `:premises`
+   (fe5f5c58); fixture `eq-cond-deq`.
+4. **Numerals past i64 were narrowed with `to_i64_wrapping`** in the
+   egglog lowering: calypto's `2^64` was `0`, the engine proved
+   `(>= rz 0)` for `(>= rz 2^64)`, the checking pass accepted it and only
+   the re-check of the elaborated proof refused -- a soundness bug of the
+   checking route, found by the elaboration.  Such a numeral is now an
+   opaque `BigNum` over egglog's `BigRat` sort, out of the arithmetic
+   rules' reach and read back exactly (035a40bf); fixture `big-numeral`.
+5. **The relation routing's trust fallback** is gone: an
+   `arith_poly_norm_rel` obligation `poly_simp_rel` cannot express is the
+   `la_generic` equivalence of §47.14 (proportional variable parts, the
+   integer strengthening covering the tightened forms, negated relations
+   under `cong`), checker-backed test over four pairs (8fca973b).  The
+   trust step remains only for a pair that is not proportional, which no
+   corpus hole produces.
+6. **The descent's budget**: half of what is left, so a failed descent
+   leaves the whole-goal fallback its share (6ea89b14).
+
+Not gaps after all: a congruence over several differing children is one
+`cong` with one premise per child (the spine chain; a three-`ite` probe
+elaborates in 0.08 s).  Left, as resource limits rather than gaps: the
+snapshot cap of 4 M tuples after a proof, and a descent's sub-goal
+e-graphs sharing one worker's address space.  The Dartagnan slices with
+`memory` kills are egglog's, not the elaboration's (the checking pass
+does not prove them either).  `cargo test --lib`: 294.
