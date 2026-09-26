@@ -1309,18 +1309,16 @@ fn construct_rules(
 
         let conditional = !premises.is_empty();
         premises.extend(guards.iter().cloned());
+        // A conditional rule is a named rewrite too, its premises among the
+        // conditions, so the reconstruction can cite it: the certificate
+        // then carries a proof of each premise instance.
         for (lhs, rhs, _) in variants {
-            let statement = if !conditional {
-                EggStatement::NamedRewrite {
-                    name: format!("rare:{}#{}", definition.name, rules.len()),
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    conditions: guards.clone(),
-                }
-            } else {
-                EggStatement::Rewrite(Box::new(lhs), Box::new(rhs), premises.clone())
-            };
-            rules.insert(statement);
+            rules.insert(EggStatement::NamedRewrite {
+                name: format!("rare:{}#{}", definition.name, rules.len()),
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                conditions: if conditional { premises.clone() } else { guards.clone() },
+            });
         }
         // The generated name carries the rule's `:list` parameters, so that
         // the reconstruction can recover an instantiation the chain pattern
@@ -1337,19 +1335,11 @@ fn construct_rules(
         } else {
             format!(":lists={}", list_parameters.join(","))
         };
-        rules.insert(if !conditional {
-            EggStatement::NamedRewrite {
-                name: format!("rare:{}#{}{}", definition.name, rules.len(), name_suffix),
-                lhs: egg_equations.0.clone(),
-                rhs: egg_equations.1.clone(),
-                conditions: guards.clone(),
-            }
-        } else {
-            EggStatement::Rewrite(
-                egg_equations.0.clone(),
-                egg_equations.1.clone(),
-                premises.clone(),
-            )
+        rules.insert(EggStatement::NamedRewrite {
+            name: format!("rare:{}#{}{}", definition.name, rules.len(), name_suffix),
+            lhs: egg_equations.0.clone(),
+            rhs: egg_equations.1.clone(),
+            conditions: if conditional { premises.clone() } else { guards.clone() },
         });
         if conditional {
             let lhs_available =

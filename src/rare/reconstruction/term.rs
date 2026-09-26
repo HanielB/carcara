@@ -61,6 +61,10 @@ pub struct Rewrite {
     /// The rule's `:list` parameters, which stand for a segment of an n-ary
     /// operator's arguments rather than for one argument.
     pub lists: Vec<String>,
+    /// The premises of a conditional rule, each an equality the rule's
+    /// instance holds only when it does; a certificate citing the rule
+    /// carries a proof of each.
+    pub premises: Vec<(Pattern, Pattern)>,
 }
 
 pub type Substitution = BTreeMap<String, Term>;

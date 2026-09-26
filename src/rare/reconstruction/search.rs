@@ -122,15 +122,19 @@ pub struct RuleInstance {
     pub lhs: Term,
     pub rhs: Term,
     pub substitution: Substitution,
+    /// A conditional rule's premise instances, each a pair of terms the
+    /// snapshot holds in one class; proved when the edge is justified.
+    pub premises: Vec<(Term, Term)>,
 }
 
 impl RuleInstance {
-    pub fn certificate(&self) -> Certificate {
+    pub fn certificate(&self, premises: Vec<Certificate>) -> Certificate {
         Certificate::Rule {
             name: self.rule.to_owned(),
             lhs: self.lhs.clone(),
             rhs: self.rhs.clone(),
             substitution: self.substitution.clone(),
+            premises,
         }
     }
 }
@@ -734,6 +738,17 @@ impl Reconstructor<'_> {
         // and are no edge.
         let lhs = flat_form(&instantiate(&rule.lhs, &substitution)?);
         let rhs = flat_form(&instantiate(&rule.rhs, &substitution)?);
+        // A conditional rule's instance holds only where its premises do:
+        // both sides of each premise instance in one class of the snapshot.
+        let mut premises = Vec::with_capacity(rule.premises.len());
+        for (a, b) in &rule.premises {
+            let a = flat_form(&instantiate(a, &substitution)?);
+            let b = flat_form(&instantiate(b, &substitution)?);
+            match (self.snapshot.class_of_term(&a), self.snapshot.class_of_term(&b)) {
+                (Some(class_a), Some(class_b)) if class_a == class_b => premises.push((a, b)),
+                _ => return None,
+            }
+        }
         (lhs != rhs
             && self.snapshot.class_of_term(&lhs) == Some(eclass)
             && self.snapshot.class_of_term(&rhs) == Some(eclass))
@@ -742,6 +757,7 @@ impl Reconstructor<'_> {
             lhs,
             rhs,
             substitution,
+            premises,
         })
     }
 
@@ -1096,6 +1112,7 @@ impl Reconstructor<'_> {
                 lhs: source.clone(),
                 rhs: target.clone(),
                 substitution,
+                premises: Vec::new(),
             });
         }
         None
@@ -1389,7 +1406,15 @@ impl Reconstructor<'_> {
     ) -> Option<Certificate> {
         match edge {
             CandidateEdge::Rule { instance, reversed } => {
-                let certificate = instance.certificate();
+                // The premises of a conditional rule's instance are
+                // obligations of their own, in the class the snapshot holds
+                // them in.
+                let instance = instance.clone();
+                let mut proofs = Vec::with_capacity(instance.premises.len());
+                for (a, b) in &instance.premises {
+                    proofs.push(self.prove(a, b)?);
+                }
+                let certificate = instance.certificate(proofs);
                 Some(if *reversed != flip {
                     reverse(certificate)
                 } else {

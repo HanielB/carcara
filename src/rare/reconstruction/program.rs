@@ -139,6 +139,7 @@ pub fn rules_from_generated_program(program: &str) -> Vec<Rewrite> {
             rhs: pattern_from_egglog_expr(rhs),
             guards: Vec::new(),
             lists: Vec::new(),
+            premises: Vec::new(),
         });
     };
     for command in commands {
@@ -170,8 +171,12 @@ pub fn rules_from_generated_program(program: &str) -> Vec<Rewrite> {
                     .iter()
                     .filter(|fact| !is_sort_guard(fact))
                     .collect();
+                // The first fact binds the pivot to the left-hand side; the
+                // facts after it are a conditional rule's premises, each an
+                // equality of two patterns.  Any other fact makes the rule
+                // no declarative rewrite.
                 let (
-                    [GenericFact::Eq(_, GenericExpr::Var(_, pivot), lhs)],
+                    [GenericFact::Eq(_, GenericExpr::Var(_, pivot), lhs), rest @ ..],
                     [GenericAction::Union(_, GenericExpr::Var(_, target), rhs)],
                 ) = (body.as_slice(), rule.head.0.as_slice())
                 else {
@@ -180,12 +185,25 @@ pub fn rules_from_generated_program(program: &str) -> Vec<Rewrite> {
                 if pivot != target {
                     continue;
                 }
+                let premises: Option<Vec<(Pattern, Pattern)>> = rest
+                    .iter()
+                    .map(|fact| match fact {
+                        GenericFact::Eq(_, a, b) => {
+                            Some((pattern_from_egglog_expr(a), pattern_from_egglog_expr(b)))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let Some(premises) = premises else {
+                    continue;
+                };
                 rules.push(Rewrite {
                     name: leak(rare_name.to_owned()),
                     lhs: pattern_from_egglog_expr(lhs),
                     rhs: pattern_from_egglog_expr(rhs),
                     guards,
                     lists: rare_lists_of(&egglog_name),
+                    premises,
                 });
             }
             _ => {}

@@ -36,6 +36,7 @@ fn rules() -> Vec<Rewrite> {
             rhs: App("And", vec![App("Not", vec![Var("c")]), Var("x")]),
             guards: Vec::new(),
             lists: Vec::new(),
+            premises: Vec::new(),
         },
         Rewrite {
             name: "and-true-right",
@@ -43,6 +44,7 @@ fn rules() -> Vec<Rewrite> {
             rhs: Var("x"),
             guards: Vec::new(),
             lists: Vec::new(),
+            premises: Vec::new(),
         },
     ]
 }
@@ -225,6 +227,7 @@ fn encoded_eq_symm_rule() -> Rewrite {
         rhs: encoded_formula("@=", vec![Var("s1"), Var("t1")]),
         guards: Vec::new(),
         lists: Vec::new(),
+        premises: Vec::new(),
     }
 }
 
@@ -237,6 +240,7 @@ fn encoded_bool_double_not_elim_rule() -> Rewrite {
         rhs: encoded_mk(Var("t1")),
         guards: Vec::new(),
         lists: Vec::new(),
+        premises: Vec::new(),
     }
 }
 
@@ -252,6 +256,7 @@ fn encoded_bool_or_false_rule() -> Rewrite {
         rhs: encoded_mk(Var("x")),
         guards: Vec::new(),
         lists: Vec::new(),
+        premises: Vec::new(),
     }
 }
 

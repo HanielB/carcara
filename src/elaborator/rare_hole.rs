@@ -409,11 +409,20 @@ impl AletheElaborator {
     fn step_for_inner(&mut self, certificate: &Certificate) -> Option<String> {
         match certificate {
             Certificate::Refl { term } => self.emit(term, term, "refl", ""),
-            Certificate::Rule { name, lhs, rhs, substitution } => {
+            Certificate::Rule { name, lhs, rhs, substitution, premises } => {
                 // A rewrite the engine compiled from the RARE database
                 // carries its name, so the step becomes a checkable
-                // rare_rewrite with the rule's argument instantiation;
+                // rare_rewrite with the rule's argument instantiation, and
+                // a conditional rule's premise proofs as its premises;
                 // engine-internal rewrites keep the trusted form.
+                let premise_steps: Option<Vec<String>> =
+                    premises.iter().map(|premise| self.step_for(premise)).collect();
+                let premise_steps = premise_steps?;
+                let premise_tail = if premise_steps.is_empty() {
+                    String::new()
+                } else {
+                    format!(" :premises ({})", premise_steps.join(" "))
+                };
                 if let Some(parameters) = self.rare.get(name).cloned() {
                     let decoded: Option<Vec<String>> = parameters
                         .iter()
@@ -430,7 +439,8 @@ impl AletheElaborator {
                         })
                         .collect();
                     if let Some(decoded) = decoded {
-                        let tail = format!(" :args (\"{name}\" {})", decoded.join(" "));
+                        let tail =
+                            format!("{premise_tail} :args (\"{name}\" {})", decoded.join(" "));
                         return self.emit(lhs, rhs, "rare_rewrite", &tail);
                     }
                 }

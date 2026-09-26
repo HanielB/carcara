@@ -12,6 +12,8 @@ pub enum Certificate {
         lhs: Term,
         rhs: Term,
         substitution: Substitution,
+        /// A conditional rule's premise instances, each proved.
+        premises: Vec<Certificate>,
     },
     Computational {
         kind: Computation,
@@ -132,25 +134,38 @@ impl Certificate {
             // sort instantiation, one per emptiness pattern of its `:list`
             // parameters -- which all carry the same name, so the
             // certificate is accepted when *some* of them states it.
-            Self::Rule { name, lhs, rhs, substitution } => rules
+            Self::Rule { name, lhs, rhs, substitution, premises } => rules
                 .iter()
                 .filter(|rule| rule.name == name)
                 .any(|rule| {
                     // Instantiating both sides re-derives the instance from
                     // the substitution, and the comparison ignores the empty
                     // segments a `:list` parameter bound: they encode the
-                    // same Alethe term.
+                    // same Alethe term.  A conditional rule's premises are
+                    // re-derived the same way, and each must be proved.
                     let instance = (
                         instantiate(&rule.lhs, substitution),
                         instantiate(&rule.rhs, substitution),
                     );
-                    match instance {
+                    let sides_match = match instance {
                         (Some(instance_lhs), Some(instance_rhs)) => {
                             flat_form(&instance_lhs) == flat_form(lhs)
                                 && flat_form(&instance_rhs) == flat_form(rhs)
                         }
                         _ => false,
-                    }
+                    };
+                    sides_match
+                        && rule.premises.len() == premises.len()
+                        && rule.premises.iter().zip(premises).all(|((a, b), proof)| {
+                            match (instantiate(a, substitution), instantiate(b, substitution)) {
+                                (Some(a), Some(b)) => {
+                                    proof.verify_in(rules, sorts)
+                                        && flat_form(proof.lhs()) == flat_form(&a)
+                                        && flat_form(proof.rhs()) == flat_form(&b)
+                                }
+                                _ => false,
+                            }
+                        })
                 }),
             // Verified by independent recomputation; the e-graph's own
             // solver state is never consulted.  ACI steps are judged by
