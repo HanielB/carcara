@@ -2652,7 +2652,11 @@ fn reconstruct_goal(
         // a candidate vertex is a copy of the goal's term, so the state
         // bound is what fits in a worker's memory for terms of that size.
         if deadline.is_some() {
-            SearchStrategy::generous(deadline).sized_for(term_nodes(&lhs) + term_nodes(&rhs))
+            SearchStrategy::generous(
+                deadline,
+                (options.memory_soft_cap_mb > 0).then_some(options.memory_soft_cap_mb),
+            )
+            .sized_for(term_nodes(&lhs) + term_nodes(&rhs))
         } else {
             SearchStrategy::default()
         },

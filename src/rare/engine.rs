@@ -1695,6 +1695,15 @@ struct GrowthCaps {
     memory_mb: Option<usize>,
 }
 
+/// The process's virtual size in megabytes, from `/proc/self/statm`: what
+/// an address-space limit (`ulimit -v`) measures, which the resident set
+/// does not predict.
+pub(crate) fn virtual_mb() -> Option<usize> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: usize = statm.split_whitespace().next()?.parse().ok()?;
+    Some(pages * 4096 / (1024 * 1024))
+}
+
 /// The process's resident set in megabytes, from `/proc/self/statm`; `None`
 /// where that is unavailable.
 fn resident_mb() -> Option<usize> {

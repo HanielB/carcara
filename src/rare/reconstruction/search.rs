@@ -46,6 +46,10 @@ pub struct SearchStrategy {
     /// search are separate phases of one per-hole budget, so a bound on the
     /// former alone leaves the latter free to run away.
     pub deadline: Option<Instant>,
+    /// Virtual memory, in megabytes, past which the search abandons the
+    /// goal the same way: its graphs and caches on a small goal reached the
+    /// worker's address-space limit with the proof in hand.
+    pub memory_cap_mb: Option<usize>,
 }
 
 impl Default for SearchStrategy {
@@ -55,6 +59,7 @@ impl Default for SearchStrategy {
             max_states: 256,
             max_rejustifications: 4,
             deadline: None,
+            memory_cap_mb: None,
         }
     }
 }
@@ -69,12 +74,13 @@ impl SearchStrategy {
     /// ended goals the e-graph had proved at 256 candidates and depth 8,
     /// with most of the hole's budget unspent (rw3: 1,516 holes with no
     /// certificate).
-    pub fn generous(deadline: Option<Instant>) -> Self {
+    pub fn generous(deadline: Option<Instant>, memory_cap_mb: Option<usize>) -> Self {
         Self {
             max_depth: 64,
             max_states: 1 << 16,
             max_rejustifications: 64,
             deadline,
+            memory_cap_mb,
         }
     }
 
@@ -92,6 +98,9 @@ impl SearchStrategy {
     fn out_of_time(&self) -> bool {
         self.deadline
             .is_some_and(|deadline| Instant::now() >= deadline)
+            || self
+                .memory_cap_mb
+                .is_some_and(|cap| crate::rare::engine::virtual_mb().is_some_and(|now| now >= cap))
     }
 }
 
@@ -549,6 +558,12 @@ impl Reconstructor<'_> {
             return matches.clone();
         }
 
+        // The matches of one signature are bounded: a `:list` rule over a
+        // long chain has a match per segmentation, and every match is
+        // grounded to a term of its own, which on one Dartagnan goal of 40
+        // nodes took a worker past its address space within a few
+        // expansions.
+        const MAX_MATCHES: usize = 2048;
         let mut matches = Vec::new();
         // Candidate sides come from the discrimination tree — an imperfect
         // filter, so each retrieved side still goes through the exact
@@ -558,7 +573,7 @@ impl Reconstructor<'_> {
         let candidates =
             self.pattern_index
                 .candidates_at_signature(self.snapshot, signature, &mut self.stats);
-        for (rule_index, anchored) in candidates {
+        'rules: for (rule_index, anchored) in candidates {
             let rule = &self.rules[rule_index];
             let (side, other) = match anchored {
                 InstanceSide::Lhs => (&rule.lhs, &rule.rhs),
@@ -587,6 +602,9 @@ impl Reconstructor<'_> {
                 };
                 if let Some(substitution) = substitution {
                     matches.push(SignatureMatch { rule_index, substitution, anchored });
+                    if matches.len() >= MAX_MATCHES || self.strategy.out_of_time() {
+                        break 'rules;
+                    }
                 }
             }
         }
@@ -1551,7 +1569,13 @@ impl Reconstructor<'_> {
             // nothing
         } else if let Some(signature) = self.term_signature(vertex) {
             let matches = self.matches_at_signature(graph.eclass, &signature);
-            for class_match in matches.iter() {
+            for (index, class_match) in matches.iter().enumerate() {
+                // The grounding of every match is where the memory goes;
+                // the budget is checked along the way, not only per level.
+                if index % 64 == 63 && self.strategy.out_of_time() {
+                    graph.over_budget = true;
+                    break;
+                }
                 let Some(instance) = self.grounded_match(graph.eclass, class_match, vertex) else {
                     continue;
                 };
