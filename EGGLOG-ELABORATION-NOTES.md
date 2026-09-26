@@ -5204,3 +5204,111 @@ kills where the plain run had none, the sub-goal e-graphs of one worker
 accumulating address space; with the orientation the kills are gone, but
 a descent over many heavy pairs still runs them in one process.
 `cargo test --lib`: 292.
+
+### 47.15 Runs `rw3` and `dsl1` (submitted 2026-09-25, read 2026-09-26)
+
+Two submissions on rw2's sets (7,381 benchmarks): `rw3`, the pipeline
+with the carcara of f0a15e53 (§47.13's merge, §47.14's tightening,
+orientation and descent at 32 nodes, the residue classes named), the
+91-rule `holes-rw3.rare`, the re-check at 1,200 s; and `dsl1`, the new
+comparison arm: the same cvc5 at `--proof-granularity=dsl-rewrite` in
+60 s, the proof checked by `carcara check` with the 171-rule file (900 s),
+no egglog.  Runner `run-dsl.sh`, scripts `submit-egglog-rw3.sh`,
+`submit-egglog-dsl1.sh`, readers in `~/exp/egglog-holes/analysis-rw3/`.
+Results `exp/results/egglog-holes/{rw3,dsl1}` (local copies under
+`~/exp/results/`).
+
+**`rw3` against `rw2`** (holes of the proofs that ran the pass):
+
+| | QF_UF | QF_LIA | QF_LRA |
+|---|---|---|---|
+| justified, rw3 / rw2 | 99.85% / 99.52% | 99.49% / 99.45% | 99.75% / 99.33% |
+| kept, rw3 / rw2 | 1,728 / 5,648 | 2,963 / 3,457 | 1,074 / 2,869 |
+| skipped at the budget | 0 / 33 | 643 / 481 | 0 / 29 |
+| closed by the normalizer | 13.3% / 13.3% | 51.5% / 49.0% | 56.3% / 43.7% |
+| proofs, every hole justified | 2,907 / 1,907 | 2,350 / 2,263 | 325 / 326 |
+| of those without an untagged hole, re-check `holey` | 661 / 22 | 11 / 294 | 0 / 0 |
+| re-check `valid` | 675 / 322 | 1,350 / 982 | 203 / 202 |
+| elaboration pass, summed | 48.8 h / 80.0 h | 38.2 h / 37.8 h | 12.8 h / 21.2 h |
+| descent: holes proved / failed | 7,606 / 44,924 | 20,208 / 4,276 | 33,856 / 1,599 |
+
+Kept classes, rw3: QF_UF hole-time 1,110, checker-rejected 534,
+no-certificate 47, memory 37; QF_LIA no-certificate 985 (852 Dartagnan),
+hole-time 952 (790 Dartagnan), unproved 789 (rings 522, ezsmt 212),
+memory 255, pass-budget 80; QF_LRA hole-time 580, no-certificate 484
+(uart 339), memory 10.  Fully justified proofs: QF_UF both 1,904, rw3 only
+1,003, rw2 only 3; QF_LIA 2,253 / 97 / 10; QF_LRA 311 / 14 / 15.
+
+The orientation is what moved QF_LRA (the normalizer closes 56% of the
+holes, `sc`'s kills are gone, 21 h to 13 h) and the search fixes what
+moved QF_UF (kept 5,648 to 1,728, half the time).  QF_LIA's `valid` rose
+from 982 to 1,350 because the routing's trust steps went from 294 proofs
+to 11.  Two defects the run exposed, both in the elaborator, both fixed
+after the read (6824bb8a):
+
+- **534 QF_UF `checker-rejected`**, all a `cong` whose premises were out
+  of argument order (a spine met from the far side, or a chain composed
+  out of order; `cong` reads premises by position).  The premises are
+  sorted by the argument they justify now.
+- **661 QF_UF proofs fully justified and re-checked `holey`** on
+  `TRUST_THEORY_REWRITE` steps the elaborator emitted for engine-internal
+  `gen-N` rewrites (the set-form identity removal, `(and A true) = A`,
+  and its kin) -- the old "justified with a `gen` hole" accounting gap,
+  reopened by the search finding these edges where it found nothing
+  before.  A `gen-N` step whose sides are equal modulo ACI is now the
+  checker's `aci_simp`.  Twelve of the 661 replayed: nine re-check
+  `valid`; the three Goel ones keep a `gen-44` that is a *conditional*
+  rule's instance (`ite-true-cond` under a context equality), which has
+  no name in the program and stays trusted -- the class left.  In QF_UF
+  every `TRUST_THEORY_REWRITE` left is the elaborator's (cvc5 prints none
+  there), so rw3's honest QF_UF count is 2,907 fully justified of which
+  1,336 have no untagged hole and 675 re-check `valid`; the fixes lift
+  most of the 661.
+
+The descent's cost shows in QF_LRA's 15 proofs fully justified in rw2 and
+not in rw3: LassoRanker proofs of 1--3k holes with 1--10 hole-time kills
+each, after tens to hundreds of descents of which a few failed; a failed
+descent spends the hole's budget before the whole goal is tried.  And
+QF_LIA's skipped rose to 643 (Dartagnan's pass at the budget).  A
+fallback with its own share of the budget, or a descent that gives up
+after the first failed pair, is the next tuning.
+
+**`dsl1`, cvc5's own expansion at `dsl-rewrite`**, checked by Carcara:
+
+| | QF_UF (4,316) | QF_LIA (2,541) | QF_LRA (524) |
+|---|---|---|---|
+| proofs complete in 60 s | 4,316 | 2,531 | 510 |
+| re-check `valid` / `holey` / error / time-out | 2,230 / 1,789 / 297 / 0 | 2,510 / 0 / 17 / 4 | 505 / 0 / 5 / 0 |
+| holes left (all `THEORY_LEMMA`) | 4,149 in 1,789 proofs | 0 | 0 |
+| rules cited outside the file | `bool-implies-or-distrib`, 99 proofs | 15 proofs | 0 |
+| cvc5 time, median / p90 | 0.98 / 6.9 s | 0.09 / 6.7 s | 0.40 / 29.6 s |
+| check time, median / p90 / sum | 0.17 / 1.0 s / 0.64 h | 0.02 / 0.7 s / 2.4 h | 0.08 / 2.5 s / 0.11 h |
+| proof text | 20.8 GiB | 3.9 GiB | 1.9 GiB |
+| `rare_rewrite` steps | 1.67 M | 1.66 M | 0.94 M |
+
+The errors are the 205 resolution-pivot proofs (198 / 2 / 5, the same
+cvc5 defect at every granularity) and the 114 proofs citing
+`bool-implies-or-distrib`, which neither rule file has; the four QF_LIA
+check time-outs are Dartagnan proofs of 5--12 MB at 900 s.  At this
+granularity the arithmetic preprocessing holes (`THEORY_INFERENCE_ARITH`,
+`MACRO_THEORY_REWRITE_RCONS_SIMPLE`) are gone from the proofs; only
+QF_UF's `THEORY_LEMMA` remains, in 1,789 proofs.  cvc5 loses 24 proofs to
+the 60 s limit that it had at rewrite granularity (10 QF_LIA, 14 QF_LRA;
+Dartagnan, LassoRanker).
+
+**Head to head**, the same benchmarks, a proof with no hole left at all:
+
+| | QF_UF | QF_LIA | QF_LRA |
+|---|---|---|---|
+| `valid`, dsl1 / rw3 | 2,230 / 675 | 2,510 / 1,350 | 505 / 203 |
+| dsl1 only / rw3 only | 1,555 / 0 | 1,160 / 0 | 302 / 0 |
+| time to a checked proof, median, dsl1 / rw3 | 1.2 s / 29.8 s | 0.1 s / 2.3 s | 0.5 s / 31.2 s |
+| summed | 4.0 h / 53.8 h | 4.1 h / 42.7 h | 1.1 h / 14.0 h |
+
+Every proof the pipeline closes, cvc5's expansion closes too, and it
+closes 3,017 more, in a tenth to a twentieth of the time: the ceiling on
+`valid` in `rw3` is the untagged holes cvc5 prints at rewrite granularity
+and does not print at `dsl-rewrite`, not the engine (rw3 justifies 99.5--
+99.85% of the holes it is given).  Against the pipeline's own numbers the
+comparison at the hole level stands: where cvc5 leaves a `THEORY_LEMMA`
+(QF_UF, 1,789 proofs) the pipeline does not attempt it either.
