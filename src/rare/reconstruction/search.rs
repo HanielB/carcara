@@ -38,6 +38,9 @@ pub const ARITH_CANDIDATE_OPS: [&str; 12] = [
 pub struct SearchStrategy {
     pub max_depth: usize,
     pub max_states: usize,
+    /// How many times a met path whose edge fails to justify is banned and
+    /// the search rerun.
+    pub max_rejustifications: usize,
     /// Wall-clock instant past which the search abandons the goal, reusing
     /// the same over-budget path as `max_states`.  The egglog check and this
     /// search are separate phases of one per-hole budget, so a bound on the
@@ -50,6 +53,7 @@ impl Default for SearchStrategy {
         Self {
             max_depth: 8,
             max_states: 256,
+            max_rejustifications: 4,
             deadline: None,
         }
     }
@@ -58,6 +62,20 @@ impl Default for SearchStrategy {
 impl SearchStrategy {
     pub fn with_deadline(self, deadline: Option<Instant>) -> Self {
         Self { deadline, ..self }
+    }
+
+    /// The bounds of a search that has a deadline: wide enough that the
+    /// deadline, not the state count, is what stops it.  The fixed defaults
+    /// ended goals the e-graph had proved at 256 candidates and depth 8,
+    /// with most of the hole's budget unspent (rw3: 1,516 holes with no
+    /// certificate).
+    pub fn generous(deadline: Option<Instant>) -> Self {
+        Self {
+            max_depth: 64,
+            max_states: 1 << 16,
+            max_rejustifications: 64,
+            deadline,
+        }
     }
 
     fn out_of_time(&self) -> bool {
@@ -1275,9 +1293,9 @@ impl Reconstructor<'_> {
         // its child obligation is beyond the rules.  Such an edge is banned
         // and the search rerun, a bounded number of times, so one
         // unjustifiable shortcut does not hide a path that replays.
-        const MAX_REJUSTIFICATIONS: usize = 4;
+        let max_rejustifications = self.strategy.max_rejustifications;
         let mut banned = HashSet::new();
-        for attempt in 0..=MAX_REJUSTIFICATIONS {
+        for attempt in 0..=max_rejustifications {
             let discovered = HashSet::from([source.clone(), target.clone()]);
             self.stats.candidate_vertices += discovered.len();
             let mut graph = CandidateGraph {
@@ -1314,7 +1332,7 @@ impl Reconstructor<'_> {
             match self.justify_path(source, &forward, &backward, meet) {
                 Ok(certificate) => return Some(certificate),
                 Err((parent, child)) => {
-                    if attempt == MAX_REJUSTIFICATIONS {
+                    if attempt == max_rejustifications || self.strategy.out_of_time() {
                         return None;
                     }
                     self.stats.rejustifications += 1;

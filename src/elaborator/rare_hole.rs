@@ -2370,7 +2370,13 @@ fn reconstruct_goal(
         &rhs,
         &rewrites,
         &sorts,
-        SearchStrategy::default().with_deadline(deadline),
+        // A timed search is bounded by its deadline, not by the fixed
+        // state count of the default strategy.
+        if deadline.is_some() {
+            SearchStrategy::generous(deadline)
+        } else {
+            SearchStrategy::default()
+        },
     );
     phase("search", clock.elapsed());
     let certificate = reconstruction.certificate.ok_or_else(|| {
