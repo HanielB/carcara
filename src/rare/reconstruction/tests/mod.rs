@@ -1147,10 +1147,11 @@ fn reconstructs_arith_poly_norm_rel_mixed_with_double_not_from_production_egraph
             .any(|step| step.contains("rare_rewrite") && step.contains("\"bool-double-not-elim\"")),
         "{steps:#?}"
     );
+    // The relation obligation the routing cannot express is stated by the
+    // la_generic equivalence, not by a trust step.
     assert!(
-        steps
-            .iter()
-            .any(|step| step.contains("\"arith_poly_norm_rel\"")),
+        steps.iter().any(|step| step.contains(":rule la_generic"))
+            && !steps.iter().any(|step| step.contains("TRUST_THEORY_REWRITE")),
         "{steps:#?}"
     );
     eprintln!(
