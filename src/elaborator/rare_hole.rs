@@ -295,6 +295,96 @@ impl AletheElaborator {
     /// routing steps are glued back on with `trans`/`symm`.  Sides that end
     /// in opposite polarities are not one `poly_simp_rel` step and keep the
     /// trusted form.
+    /// A step of arbitrary clause shape under the hole's prefix; returns
+    /// its id.
+    fn emit_clause(&mut self, literals: &str, rule: &str, premises: &[String], args: &str) -> String {
+        let id = format!("{}.{}", self.prefix, self.steps.len() + 1);
+        let premises = if premises.is_empty() {
+            String::new()
+        } else {
+            format!(" :premises ({})", premises.join(" "))
+        };
+        let args = if args.is_empty() {
+            String::new()
+        } else {
+            format!(" :args ({args})")
+        };
+        self.steps
+            .push(format!("(step {id} (cl {literals}) :rule {rule}{premises}{args})"));
+        id
+    }
+
+    /// `(= lhs rhs)` for two linear relations whose variable parts are
+    /// proportional, each implying the other by `la_generic` (whose
+    /// integer strengthening covers the tightened forms), the implications
+    /// joined through the `equiv_neg` tautologies and resolution: the
+    /// certificate the normalizer states its own relation steps with,
+    /// here for a relation obligation the `poly_simp_rel` routing could
+    /// not express, which was a trust step before.  Two negated relations
+    /// are joined under `cong`.  Equalities are left to the routing: the
+    /// negation of an equality is no `la_generic` literal.
+    pub(crate) fn la_generic_equivalence(&mut self, lhs: &Term, rhs: &Term) -> Option<String> {
+        use crate::rare::reconstruction::computation::poly_of;
+        let relation = |term: &Term| -> Option<(bool, Term)> {
+            match encoded_application(term)? {
+                ("@not", inner) if inner.len() == 1 => match encoded_application(&inner[0])? {
+                    ("@<" | "@<=" | "@>" | "@>=", _) => Some((false, inner[0].clone())),
+                    _ => None,
+                },
+                ("@<" | "@<=" | "@>" | "@>=", _) => Some((true, term.clone())),
+                _ => None,
+            }
+        };
+        let (left_polarity, left) = relation(lhs)?;
+        let (right_polarity, right) = relation(rhs)?;
+        if left_polarity != right_polarity {
+            return None;
+        }
+        let difference = |relation: &Term| -> Option<_> {
+            let (_, sides) = encoded_application(relation)?;
+            let [a, b] = sides.as_slice() else {
+                return None;
+            };
+            Some(poly_of(a)?.sub(&poly_of(b)?).without_constant())
+        };
+        let (p1, p2) = (difference(&left)?, difference(&right)?);
+        // p2 = k p1 on the variable parts; the coefficient of the stated
+        // relation in each implication is |k|.
+        let k = match (p1.leading(), p2.leading()) {
+            (Some(k1), Some(k2)) if k1 != 0 => k2 / k1,
+            _ => return None,
+        };
+        if p2.sub(&p1.scale(&k)).as_constant().is_none_or(|c| c != 0) {
+            return None;
+        }
+        let scale = k.abs().to_string();
+        let (a, b) = (
+            decode_any(&left, &self.names)?,
+            decode_any(&right, &self.names)?,
+        );
+        let a_implies_b =
+            self.emit_clause(&format!("(not {a}) {b}"), "la_generic", &[], &format!("{scale} 1"));
+        let b_implies_a =
+            self.emit_clause(&format!("(not {b}) {a}"), "la_generic", &[], &format!("1 {scale}"));
+        let neg2 = self.emit_clause(&format!("(= {a} {b}) {a} {b}"), "equiv_neg2", &[], "");
+        let with_b =
+            self.emit_clause(&format!("(= {a} {b}) {b}"), "resolution", &[neg2, a_implies_b], "");
+        let neg1 =
+            self.emit_clause(&format!("(= {a} {b}) (not {a}) (not {b})"), "equiv_neg1", &[], "");
+        let with_not_b = self.emit_clause(
+            &format!("(= {a} {b}) (not {b})"),
+            "resolution",
+            &[neg1, b_implies_a],
+            "",
+        );
+        let relations = self.emit(&left, &right, "resolution", &format!(" :premises ({with_b} {with_not_b})"))?;
+        if left_polarity {
+            Some(relations)
+        } else {
+            self.emit(lhs, rhs, "cong", &format!(" :premises ({relations})"))
+        }
+    }
+
     fn poly_simp_rel_chain(&mut self, lhs: &Term, rhs: &Term) -> Option<String> {
         if let (Some(("@=", left)), Some(("@=", right))) =
             (encoded_application(lhs), encoded_application(rhs))
@@ -561,6 +651,7 @@ impl AletheElaborator {
                 // the trusted form.
                 Computation::ArithPolyNormRel => self
                     .poly_simp_rel_chain(lhs, rhs)
+                    .or_else(|| self.la_generic_equivalence(lhs, rhs))
                     .or_else(|| self.trusted(lhs, rhs, "arith_poly_norm_rel")),
             },
             Certificate::Symm { lhs, rhs, proof } => {

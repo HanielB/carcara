@@ -2654,6 +2654,91 @@ fn every_checked_hole_of_the_gap_corpus_is_elaborated() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// The `la_generic` equivalence the elaborator states a relation obligation
+/// with when the `poly_simp_rel` routing cannot express it (a trust step
+/// before): each pair of relations below is equivalent over the integers,
+/// the second by tightening, the third by scale and orientation, the
+/// fourth negated; every certificate must check.
+#[test]
+fn la_generic_equivalence_certifies_relations_the_routing_cannot() {
+    use crate::elaborator::rare_hole::AletheElaborator;
+    let var = |id: &str| {
+        Term::new(
+            "Mk",
+            vec![Term::new(
+                "Var",
+                vec![
+                    Term::leaf(id),
+                    Term::new("Sort", vec![Term::new("Const", vec![Term::leaf("\"Int\"")])]),
+                ],
+            )],
+        )
+    };
+    let names: HashMap<String, String> = HashMap::from([("7".to_owned(), "x".to_owned())]);
+    let times_two = |t: Term| encoded_app("@*", vec![encoded_num(2), t]);
+    let cases: Vec<(Term, Term, &str, &str)> = vec![
+        (
+            encoded_app("@<=", vec![var("7"), encoded_num(1)]),
+            encoded_app("@>=", vec![encoded_num(1), var("7")]),
+            "(<= x 1)",
+            "(>= 1 x)",
+        ),
+        (
+            encoded_app("@<=", vec![var("7"), encoded_num(1)]),
+            encoded_app("@<", vec![var("7"), encoded_num(2)]),
+            "(<= x 1)",
+            "(< x 2)",
+        ),
+        (
+            encoded_app("@<=", vec![times_two(var("7")), encoded_num(4)]),
+            encoded_app("@>=", vec![encoded_num(2), var("7")]),
+            "(<= (* 2 x) 4)",
+            "(>= 2 x)",
+        ),
+        (
+            encoded_app("@not", vec![encoded_app("@>=", vec![var("7"), encoded_num(2)])]),
+            encoded_app("@not", vec![encoded_app("@>", vec![var("7"), encoded_num(1)])]),
+            "(not (>= x 2))",
+            "(not (> x 1))",
+        ),
+    ];
+    for (lhs, rhs, left, right) in cases {
+        let mut elaborator = AletheElaborator {
+            prefix: "t1".to_owned(),
+            steps: Vec::new(),
+            names: names.clone(),
+            rare: HashMap::new(),
+            sorts: ArithSorts::default(),
+        };
+        let last = elaborator
+            .la_generic_equivalence(&lhs, &rhs)
+            .unwrap_or_else(|| panic!("{left} = {right}: no certificate"));
+        let steps = elaborator.steps;
+        let negated = format!("(not (= {left} {right}))");
+        let proof = format!(
+            "(assume t1.h {negated})\n{}\n(step t1.{} (cl) :rule resolution :premises ({last} t1.h))\n",
+            steps.join("\n"),
+            steps.len() + 1
+        );
+        let problem = format!("(declare-const x Int)\n(assert {negated})\n");
+        let mut pool = crate::ast::pool::PrimitivePool::new();
+        let (problem, proof_parsed, _) = parser::parse_instance_with_pool(
+            parser::Source::new(std::path::Path::new("<p>"), &problem),
+            parser::Source::new(std::path::Path::new("<c>"), &proof),
+            None,
+            parser::Config::new().allow_int_real_subtyping(true),
+            &mut pool,
+        )
+        .unwrap_or_else(|e| panic!("{left} = {right}: certificate does not parse: {e}\n{proof}"));
+        let rules = crate::ast::rare_rules::Rules::default();
+        let mut checker =
+            crate::checker::ProofChecker::new(&mut pool, &rules, crate::checker::Config::new());
+        checker
+            .check(&problem, &proof_parsed)
+            .unwrap_or_else(|e| panic!("{left} = {right}: certificate rejected: {e}\n{proof}"));
+    }
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.

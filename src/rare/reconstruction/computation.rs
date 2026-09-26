@@ -359,6 +359,14 @@ impl Poly {
         out
     }
 
+    /// The signed coefficient of the first non-constant monomial.
+    pub fn leading(&self) -> Option<Rational> {
+        self.0
+            .iter()
+            .find(|(monomial, _)| !monomial.is_empty())
+            .map(|(_, coefficient)| coefficient.clone())
+    }
+
     /// The solver's scaling pivot: the absolute coefficient of the first
     /// non-constant monomial, or of the constant when there is none.
     pub fn pivot(&self) -> Option<Rational> {
