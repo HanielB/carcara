@@ -1,0 +1,2 @@
+(step t1 (cl (= (ite (>= (* -1 (+ st 2)) 0) a b) (ite (>= st -1) b a))) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step slice_end (cl) :rule hole :premises (t1) :args ("trust"))

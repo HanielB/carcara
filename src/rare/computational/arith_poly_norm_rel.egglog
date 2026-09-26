@@ -802,3 +802,27 @@
 
 (rule ((= (arithRelBoolKeyOf a) k) (= (arithRelBoolKeyOf b) k))
   ((union a b)) :ruleset arith_rel_merge)
+
+;; ------------------------------------------------------------------
+;; The mirror of a `>=` whose canonical key leads with a negative
+;; coefficient: `(>= x1 x2)` is `(not (> x2 x1))`, whatever the sort, and
+;; the producer's normal form of such a relation is the negation of one
+;; with a positive leading coefficient (`(>= (* -1 x) 2)` is printed
+;; `(not (>= x -1))`).  The keys identify the two only when both nodes
+;; exist; this creates the mirror so that `ite-not-cond` and the
+;; tightening rules can reach the printed shape.  The mirror's inner
+;; relation leads with a positive coefficient, so the rule does not fire
+;; on it again.
+;; ------------------------------------------------------------------
+(ruleset arith_rel_flip)
+
+(rule ((= t (Mk (@>= (Args x1 (Args x2 (Empty))))))
+       (= (relPolyOf t) (PCons (MCons h m) c rest))
+       (< c rat_zero))
+  ((union t (Mk (@not (Args (Mk (@> (Args x2 (Args x1 (Empty))))) (Empty))))))
+  :ruleset arith_rel_flip)
+(rule ((= t (Mk (@>= (Args x1 (Args x2 (Empty))))))
+       (= (relPolyOf t) (PCons (MOne) c0 (PCons (MCons h m) c rest)))
+       (< c rat_zero))
+  ((union t (Mk (@not (Args (Mk (@> (Args x2 (Args x1 (Empty))))) (Empty))))))
+  :ruleset arith_rel_flip)

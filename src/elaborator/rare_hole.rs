@@ -1297,6 +1297,9 @@ pub fn reconstruct_from_input(
                 step.clause.len()
             ));
         };
+        if let Some(reason) = out_of_scope(conclusion) {
+            return Err(reason.to_owned());
+        }
         let mut memo = HashMap::new();
         let mut replaced = 0;
         let goal = crate::rare::util::substitute_by_hash(
@@ -1314,6 +1317,9 @@ pub fn reconstruct_from_input(
         // forms are exported from the whole goal's e-graph only.
         if !export_normal_forms {
             if let Some(verdict) = check_by_descent(&mut pool, &node, &goal, &database, options, phase) {
+                return verdict.map(|()| Vec::new());
+            }
+            if let Some(verdict) = check_by_atoms(&mut pool, &node, &goal, &database, options, phase) {
                 return verdict.map(|()| Vec::new());
             }
         }
@@ -2120,6 +2126,9 @@ pub fn reconstruct_steps_timed(
         ));
     };
 
+    if let Some(reason) = out_of_scope(conclusion) {
+        return Err(reason.to_owned());
+    }
     // One budget covers the whole hole: the egglog check and the search that
     // follows it are two phases of the same per-hole work, so bounding only
     // the first leaves the second free to run away.
@@ -2131,7 +2140,9 @@ pub fn reconstruct_steps_timed(
     // take the worker's memory with it.  Then the descent on half of what
     // is left, then the whole goal again with the rest, in a fresh process
     // when the caller can give one.
-    if !options.descend_first && descent_sides(pool, conclusion, options).is_some() {
+    let structural = descent_sides(pool, conclusion, options).is_some();
+    let atoms = !structural && atom_sides(pool, conclusion, options).is_some();
+    if !options.descend_first && (structural || atoms) {
         let started = Instant::now();
         let quarter = deadline.map(|d| started + d.saturating_duration_since(started) / 4);
         if let Ok(steps) =
@@ -2149,6 +2160,13 @@ pub fn reconstruct_steps_timed(
             return Err(DESCENT_RETRY.to_owned());
         }
         Descent::Failed | Descent::NotApplicable => {}
+    }
+    if atoms {
+        match reconstruct_by_atoms(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
+            Descent::Proved(steps) => return Ok(steps),
+            Descent::Failed if options.fresh_fallback => return Err(DESCENT_RETRY.to_owned()),
+            Descent::Failed | Descent::NotApplicable => {}
+        }
     }
     reconstruct_goal(pool, node, conclusion, &step.id, rules, options, deadline, phase)
 }
@@ -2175,13 +2193,39 @@ fn descends_through(pool: &mut dyn TermPool, term: &crate::ast::Rc<crate::ast::T
     let crate::ast::Term::Op(op, args) = term.as_ref() else {
         return false;
     };
-    let boolean = |pool: &mut dyn TermPool, t: &crate::ast::Rc<crate::ast::Term>| {
-        matches!(pool.sort(t).as_ref(), crate::ast::Sort::Bool)
-    };
+    let _ = pool;
     match op {
         And | Or | Not | Implies | Xor => true,
-        Ite => args.get(1).is_some_and(|a| boolean(pool, a)),
-        Equals => args.first().is_some_and(|a| boolean(pool, a)),
+        Ite => args.get(1).is_some_and(is_boolean),
+        Equals => args.first().is_some_and(is_boolean),
+        _ => false,
+    }
+}
+
+/// Whether `term` is of sort Bool, read off the term itself (an in-process
+/// worker's pool need not know the sort of every subterm); a predicate of
+/// another theory reads as not Boolean, which only keeps the descent out.
+fn is_boolean(term: &crate::ast::Rc<crate::ast::Term>) -> bool {
+    use crate::ast::Operator::*;
+    match term.as_ref() {
+        crate::ast::Term::Var(_, sort) => matches!(sort.as_ref(), crate::ast::Sort::Bool),
+        crate::ast::Term::Op(
+            True | False | Not | Implies | And | Or | Xor | Equals | Distinct | LessThan
+            | GreaterThan | LessEq | GreaterEq | IsInt,
+            _,
+        ) => true,
+        crate::ast::Term::Op(Ite, args) => args.get(1).is_some_and(is_boolean),
+        crate::ast::Term::App(function, _) => match function.as_ref() {
+            crate::ast::Term::Var(_, sort) => match sort.as_ref() {
+                crate::ast::Sort::Function(sorts) => {
+                    sorts.last().is_some_and(|s| matches!(s.as_ref(), crate::ast::Sort::Bool))
+                }
+                _ => false,
+            },
+            _ => false,
+        },
+        crate::ast::Term::Binder(crate::ast::Binder::Forall | crate::ast::Binder::Exists, ..) => true,
+        crate::ast::Term::Let(_, body) => is_boolean(body),
         _ => false,
     }
 }
@@ -2589,6 +2633,335 @@ fn reconstruct_by_descent(
     }
 }
 
+/// The arithmetic atoms of `term`: the maximal subterms of sort Int or
+/// Real that the polynomial view treats as opaque -- a numeric `ite`, an
+/// application, `div`, `mod`, `abs`, `to_int` -- in first-occurrence order.
+fn arithmetic_atoms(
+    pool: &mut dyn TermPool,
+    term: &crate::ast::Rc<crate::ast::Term>,
+    out: &mut Vec<crate::ast::Rc<crate::ast::Term>>,
+) {
+    use crate::ast::Operator::*;
+    let is_atom = match term.as_ref() {
+        crate::ast::Term::App(..) | crate::ast::Term::Op(Ite | IntDiv | Mod | Abs | ToInt, _) => {
+            is_numeric(term)
+        }
+        _ => false,
+    };
+    if is_atom {
+        if !out.contains(term) {
+            out.push(term.clone());
+        }
+        return;
+    }
+    match term.as_ref() {
+        crate::ast::Term::Op(_, args) | crate::ast::Term::App(_, args) => {
+            for a in args {
+                arithmetic_atoms(pool, a, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether `term` is of sort Int or Real, read off the term itself: an
+/// in-process worker's pool need not know the sort of every subterm.
+fn is_numeric(term: &crate::ast::Rc<crate::ast::Term>) -> bool {
+    use crate::ast::Operator::*;
+    let numeric_sort = |sort: &crate::ast::Sort| matches!(sort, crate::ast::Sort::Int | crate::ast::Sort::Real);
+    match term.as_ref() {
+        crate::ast::Term::Const(crate::ast::Constant::Integer(_) | crate::ast::Constant::Real(_)) => true,
+        crate::ast::Term::Var(_, sort) => numeric_sort(sort),
+        crate::ast::Term::Op(Add | Sub | Mult | RealDiv | IntDiv | Mod | Abs | ToReal | ToInt, _) => true,
+        crate::ast::Term::Op(Ite, args) => args.get(1).is_some_and(is_numeric),
+        crate::ast::Term::App(function, _) => match function.as_ref() {
+            crate::ast::Term::Var(_, sort) => match sort.as_ref() {
+                crate::ast::Sort::Function(sorts) => sorts.last().is_some_and(|s| numeric_sort(s)),
+                _ => false,
+            },
+            _ => false,
+        },
+        crate::ast::Term::Let(_, body) => is_numeric(body),
+        _ => false,
+    }
+}
+
+/// The atoms one side has and the other lacks, paired across the sides by
+/// the leaves they share (most shared first, one partner each); `None`
+/// when nothing pairs.
+fn atom_pairs(
+    pool: &mut dyn TermPool,
+    lhs: &crate::ast::Rc<crate::ast::Term>,
+    rhs: &crate::ast::Rc<crate::ast::Term>,
+) -> Option<Vec<(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>)>> {
+    let mut left = Vec::new();
+    arithmetic_atoms(pool, lhs, &mut left);
+    let mut right = Vec::new();
+    arithmetic_atoms(pool, rhs, &mut right);
+    let only_left: Vec<_> = left.iter().filter(|a| !right.contains(a)).cloned().collect();
+    let only_right: Vec<_> = right.iter().filter(|a| !left.contains(a)).cloned().collect();
+    if only_left.is_empty() || only_right.is_empty() {
+        return None;
+    }
+    let leaf_set = |t: &crate::ast::Rc<crate::ast::Term>| {
+        let mut set = std::collections::HashSet::new();
+        leaves(t, &mut set);
+        set
+    };
+    let left_leaves: Vec<_> = only_left.iter().map(leaf_set).collect();
+    let right_leaves: Vec<_> = only_right.iter().map(leaf_set).collect();
+    let mut scored = Vec::new();
+    for (i, a) in left_leaves.iter().enumerate() {
+        for (j, b) in right_leaves.iter().enumerate() {
+            let common = a.intersection(b).count();
+            if common > 0 {
+                scored.push((common, i, j));
+            }
+        }
+    }
+    scored.sort_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)).then(x.2.cmp(&y.2)));
+    let mut used_left = vec![false; only_left.len()];
+    let mut used_right = vec![false; only_right.len()];
+    let mut pairs = Vec::new();
+    for (_, i, j) in scored {
+        if !used_left[i] && !used_right[j] {
+            used_left[i] = true;
+            used_right[j] = true;
+            pairs.push((only_left[i].clone(), only_right[j].clone()));
+        }
+    }
+    (!pairs.is_empty()).then_some(pairs)
+}
+
+/// The sides and atom pairs of a goal the atom alignment applies to.
+#[allow(clippy::type_complexity)]
+fn atom_sides(
+    pool: &mut dyn TermPool,
+    conclusion: &crate::ast::Rc<crate::ast::Term>,
+    options: crate::checker::RunEgglogOptions,
+) -> Option<(
+    crate::ast::Rc<crate::ast::Term>,
+    crate::ast::Rc<crate::ast::Term>,
+    Vec<(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>)>,
+)> {
+    if options.descend_min_nodes == 0 {
+        return None;
+    }
+    let (_, lhs, rhs) = crate::rare::util::get_equational_terms(conclusion)?;
+    let pairs = atom_pairs(pool, lhs, rhs)?;
+    Some((lhs.clone(), rhs.clone(), pairs))
+}
+
+/// `term` with the atoms of `map` replaced by their partners, and the
+/// `cong` steps deriving `(= term rewritten)` from the pairs' steps,
+/// numbered under `id` into `out`; `None` when `term` holds none of them.
+fn rewrite_atoms(
+    pool: &mut dyn TermPool,
+    term: &crate::ast::Rc<crate::ast::Term>,
+    map: &[(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>, String)],
+    id: &str,
+    out: &mut Vec<String>,
+) -> Option<(crate::ast::Rc<crate::ast::Term>, String)> {
+    if let Some((_, to, step)) = map.iter().find(|(from, _, _)| from == term) {
+        return Some((to.clone(), step.clone()));
+    }
+    let args = match term.as_ref() {
+        crate::ast::Term::Op(_, args) | crate::ast::Term::App(_, args) => args,
+        _ => return None,
+    };
+    let mut new_args = Vec::with_capacity(args.len());
+    let mut premises = Vec::new();
+    for a in args {
+        match rewrite_atoms(pool, a, map, id, out) {
+            Some((rewritten, step)) => {
+                new_args.push(rewritten);
+                premises.push(step);
+            }
+            None => new_args.push(a.clone()),
+        }
+    }
+    if premises.is_empty() {
+        return None;
+    }
+    let rewritten = match term.as_ref() {
+        crate::ast::Term::Op(op, _) => crate::ast::Term::Op(*op, new_args),
+        crate::ast::Term::App(f, _) => crate::ast::Term::App(f.clone(), new_args),
+        _ => unreachable!("an application"),
+    };
+    let rewritten = pool.add(rewritten);
+    let step_id = format!("{id}.{}", out.len() + 1);
+    out.push(format!(
+        "(step {step_id} (cl (= {term:#} {rewritten:#})) :rule cong :premises ({}))",
+        premises.join(" ")
+    ));
+    Some((rewritten, step_id))
+}
+
+/// Reconstructs `(= lhs rhs)` by an atom alignment: the arithmetic atoms
+/// one side has and the other lacks (a numeric `ite` the producer rewrote,
+/// say) are paired by their leaves and each pair is a goal of its own
+/// (`{id}.a{n}`); the left side with the pairs substituted, by `cong`, is
+/// then one goal against the right side (`{id}.w`), whose polynomial keys
+/// see one atom where the original goal's saw two.  The e-graph computes
+/// its keys before its rules union such atoms, so the original goal never
+/// meets them.
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_by_atoms(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    conclusion: &crate::ast::Rc<crate::ast::Term>,
+    id: &str,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    deadline: Option<Instant>,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Descent {
+    let Some((lhs, rhs, pairs)) = atom_sides(pool, conclusion, options) else {
+        return Descent::NotApplicable;
+    };
+    let started = Instant::now();
+    // The pairs get half of what is left, the rewritten goal the rest.
+    let pair_deadline = deadline.map(|d| started + d.saturating_duration_since(started) / 2);
+    let mut timed: Vec<(String, Duration)> = Vec::new();
+    let mut out = Vec::new();
+    let mut map = Vec::new();
+    let failed = |started: Instant, reason: String| {
+        eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
+        log::debug!("hole {id}: atom alignment failed: {reason}");
+        Descent::Failed
+    };
+    for (n, (a, b)) in pairs.iter().enumerate() {
+        let remaining = pair_deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        if remaining.is_some_and(|r| r.is_zero()) {
+            return failed(started, "budget exhausted".to_owned());
+        }
+        let prefix = format!("{id}.a{}", n + 1);
+        let goal = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![a.clone(), b.clone()],
+        ));
+        let sub_options = descent_pair_options(options, remaining);
+        let mut accumulate = |name: &str, spent: Duration| {
+            match timed.iter_mut().find(|(seen, _)| seen == name) {
+                Some((_, total)) => *total += spent,
+                None => timed.push((name.to_owned(), spent)),
+            }
+        };
+        match reconstruct_goal(pool, node, &goal, &prefix, rules, sub_options, pair_deadline, &mut accumulate) {
+            Ok(steps) => {
+                let last = format!("{prefix}.{}", steps.len());
+                out.extend(steps);
+                map.push((a.clone(), b.clone(), last));
+            }
+            Err(reason) => {
+                return failed(started, format!("{reason}; atom pair {}: {}", n + 1, abbreviated(&goal)));
+            }
+        }
+    }
+    let Some((rewritten, cong_id)) = rewrite_atoms(pool, &lhs, &map, id, &mut out) else {
+        return Descent::NotApplicable;
+    };
+    if rewritten != rhs {
+        let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        let whole = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![rewritten.clone(), rhs.clone()],
+        ));
+        let prefix = format!("{id}.w");
+        let whole_options = crate::checker::RunEgglogOptions {
+            timeout: remaining.or(options.timeout),
+            descend_min_nodes: 0,
+            ..options
+        };
+        let mut accumulate = |name: &str, spent: Duration| {
+            match timed.iter_mut().find(|(seen, _)| seen == name) {
+                Some((_, total)) => *total += spent,
+                None => timed.push((name.to_owned(), spent)),
+            }
+        };
+        match reconstruct_goal(pool, node, &whole, &prefix, rules, whole_options, deadline, &mut accumulate) {
+            Ok(steps) => {
+                let last = format!("{prefix}.{}", steps.len());
+                out.extend(steps);
+                let step_id = format!("{id}.{}", out.len() + 1);
+                out.push(format!(
+                    "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({cong_id} {last}))"
+                ));
+            }
+            Err(reason) => {
+                return failed(started, format!("{reason}; rewritten goal: {}", abbreviated(&whole)));
+            }
+        }
+    }
+    for (name, total) in timed {
+        phase(&name, total);
+    }
+    eprintln!("phase atoms={}", map.len());
+    log::debug!("hole {id}: atom alignment over {} pairs, {} steps", map.len(), out.len());
+    Descent::Proved(out)
+}
+
+/// The checking-only atom alignment: each atom pair checked by egglog on
+/// its own, then the left side with the pairs substituted against the
+/// right; `None` when it does not apply or a check fails (the whole goal
+/// is the fallback).
+fn check_by_atoms(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    goal: &crate::ast::Rc<crate::ast::Term>,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Option<Result<(), String>> {
+    let (lhs, rhs, pairs) = atom_sides(pool, goal, options)?;
+    let deadline = options
+        .timeout
+        .and_then(|timeout| Instant::now().checked_add(timeout));
+    let started = Instant::now();
+    let pair_deadline = deadline.map(|d| started + d.saturating_duration_since(started) / 2);
+    let mut map = Vec::new();
+    for (n, (a, b)) in pairs.iter().enumerate() {
+        let remaining = pair_deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        if remaining.is_some_and(|r| r.is_zero()) {
+            eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
+            return None;
+        }
+        let pair = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![a.clone(), b.clone()],
+        ));
+        let (result, _) = run_egglog(pool, (pair.clone(), node), rules, descent_pair_options(options, remaining));
+        if let Err(error) = result {
+            eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
+            log::debug!("atom pair {} not checked: {error}; {}", n + 1, abbreviated(&pair));
+            return None;
+        }
+        map.push((a.clone(), b.clone(), format!("a{}", n + 1)));
+    }
+    let (rewritten, _) = rewrite_atoms(pool, &lhs, &map, "check", &mut Vec::new())?;
+    if rewritten != rhs {
+        let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        let whole = pool.add(crate::ast::Term::Op(
+            crate::ast::Operator::Equals,
+            vec![rewritten, rhs],
+        ));
+        let whole_options = crate::checker::RunEgglogOptions {
+            timeout: remaining.or(options.timeout),
+            descend_min_nodes: 0,
+            ..options
+        };
+        let (result, _) = run_egglog(pool, (whole.clone(), node), rules, whole_options);
+        if let Err(error) = result {
+            eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
+            log::debug!("rewritten goal not checked: {error}; {}", abbreviated(&whole));
+            return None;
+        }
+    }
+    phase("egglog", started.elapsed());
+    eprintln!("phase atoms={}", map.len());
+    Some(Ok(()))
+}
+
 /// The checking-only descent: every atom pair of the shared skeleton is
 /// checked by egglog on its own; `None` when the descent does not apply,
 /// `Some(Err)` when a pair is not proved (the whole goal is the fallback).
@@ -2757,13 +3130,34 @@ pub fn elaborate(
 /// Checks the reconstructed steps against the problem and splices them in.
 /// Always runs on the proof's own pool: the steps arrive as text precisely so
 /// that the terms they mention are interned once, here.
+/// Why a goal is one the pipeline does not attempt: it applies a lambda
+/// (a `define-fun` the producer printed inlined), whose beta reduction is
+/// left to another route.  Tallied `out-of-scope`, as the pivot defect is.
+pub fn out_of_scope(term: &crate::ast::Rc<crate::ast::Term>) -> Option<&'static str> {
+    fn applies_lambda(term: &crate::ast::Rc<crate::ast::Term>) -> bool {
+        match term.as_ref() {
+            crate::ast::Term::App(function, args) => {
+                matches!(function.as_ref(), crate::ast::Term::Binder(crate::ast::Binder::Lambda, ..))
+                    || args.iter().any(applies_lambda)
+            }
+            crate::ast::Term::Op(_, args) => args.iter().any(applies_lambda),
+            crate::ast::Term::Binder(_, _, body) | crate::ast::Term::Let(_, body) => applies_lambda(body),
+            _ => false,
+        }
+    }
+    applies_lambda(term)
+        .then_some("out of scope: the goal applies a lambda, whose beta reduction is not attempted")
+}
+
 /// The class of a residue reason, for the runner's tally: a short tag that
 /// names what stopped the hole, read off the reason text at its one log
 /// site so the counts do not depend on where in the text the runner's
 /// truncation falls.  The specific stops come first: a worker that exits
 /// with a status carries the engine's own message in its tail.
 pub fn residue_class(reason: &str) -> &'static str {
-    if reason.contains("grew past the memory cap") {
+    if reason.contains("out of scope") {
+        "out-of-scope"
+    } else if reason.contains("grew past the memory cap") {
         "memory-soft-cap"
     } else if reason.contains("grew past the bound") {
         "growth-cap"

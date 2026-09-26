@@ -1,0 +1,2 @@
+(step t1 (cl (= (< (- (+ (- (- (+ (ite (< (* v2 2) 1024) (* 4 v2) (ite (< (* v2 2) 2048) (- (* 4 v2) 2048) (- (* 4 v2) 4096))) (* 2 v1)) (* 2048 o_2)) (* s_3 1024)) v0) (* o_3 1024)) 1024) (not (>= (+ v0 (* 2 v1) (* -2048 o_2) (* -1024 s_3) (* -1024 o_3) (ite (>= v2 512) (ite (>= v2 1024) (+ -4096 (* 4 v2)) (+ -2048 (* 4 v2))) (* 4 v2))) 1024)))) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step slice_end (cl) :rule hole :premises (t1) :args ("trust"))

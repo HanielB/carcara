@@ -38,21 +38,25 @@ pub fn relation_bool_goal_guard_term(lhs: EggExpr) -> EggExpr {
 /// then the unions of the atoms whose keys agree (`arith_rel_merge`).  The
 /// caller follows it with the main schedule, so the rules see the unions.
 pub fn relation_all_setup() -> Vec<EggStatement> {
+    let run = |ruleset: &str| EggStatement::Run {
+        ruleset: Some(ruleset.to_owned()),
+        iterations: 1,
+    };
+    let saturate = |ruleset: &str| EggStatement::Saturate {
+        ruleset: Some(ruleset.to_owned()),
+    };
     vec![
-        EggStatement::Run {
-            ruleset: Some("arith_rel_all".to_owned()),
-            iterations: 1,
-        },
-        EggStatement::Run {
-            ruleset: Some("arith_poly_guard".to_owned()),
-            iterations: 1,
-        },
-        EggStatement::Saturate {
-            ruleset: Some("arith_poly".to_owned()),
-        },
-        EggStatement::Run {
-            ruleset: Some("arith_rel_merge".to_owned()),
-            iterations: 1,
-        },
+        // Keys for every relation atom and every arithmetic application.
+        run("arith_rel_all"),
+        run("arith_term_all"),
+        run("arith_poly_guard"),
+        saturate("arith_poly"),
+        // The mirrors of the negatively led `>=` atoms, then their keys.
+        run("arith_rel_flip"),
+        run("arith_rel_all"),
+        run("arith_poly_guard"),
+        saturate("arith_poly"),
+        run("arith_rel_merge"),
+        run("arith_term_merge"),
     ]
 }

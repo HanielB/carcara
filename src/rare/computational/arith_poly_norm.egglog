@@ -1213,3 +1213,27 @@
    (arithPolyNfOf-demand (ADivTotal2 t d)))
   ((set (arithPolyNfOf (ADivTotal2 t d)) p))
   :ruleset arith_poly)
+
+;; ------------------------------------------------------------
+;; Polynomial keys for every arithmetic application of the e-graph, and
+;; the unions of the terms whose keys agree: the "all terms" part of the
+;; last-resort fallback.  The goal-level check normalizes the goal's own
+;; sides only, so `(- (* 4 x) 2048)` and `(+ -2048 (* 4 x))` under an
+;; `ite` branch or a function argument never met; here they do, and the
+;; e-graph's congruence carries the union up.  Constant-only keys are
+;; left out (the evaluation rules own them, and a bare constant of one
+;; sort must not meet the same constant of the other).
+;; ------------------------------------------------------------
+(ruleset arith_term_all)
+(ruleset arith_term_merge)
+
+(rule ((= t (Mk (@+ args)))) ((arithGoalPolyNfOf-demand t)) :ruleset arith_term_all)
+(rule ((= t (Mk (@- args)))) ((arithGoalPolyNfOf-demand t)) :ruleset arith_term_all)
+(rule ((= t (Mk (@* args)))) ((arithGoalPolyNfOf-demand t)) :ruleset arith_term_all)
+
+(rule ((= (arithGoalPolyNfOf a) (PCons (MCons h m) c rest))
+       (= (arithGoalPolyNfOf b) (PCons (MCons h m) c rest)))
+  ((union a b)) :ruleset arith_term_merge)
+(rule ((= (arithGoalPolyNfOf a) (PCons (MOne) c0 (PCons (MCons h m) c rest)))
+       (= (arithGoalPolyNfOf b) (PCons (MOne) c0 (PCons (MCons h m) c rest))))
+  ((union a b)) :ruleset arith_term_merge)
