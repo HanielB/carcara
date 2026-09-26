@@ -296,6 +296,10 @@ pub fn decode_inner(inner: &Term, names: &HashMap<String, String>) -> Option<Str
                 format!("{}/{}", value.numer(), value.denom())
             }
         }),
+        // A numeral past i64, carried as a big rational with denominator 1.
+        ("BigNum", [literal]) => bigrat_literal(&literal.op)
+            .filter(|value| value.is_integer())
+            .map(|value| value.numer().to_string()),
         ("Var", [id, _sort]) => Some(
             names
                 .get(&id.op)

@@ -452,7 +452,7 @@ impl Reconstructor<'_> {
             if node.child_classes.is_empty() {
                 return Some(Term::leaf(op));
             }
-            if !matches!(op, "Mk" | "Bool" | "Num" | "Real" | "RatConst") {
+            if !matches!(op, "Mk" | "Bool" | "Num" | "BigNum" | "Real" | "RatConst") {
                 continue;
             }
             let children: Option<Vec<Term>> = node

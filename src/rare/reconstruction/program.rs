@@ -62,6 +62,33 @@ pub fn term_from_egglog_expr(expression: &EgglogExpr) -> Term {
     match expression {
         GenericExpr::Lit(_, literal) => Term::leaf(&literal.to_string()),
         GenericExpr::Var(_, variable) => Term::leaf(&variable.to_string()),
+        // A big rational is one value to egglog, which the snapshot
+        // serializes as the literal `(bigrat (from-string "n") (from-string
+        // "d"))`; the goal's term spells it the same way, as one leaf, so
+        // that a `RatConst` or `BigNum` of the goal is found in the class
+        // that holds it.
+        GenericExpr::Call(_, operator, children)
+            if operator.to_string() == "bigrat" && children.len() == 2 =>
+        {
+            let part = |child: &EgglogExpr| match child {
+                GenericExpr::Call(_, op, arguments) if op.to_string() == "from-string" => {
+                    match arguments.as_slice() {
+                        [GenericExpr::Lit(_, literal)] => Some(literal.to_string()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            match (part(&children[0]), part(&children[1])) {
+                (Some(numer), Some(denom)) => Term::leaf(&format!(
+                    "(bigrat (from-string {numer}) (from-string {denom}))"
+                )),
+                _ => Term::new(
+                    &operator.to_string(),
+                    children.iter().map(term_from_egglog_expr).collect(),
+                ),
+            }
+        }
         GenericExpr::Call(_, operator, children) => Term::new(
             &operator.to_string(),
             children.iter().map(term_from_egglog_expr).collect(),

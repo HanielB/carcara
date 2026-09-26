@@ -216,7 +216,7 @@ impl ArithSorts {
             return None;
         };
         match (inner.op.as_str(), inner.children.as_slice()) {
-            ("Num", [_]) => Some(true),
+            ("Num" | "BigNum", [_]) => Some(true),
             ("Real" | "RatConst", _) => Some(false),
             ("@to_real", [_]) => Some(false),
             ("@to_int" | "@div" | "@mod", [_]) => Some(true),
@@ -238,7 +238,7 @@ pub fn encoded_sort(term: &Term, sorts: &ArithSorts) -> Option<&'static str> {
         return None;
     };
     match inner.op.as_str() {
-        "Num" => Some("Int"),
+        "Num" | "BigNum" => Some("Int"),
         "Real" | "RatConst" => Some("Real"),
         "Bool" => Some("Bool"),
         "Var" => match inner.children.get(1).and_then(sort_name)? {
@@ -426,6 +426,7 @@ pub fn poly_of(term: &Term) -> Option<Poly> {
         ("Num", [value]) => Some(Poly::constant(value.op.parse::<Integer>().ok()?.into())),
         ("Real", [numer, denom]) => Some(Poly::constant(rational_from_leaves(numer, denom)?)),
         ("RatConst", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
+        ("BigNum", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
         (operator, [arguments]) if ARITH_OPS.contains(&operator) => {
             let elements = list_elements(arguments)?;
             let polys = elements.iter().map(poly_of).collect::<Option<Vec<_>>>()?;

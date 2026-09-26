@@ -275,6 +275,11 @@ pub fn create_headers() -> EggLanguage {
             vec![ConstType::ConstrType("BigRat".to_owned())],
             ConstType::ConstrType("Term".to_owned()),
         ),
+        EggStatement::Constructor(
+            "BigNum".to_owned(),
+            vec![ConstType::ConstrType("BigRat".to_owned())],
+            ConstType::ConstrType("Term".to_owned()),
+        ),
         EggStatement::Sort(
             "AssocArgs".to_owned(),
             "Set".to_owned(),
@@ -652,7 +657,16 @@ pub fn to_egg_expr(
     ) -> Option<EggExpr> {
         match &**term_rc {
             Term::Const(c) => match c {
-                Constant::Integer(i) => Some(EggExpr::Num(i.clone())),
+                // egglog's integer literal is an i64: a numeral past it is
+                // an opaque big constant (over the BigRat sort, like a big
+                // rational), which the evaluation and polynomial rules do
+                // not touch and the reconstruction reads back exactly.
+                // Narrowed, 2^64 was 0 and the engine proved wrong facts.
+                Constant::Integer(i) if i.to_i64().is_some() => Some(EggExpr::Num(i.clone())),
+                Constant::Integer(i) => Some(EggExpr::Call(
+                    "BigNum".to_owned(),
+                    vec![bigrat_expr(i, &rug::Integer::from(1))],
+                )),
                 Constant::String(s) => Some(EggExpr::String(s.clone())),
                 Constant::BitVec(i, j) => Some(EggExpr::BitVec(i.clone(), (*j).into())),
                 Constant::Real(d) => {
@@ -2133,6 +2147,7 @@ fn constant_sort_rules() -> Vec<EggStatement> {
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("Num", vec!["n"])))], SORT_INT),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("Real", vec!["n", "d"])))], SORT_REAL),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("RatConst", vec!["q"])))], SORT_REAL),
+        sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("BigNum", vec!["q"])))], SORT_INT),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("Bool", vec!["b"])))], SORT_BOOL),
         sort_rule(vec![EggExpr::Equal(Box::new(e()), Box::new(mk("@String", vec!["s"])))], SORT_STRING),
     ]
