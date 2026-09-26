@@ -2484,10 +2484,12 @@ fn descent_pair_options(
     crate::checker::RunEgglogOptions {
         timeout: remaining.or(options.timeout),
         descend_min_nodes: 0,
-        // The production caps of the theory-rewrite runs: a pair is one
-        // atom against its rewrite, which those caps hold with room.
-        growth_cap_arith: capped(options.growth_cap_arith, 3_000_000),
-        growth_cap_plain: capped(options.growth_cap_plain, 500_000),
+        // A sixth of the whole goal's caps: a pair whose block needs more
+        // is one the alignment got wrong (a Dartagnan block of four bound
+        // pairs proves under 4 M plain tuples; the production 500 k did
+        // not hold it).
+        growth_cap_arith: capped(options.growth_cap_arith, 20_000_000),
+        growth_cap_plain: capped(options.growth_cap_plain, 4_000_000),
         memory_soft_cap_mb: capped(options.memory_soft_cap_mb, 2_000),
         ..options
     }
