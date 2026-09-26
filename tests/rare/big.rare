@@ -359,3 +359,7 @@
 (declare-rare-rule bool-or-dup ((xs Bool :list) (b Bool) (ys Bool :list) (zs Bool :list))
   :args (xs b ys zs)
   :conclusion (= (or xs b ys b zs) (or xs b ys zs)))
+(declare-rare-rule bool-implies-or-distrib ((y1 Bool) (y2 Bool) (ys1 Bool :list) (z1 Bool))
+  :args (y1 y2 ys1 z1)
+  :conclusion (= (=> (or y1 y2 ys1) z1) (and (=> y1 z1) (=> (or y2 ys1) z1)))
+)
