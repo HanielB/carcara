@@ -434,10 +434,24 @@ impl AletheElaborator {
                         return self.emit(lhs, rhs, "rare_rewrite", &tail);
                     }
                 }
-                // An engine-internal rewrite (`gen-N`: the set-form
-                // conversions, identity and duplicate removal) has no RARE
-                // name; when its sides are equal modulo ACI it is the
-                // checker's `aci_simp`, otherwise it stays trusted.
+                // An engine-internal rewrite (`gen-N`: the built-in
+                // evaluations, an `ite` on a constant condition, the
+                // set-form conversions, identity and duplicate removal) has
+                // no RARE name; when one of the checker's computations
+                // re-decides the step it is stated as that computation,
+                // otherwise it stays trusted.
+                for kind in crate::rare::reconstruction::computation::COMPUTATIONS {
+                    if kind.apply(lhs).is_some_and(|result| result == *rhs) {
+                        let computed = Certificate::Computational {
+                            kind,
+                            lhs: lhs.clone(),
+                            rhs: rhs.clone(),
+                        };
+                        if let Some(step) = self.step_for_inner(&computed) {
+                            return Some(step);
+                        }
+                    }
+                }
                 if crate::rare::reconstruction::computation::aci_equal(lhs, rhs) {
                     return self.emit(lhs, rhs, "aci_simp", "");
                 }
