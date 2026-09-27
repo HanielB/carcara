@@ -5977,3 +5977,88 @@ after egglog).  The fix is a shared representation in the reconstruction
 (interned terms, memo and class caches keyed by ids), not a budget; the
 shared-subterm abstraction does not apply, since the sharing is within
 one side and the rewriting happens inside the shared subterms.
+
+### 47.25 The search on a DAG, and no term printed as a tree (2026-09-27)
+
+§47.24's calypto-t202 and `Unidec_br` holes died in the search because
+the reconstruction's `Term` was a tree.  Since 36f47902 nothing is: the
+reconstruction's terms are hash-consed, every walk goes once per distinct
+subterm, and every text a term is printed into -- the egglog program
+included -- names its compound subterms.
+
+**The representation.**  `Term` (`src/rare/reconstruction/term.rs`) is a
+node behind an `Arc`, interned in a thread-local table of weak references:
+structurally equal terms built in a thread are one node, a clone is a
+pointer copy, equality a pointer comparison (then hash, size and
+children), hashing a cached hash, the tree size cached next to the DAG
+size.  The fields are read through `Deref`, so no call site changed.  The
+walks that visited every path -- goal seeding, flat forms, `poly_of`,
+arithmetic atoms and their replacement, the search's size bound (now the
+DAG size), variable names, representatives; on Carcara's side leaves,
+atoms, lambda detection, the atom alignment (one `cong` per shared
+subterm) -- are memoized per subterm.
+
+**The texts.**  Each document a term is printed into has one naming
+table, and a compound term outside binders whose arguments are not all
+atoms is `(! t :named <prefix><i>)` at its first print and the name
+after:
+- the certificate steps (`SharedDecoder`, `@<id>.e<i>`, rolled back with
+  the steps that defined them), the descent's and atom alignment's steps
+  (`@<id>.h`, `@<id>.s`), the normalizer's bridge (`@<id>.b`), the
+  fresh-process goal line (`@<id>.g`), the abstraction (each `@abs_<i>`
+  defined at its first occurrence);
+- the hole inputs, batch inputs and problem strings (`p_<id>.`, strict
+  numerals; the proof's assumption has its own table, since the checker
+  reads the assumption against the steps' spelling);
+- the egglog program: each compound subterm of the step is `let`-bound
+  once to a global `shared__<i>` (`EggExpr::Global`) placed before its
+  first use, the goal and the premises refer to the names, the read-back
+  resolves the `let`s, and the snapshot leaves the globals out;
+- a term's `Display` with sharing on (the CLI's default) names the same
+  way, the names local to that text: logs and messages are DAGs too.
+Carcara's proof printer was already DAG-shaped (it names every closed
+term referenced more than once) and is unchanged.
+
+**What it does to egglog.**  The e-graph was always a DAG (egglog
+hash-conses), so saturation is unchanged; what shrinks is reading the
+program (parsing, type-checking, evaluating each nested expression node by
+node), in proportion to the tree-to-DAG ratio.  calypto-t202 (247,127
+tree nodes, 188 shared): egglog 79 s to 9.4 s, justified in 10 s, the
+re-check closed.  `Unidec_br` (13,262 and 207): egglog 4 s to 0.7 s,
+justified in under a second.  On ordinary holes the ratio is near one and
+so is the change: per hole, the median egglog time moved by -9% to +5%
+across the replays below.
+
+**Replays** (`~/exp/egglog-holes/rejects/dagcheck.sh`, 2 workers x 6 GB,
+each followed by the re-check; per-hole phase times on the holes both
+builds logged, the earlier builds' runs possibly with more workers on a
+busier machine):
+
+| replay | justified | re-check | egglog total | search total |
+|---|---|---|---|---|
+| Carpark2-ausgabe-2 | 4/4 | valid | -- | -- |
+| bofill ex13700 | 169/169 | holey (one untagged hole) | 19.0 to 19.9 s | 3.2 to 1.4 s |
+| QG iso_brn028 | 121/121 | valid | 7.4 to 5.7 s | 14.2 to 1.4 s |
+| Dartagnan benchmark02 | 132/132 | valid | 7.2 to 7.0 s | 25.3 to 3.9 s |
+| Goel sokoban | 883/883 | valid | 258 to 155 s | 287 to 8.4 s |
+| Dartagnan benchmark17 | 480/482 | holey (the same two holes, time) | | |
+
+No checker rejection anywhere (`CARCARA_REJECT_DUMP` empty), no trust
+step.  The time the search saves is most of the elaboration's gain; for
+the checking-only pass, which runs egglog and no search, the gain is the
+egglog column: small overall, large on the few heavily shared goals, and
+holes such as calypto-t202 that were over the 60 s now checked.
+
+The `Display` build (dag4) gives the same four fast replays to the hole
+(4, 169, 121, 132 justified, same re-checks, no rejection), and every
+elaboration fixture of `tests/rare/elaborate` elaborates with no hole
+left and re-checks.
+
+**§47.24's eleven whole-goal slices** again (`cap2.sh`, 300 s, 6 GB, no
+descent, no normalization): calypto-t202 and the five `Unidec_br` holes
+are justified (9 s and under a second each; before, the search's memory
+death).  The other five are egglog's saturation or the search itself,
+which the representation does not touch: `benchmark17`'s two and
+`terminator`'s two run out of memory in egglog within 31 to 40 s, and
+`for_infinite_loop`'s runs out of 300 s in the search after 2 s of
+egglog -- the search's own open item, not a representation one.

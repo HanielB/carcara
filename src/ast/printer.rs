@@ -666,7 +666,12 @@ impl fmt::Display for Term {
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
             use_sharing,
-            name_compound: false,
+            // With sharing on, every compound term outside binders is named
+            // at its first print: the text is as large as the DAG (the
+            // closedness test needs the problem's globals, which a term's
+            // display does not have, and named almost nothing).  The names
+            // are local to this text.
+            name_compound: use_sharing,
             binder_depth: 0,
         };
         printer.write_raw_term(self).unwrap();
