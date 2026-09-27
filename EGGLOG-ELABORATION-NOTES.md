@@ -5862,3 +5862,15 @@ then runs out of the 60 s -- a budget split for egglog-heavy goals, the
 next item; `benchmark20`'s three are never checked (memory and time in
 egglog, the corpus's four "not checked").  rw4 (running) measures
 e6bc8ae4, without any of this; a follow-up run would measure 88e14256.
+
+**Corpus gen10** (88e14256, `out-gen10`, 49 slices at 300 s): 43 of the
+44 checked holes elaborate and re-check without a trust step, from 37 of
+39 in gen8 (`t1194`, `t1427`, `t2755` checked since e6bc8ae4 and now
+elaborated, `t2439` no certificate before, `calypto-t513` back); the one
+left is `calypto-t202` (memory, 160 k-node goal).  Not checked: five
+(`calypto-ho31`, `calypto-ho33`, `dart-t1988`, `dart-t2148`,
+`dart-t3372`), all memory or time in egglog itself.  No slice closed in
+gen8 is open now.  Correction: `gaps.sh` wrote no header into
+`summary.txt` but its tally skipped the first line, which is always
+`calypto-ho31` (never checked), so every earlier tally's "not checked"
+was one short; the "checked, not elaborated" counts stand.  Fixed.
