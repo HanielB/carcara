@@ -5642,3 +5642,84 @@ the way: the descent's and the alignment's sort tests now read the term
 (`is_boolean`, `is_numeric`) -- an in-process worker's pool starts empty
 and `pool.sort` panicked on a numeric `ite` fixture; the isolated workers
 never saw it.  Not looked at: Dartagnan's 50 and SMPT's 5 `unproved`.
+
+### 47.20 The `unproved` residue of Dartagnan and SMPT: budgets and processes, not rules (2026-09-26)
+
+rw3's remaining `unproved` holes: Dartagnan 50 (eleven benchmarks) and
+SMPT 5 (four).  Reproduced locally at rw3's settings on four of them:
+`count_by_nondet-O0` (525 holes, 4 unproved), `simple_vardep_1-O0`
+(1,357, 10), `race-1_1-join-O0` (1,035, 1), SMPT `Referendum-PT-0050/RC-06`
+(5, 1); the sixteen holes sliced into one-hole proofs.  Two shapes:
+
+- Dartagnan: `(=> (and P1 .. Pn) (and (<= x I) (>= x I)))` against the
+  same with the antecedent's `(and (<= v 1) (>= v 1))` blocks tightened
+  to `(not (>= v 2)) (>= v 1)` and flattened (5 to 19 arguments), a
+  `(not (and ..))` per block kept, and the consequent's `I = (ite (and
+  (<= y 0) (>= y 0)) 0 1)` rewritten inside the relation to `(not (>= (+
+  x (* -1 (ite (and (not (>= y 1)) (>= y 0)) 0 1))) 1))`: §47.19's
+  `ite`-atom case, inside a descent pair.  Up to 104 pairs a hole.
+- SMPT: an `and` of three relations over fifty-term sums, one of them
+  `(>= S 2)` against `(not (>= (- S) -1))`.
+
+What stopped them, and what changed (db589348):
+
+1. **The atom alignment never ran inside a descent pair**: the pair's
+   options zero the descent flag that gates it.  The pair keeps the flag
+   for the alignment (its own goals still run without a descent).
+2. **A dirty process.**  After a failed whole-goal attempt the worker's
+   resident set is where every later pair meets the pair memory cap at
+   once (`t9232` failed its pairs in 4.6 s in a batch and proved alone
+   in 33 s), and an egglog statement past its deadline stops only at a
+   kill (`RC-06`'s whole-first attempt ran 110 s of a 30 s quarter).
+   The worker now runs **every goal in a fresh process** spawned from
+   its own input, the hole step replaced by the goal (`WorkerInput`,
+   `subgoal_in_fresh_process`): the whole goal first, each descent pair
+   (`{id}.d{n}`), each atom pair (`{id}.a{n}`), the rewritten goal
+   (`{id}.w`), the whole goal last.  The child gets the worker's command
+   line without the descent, the goal's budget as its `--rare-check-timeout`,
+   a kill three seconds past it, and `PR_SET_PDEATHSIG` so that it dies
+   with the worker (the parent's budget kills the worker's pid only; an
+   orphan writing to the inherited stdout kept the parent reading past
+   its budget -- gen7's `calypto-t202` came out `invalid` because the
+   harness's kill truncated the output that way).  The worker
+   orchestrates only; the re-execution retries (`DESCENT_RETRY`,
+   `WHOLE_FIRST_RETRY`) are gone.  A fresh process costs about 0.05 s
+   plus the parse of a 90 KB input; the pair memory cap is relative to
+   the resident set for the in-process path.
+3. **The budget.**  A goal of seventy pairs spent its budget on the
+   whole-goal attempt (a quarter) and the first pairs (the descent's
+   half, first come first served).  Now: the whole-first attempt is a
+   quarter but ten seconds at most; the descent and the alignment get
+   three quarters of what is left; each pair gets twice an even share of
+   that, eight seconds at least (the pairs are counted by a dry run of
+   `descend`), so one mispaired atom cannot take the others' time.
+4. **The search on a long sum.**  `(>= S 2)` against `(not (>= (- S)
+   -1))` is one `poly_simp_rel` step, and the search reached the
+   arithmetic strategy last: the transitive search over the class took
+   a minute on forty summands, and across classes (the goal proved by
+   the goal-level keys, the sides never unioned) the candidates'
+   extraction over the `Args` chain never ended.  `prove_by_arith` now
+   comes right after the exact computations (its steps are
+   checker-decided since the `la_generic` equivalence replaced the
+   trusted form), and `prove_across_classes` tries the goal's own sides
+   before extracting candidates: 7.6 s and 12.9 s for forty and fifty
+   summands.
+5. **Not a cost, a probe artefact.**  With `--log debug` egglog's own
+   query logging makes a 0.2 s goal a 1.6 s one; the children inherit
+   the flag.  Every slice measurement below is at `--log info`.
+
+Reverted on the way: mirroring every `>=` (to be independent of the
+term order the producer reads its leading coefficient in) made the
+e-graph of a Dartagnan goal four to six times slower; the mirror stays
+sign-guarded, and the SMPT pair did not need it (its keys agree, the
+search was the problem).
+
+**Result, the sixteen slices** (120 s a hole, 3 workers, the harness
+of §47.17): all sixteen elaborate and re-check closed --
+`count_by_nondet` 4 of 4 (4--21 s), `race` (24 s), `RC-06` (58 s),
+`simple_vardep_1` 10 of 10 (8--184 s; `t9008` 84 s over 55 pairs,
+`t9119` 62 s over 104).  Fixtures: none added (the corpus test's
+`dart-*` fixtures cover the shape; a 104-pair one is too slow for the
+suite).  The harness's check-only pass now passes
+`--rare-descend-min-nodes 32` too (`gaps.sh`; it did not, so a hole the
+elaboration closed could count as not checked -- gen7's `rings-ho56`).

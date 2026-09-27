@@ -2248,6 +2248,10 @@ fn subgoal_in_fresh_process(
     if !replaced {
         return Err("fresh process: the hole step is not in the input".to_owned());
     }
+    // A diagnostic: the inputs of the fresh processes, one file per goal.
+    if let Ok(dir) = std::env::var("CARCARA_SUBGOAL_DUMP") {
+        let _ = std::fs::write(format!("{dir}/{prefix}.in"), &text);
+    }
     let mut arguments: Vec<String> = Vec::new();
     let mut skip = false;
     for argument in std::env::args().skip(1) {
