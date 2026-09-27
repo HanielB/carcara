@@ -5769,3 +5769,96 @@ Runner `run-holes-rw4.sh` = rw3's plus the keys `elab_atoms_holes`,
 `~/exp/egglog-holes/{run-holes-rw4.sh,submit-egglog-rw4.sh,upload15.sh,submit-rw4.cmd}`.
 Baseline rw3, comparison arm dsl1; the readers of `analysis-rw3/` apply
 with the run name changed.
+
+### 47.22 The `no-certificate` Dartagnan and QG holes: absorption, atoms by class, and checker-faithful ACI steps (2026-09-27)
+
+**Where the holes come from.**  `dart-t2439`, `t1194`, `t2755` and
+`t1427` are one benchmark's, `ReachSafety-Loops/benchmark20_conjunctive-O0`
+(found by its 2,326 declarations), all `MACRO_REWRITE RW_REWRITE`: one
+call of cvc5's rewriter.  Its input is non-clausal simplification's
+output.  In the unsliced proof the circuit propagator derives
+`(not exec(E62))` from the top-level `(= cf(E62) exec(E62))` and
+`(not cf(E62))` (`equiv2` + `resolution`), which becomes the
+substitution `exec(E62) ↦ false`; definitions such as `idd(E55,E93) ↦
+(and ...)` are inlined (a `cong` chain, `trans` with the definition);
+the hole is the rewriter's cleanup of the result: `(and ... false)`
+folded, `(not false)` dropped, `(or X (and ... false))` to `X`, the
+same inlined conjuncts met several times, flattened and deduplicated.
+`t1427` is the arithmetic side of the same substitution: `(and (<= x 1)
+(>= x 1))` blocks become `(not (>= x 2)) (>= x 1)` flattened into the
+enclosing block, over `ite` terms whose conditions were rewritten the
+same way.  egglog proves all four in under a second; the search failed.
+
+**Why the search failed.**  The transitive search ran before the ACI
+strategies and spent the budget on paths of ten or more steps; and
+`prove_by_aci_modulo` only pairs literals one to one, while here a
+literal vanishes (its class is `true`) or stands for several of the
+other side's literals (a conjunction to be flattened, overlapping
+others).  For `t1427`, every relation compares two `ite` atoms that are
+equal in class but not in spelling, which the arithmetic check (atoms
+keyed by term) cannot see.
+
+**What changed** (9d8eeee5, 8d248b69, 88e14256):
+
+1. *Absorption* (`prove_by_absorption`, before the transitive search):
+   each literal of the source's `and`/`or` becomes a target literal of
+   its class, the connective's identity, or its class's smallest known
+   application of the connective with the elements absorbed in turn
+   (four levels); the plan is read off the classes before anything is
+   proved, each piece is then proved on its own (memoized), joined by
+   congruence along the argument chain, and one ACI step closes.  Tried
+   in both directions.
+2. *Arithmetic modulo atom classes* (`prove_by_arith_modulo_atoms`, in
+   the class after the arithmetic step and across classes): the source's
+   atoms are replaced by the target's atoms of the same class (congruence,
+   each pair proved), then the one arithmetic step.
+3. *ACI steps as the checker takes them* (`emit_aci`).  The search's ACI
+   equality is on literal sets; Carcara's `aci_simp` flattens each side
+   under its own connective, drops only *adjacent* duplicates and
+   compares multisets, so `(and true (and b c) b c) = (and b c)` and
+   `(or (and b (and c d)) false) = (and b (and c d))` are rejected, and
+   `(or false false)` reads as an empty `or`.  An ACI step is now one
+   `aci_simp` when the checker would take it, else one
+   `and_simplify`/`or_simplify` (identity, every duplicate, an
+   all-identity side; from either side under `symm`), else `aci_simp` to
+   flatten, the simplification rule to dedupe, `aci_simp` to permute.
+   This was latent before (non-adjacent duplicates were rare); the
+   absorption makes it common.  No checker rule changed.
+4. *The normalized goal on a third of the budget.*  The elaboration pass
+   tries a hole's normal form first and the stated goal after, each on
+   the whole budget; for `t1427` the normal form (an oriented `<=`
+   against cvc5's `(not (>= x 2))`: 8 s of egglog, against half a second
+   as stated) spent 280 of 300 s before the stated goal closed in one.
+   The normalized attempt now gets a third; the stated goal keeps all of
+   its budget.
+
+Tests: fixtures `absorb-false-conjunct`, `absorb-inlined-duplicates`
+(no certificate before), `dart-t2439`; a checker-backed test of the
+emitted ACI forms (`aci_steps_are_emitted_as_the_checker_takes_them`);
+two unit tests now expect the absorption's certificate for `(or p (and
+true false)) = p` (cong + ACI instead of `bool-or-false`).  295 lib
+tests pass.
+
+**Results** (slices at 300 s; whole proofs at rw4's settings -- 60 s a
+hole, 1,500 s pass -- with four workers, the rw4 binary e6bc8ae4 against
+88e14256 on the same machine):
+
+| | rw4 binary | now |
+|---|---|---|
+| `dart-t2439` (slice) | no certificate, 150 s | closed, 4 s |
+| `dart-t1194`, `t2755`, `t1427` (slices) | no certificate / time | closed, 106 / 147 / 301 s |
+| Dartagnan `benchmark20_conjunctive` (261 holes) | 232 (rw3 setting) | 258, 150 s; the 3 left are never checked by egglog |
+| Dartagnan `benchmark18_conjunctive` (380) | 373, 377 s (3 no-cert, 4 time) | **380, re-check valid**, 105 s |
+| Dartagnan `benchmark17_conjunctive` (482) | 473, 547 s (9 time) | 480, 214 s (1 time, 1 memory) |
+| QG `iso_brn245` (150) | 150, 44 s | 150, 5 s |
+| QG `iso_brn172` (354) | 350, 42 s (4 no-cert) | **354, re-check valid**, 10 s |
+| Goel `Arbiter_ab_reg_max` (106) | 103, 121 s (3 time) | 103, 81 s (the same 3) |
+
+No regression on the eight; every elaborated proof re-checks with no
+trust step.  What is left on them is time or memory in egglog itself:
+`benchmark17`'s two holes spend 13 s in the whole goal's egglog (over
+the 10 s whole-first cap) and the rewritten goal of the atom alignment
+then runs out of the 60 s -- a budget split for egglog-heavy goals, the
+next item; `benchmark20`'s three are never checked (memory and time in
+egglog, the corpus's four "not checked").  rw4 (running) measures
+e6bc8ae4, without any of this; a follow-up run would measure 88e14256.
