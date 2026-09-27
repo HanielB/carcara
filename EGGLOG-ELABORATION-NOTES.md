@@ -5752,3 +5752,20 @@ the whole goal's egglog, in a process of their own -- the resource
 bound, not the pipeline.  `t1194`, `t1427` and `t2755` are thus checked
 and not elaborated (gen8: no certificate, hole-time, no certificate):
 the next round's cases.  Static binary at e6bc8ae4.
+
+### 47.21 Run `rw4` submitted (2026-09-27)
+
+rw3's setting and sets (7,381 benchmarks; cvc5 static `bin/cvc5-rw` at
+rewrite granularity in 60 s; hoist + prune; one elaboration pass of
+1,500 s at 60 s and 5.5 GB per hole, eight workers; the re-check at
+1,200 s; octa, `-j 2`, cpus 8, 60 GB, wall 3,400 s) with the carcara of
+e6bc8ae4 as static `bin/carcara-rw4` (md5 34bb94cf...: the four
+arithmetic tags attempted, §47.17--47.20) and the 92-rule
+`holes-rw4.rare`.  Aggregator 948812, arrays 33049100 QF_UF / 33049101
+QF_LIA / 33049102 QF_LRA, tmux `egglog-holes-rw4`, results
+`exp/results/egglog-holes/rw4`, submit log `scripts/egglog-rw-submit-rw4.log`.
+Runner `run-holes-rw4.sh` = rw3's plus the keys `elab_atoms_holes`,
+`elab_atoms_failed`, `elab_whole_first_failed`.  Local files
+`~/exp/egglog-holes/{run-holes-rw4.sh,submit-egglog-rw4.sh,upload15.sh,submit-rw4.cmd}`.
+Baseline rw3, comparison arm dsl1; the readers of `analysis-rw3/` apply
+with the run name changed.
