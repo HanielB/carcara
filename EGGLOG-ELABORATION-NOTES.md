@@ -5907,3 +5907,31 @@ sampled, QG 2), which 88e14256's emission fixes, plus a few
 `rare_rewrite` conclusions in bofill-scheduling and `cong` premises in
 QG, to look at.  rw4 ran e6bc8ae4, without §47.22; the local QG replays
 of §47.22 are 5--9 times faster, which bears on the QF_UF timeouts.
+
+### 47.23 rw4's checker rejections (2026-09-27)
+
+rw4 kept 126 holes as `checker-rejected` in 34 benchmarks.  The runner
+cuts reasons at 140 characters, so one benchmark per class was replayed
+locally (`~/exp/egglog-holes/rejects/`, `replay.sh`, rw4's settings at
+2--8 workers) with the rw4 binary and the current one, and the new
+`CARCARA_REJECT_DUMP=<dir>` writes each rejected certificate, problem
+included, to `<dir>/<hole>.rejected`.  Six causes:
+
+| class | rw4 holes | cause | fix |
+|---|---|---|---|
+| Goel hwbench | 59 | `step id '<hole>.1' is not defined`: `(= (= X X) true)` passed the descent's entry test as a predicate rewritten to `true`, but `descend` takes that shape only for two different sides; it fell through to one pair, the whole goal, whose last step is `<hole>.d1.1`, and the splice cited `<hole>.{count}`.  Load-dependent: unloaded, the whole-goal-first attempt proves the goal first (reproduced at 8 workers: 7 of 883 on sokoban) | d1df6fd1: the entry test agrees with `descend`; the splice, the bridge, the descent's pairs and the atom alignment read the concluding step's id off the last line |
+| SAL carpark | 30 | `expected non-empty sequence`: the descent emitted `cong :premises ()` when the aligned sides were identical (they differed only in argument order) | 2afc7d21: the two reorderings carry the step alone |
+| Dartagnan | 21 | `aci_simp`: non-adjacent duplicates, an all-`false` `or` | 9d8eeee5 / 88e14256 (§47.22's ACI emission) |
+| QG-classification | 7 | `cong` premise placed at the wrong position: a side holding `(not (= x x))` twice with two different `false` partners | 2afc7d21: a premise takes the unused position whose two sides it states |
+| bofill-scheduling, Dartagnan nested6 | 6 | `rare_rewrite` conclusion mismatch: `(or (or x)) = (or x)` by `bool-or-flatten` is `x = x` under the checker's singleton elimination | 2afc7d21: a rule step with a one-argument connective and ACI-equal sides is the checker's ACI step |
+| Heizmann | 2 | `cong` premise; did not reproduce with the current binary | (covered by the above) |
+
+Replayed with d1df6fd1: SAL Carpark2-ausgabe-2 4/4 and -7 253/253,
+bofill ex13700 169/169, QG iso_brn028 121/121 and iso_icl108 235/235,
+Dartagnan benchmark02 132/132, for_infinite_loop_1 549/550,
+terminator_03-2 813/817, nested6 1076/1077, Goel sokoban at 8 workers
+879/883 and Unidec_ab_br 724/748, Heizmann bubblesort 2385/2385 -- no
+`checker-rejected` left; what is left is time, and memory at the local
+3.5 GB cap.  Two of the causes (the empty `cong`, the premise placement)
+and the Goel one were latent before today's work; the ACI one was
+latent and made common by the absorption.  295 lib tests pass.
