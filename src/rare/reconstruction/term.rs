@@ -3,44 +3,195 @@ use std::{cmp::Ordering, collections::BTreeMap};
 use rug::{Integer, Rational};
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Term {
+/// An encoded term, hash-consed: a structurally equal term built in the
+/// same thread is the same node, so a term with shared subterms is a DAG
+/// whatever its source (the goal read back from egglog's text is a tree
+/// there), a clone is a pointer copy, and equality and hashing are a
+/// pointer comparison and a cached hash.  The fields are read through
+/// `Deref` (`term.op`, `term.children`).
+#[derive(Clone)]
+pub struct Term(std::sync::Arc<TermNode>);
+
+pub struct TermNode {
     pub op: String,
     pub children: Vec<Term>,
+    /// Structural hash, from the operator and the children's hashes.
+    hash: u64,
+    /// The size as a tree (saturating): what the representative choice
+    /// compares, cached so that no one walks the tree for it.
+    size: usize,
+}
+
+impl std::ops::Deref for Term {
+    type Target = TermNode;
+    fn deref(&self) -> &TermNode {
+        &self.0
+    }
+}
+
+impl PartialEq for Term {
+    fn eq(&self, other: &Self) -> bool {
+        // Interned terms are equal exactly when they are one node; the
+        // structural test only runs for terms of different threads, and
+        // stops at the first shared child.
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.hash == other.0.hash
+                && self.0.size == other.0.size
+                && self.op == other.op
+                && self.children == other.children)
+    }
+}
+
+impl Eq for Term {}
+
+impl std::hash::Hash for Term {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.hash);
+    }
+}
+
+impl PartialOrd for Term {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Term {
+    /// The derived order of the tree form (operator, then the children
+    /// lexicographically); shared children compare equal at once, so a
+    /// comparison follows one path down.
+    fn cmp(&self, other: &Self) -> Ordering {
+        if std::sync::Arc::ptr_eq(&self.0, &other.0) {
+            return Ordering::Equal;
+        }
+        self.op
+            .cmp(&other.op)
+            .then_with(|| self.children.cmp(&other.children))
+    }
+}
+
+impl std::fmt::Debug for Term {
+    /// Bounded like `to_egglog`: a debug line never expands the DAG.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_egglog())
+    }
+}
+
+thread_local! {
+    static INTERNED: std::cell::RefCell<Interner> = std::cell::RefCell::new(Interner::default());
+}
+
+/// The live terms of a thread by structural hash (weak references: a term
+/// no one holds goes, and its entry with the next sweep).
+#[derive(Default)]
+struct Interner {
+    table: HashMap<u64, Vec<std::sync::Weak<TermNode>>>,
+    since_sweep: usize,
 }
 
 impl Term {
     pub fn new(op: &str, children: Vec<Self>) -> Self {
-        Self { op: op.to_owned(), children }
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        op.hash(&mut hasher);
+        children.len().hash(&mut hasher);
+        for child in &children {
+            hasher.write_u64(child.0.hash);
+        }
+        let hash = hasher.finish();
+        INTERNED.with(|interned| {
+            let mut interned = interned.borrow_mut();
+            if let Some(bucket) = interned.table.get(&hash) {
+                for weak in bucket {
+                    if let Some(node) = weak.upgrade() {
+                        if node.op == op
+                            && node.children.len() == children.len()
+                            && node.children.iter().zip(&children).all(|(a, b)| a == b)
+                        {
+                            return Term(node);
+                        }
+                    }
+                }
+            }
+            let size = children
+                .iter()
+                .fold(1usize, |total, child| total.saturating_add(child.0.size));
+            let node = std::sync::Arc::new(TermNode {
+                op: op.to_owned(),
+                children,
+                hash,
+                size,
+            });
+            interned
+                .table
+                .entry(hash)
+                .or_default()
+                .push(std::sync::Arc::downgrade(&node));
+            interned.since_sweep += 1;
+            if interned.since_sweep >= 1 << 20 {
+                interned.since_sweep = 0;
+                interned.table.retain(|_, bucket| {
+                    bucket.retain(|weak| weak.strong_count() > 0);
+                    !bucket.is_empty()
+                });
+            }
+            Term(node)
+        })
     }
 
     pub fn leaf(op: &str) -> Self {
         Self::new(op, Vec::new())
     }
 
+    /// The size as a tree, saturating (cached).
     pub fn size(&self) -> usize {
-        1 + self.children.iter().map(Self::size).sum::<usize>()
+        self.0.size
     }
 
+    /// The number of distinct nodes: the size of the DAG.
+    pub fn dag_size(&self) -> usize {
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![self];
+        while let Some(term) = stack.pop() {
+            if seen.insert(std::sync::Arc::as_ptr(&term.0)) {
+                stack.extend(term.children.iter());
+            }
+        }
+        seen.len()
+    }
+
+    /// The term in egglog syntax, for a log line: at most a few hundred
+    /// nodes, the rest elided -- a log never expands a DAG into its tree.
     pub fn to_egglog(&self) -> String {
+        let mut out = String::new();
+        let mut budget = 400usize;
+        self.write_egglog(&mut out, &mut budget);
+        out
+    }
+
+    fn write_egglog(&self, out: &mut String, budget: &mut usize) {
+        if *budget == 0 {
+            out.push('…');
+            return;
+        }
+        *budget -= 1;
         if self.children.is_empty() {
             if self.op == "Empty" {
-                "(Empty)".to_owned()
+                out.push_str("(Empty)");
             } else {
-                self.op.clone()
+                out.push_str(&self.op);
             }
-        } else {
-            format!(
-                "({} {})",
-                self.op,
-                self.children
-                    .iter()
-                    .map(Self::to_egglog)
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
+            return;
         }
+        out.push('(');
+        out.push_str(&self.op);
+        for child in &self.children {
+            out.push(' ');
+            child.write_egglog(out, budget);
+        }
+        out.push(')');
     }
+
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,12 +321,24 @@ pub fn list_elements(list: &Term) -> Option<Vec<Term>> {
 /// For comparing terms, not for looking them up: the e-graph holds the
 /// shapes, not this normal form.
 pub fn flat_form(term: &Term) -> Term {
-    if term.op == "Args" || term.op == "Empty" {
-        if let Some(elements) = list_elements(term) {
-            return encoded_args(elements.iter().map(flat_form).collect());
-        }
+    flat_form_memo(term, &mut HashMap::new())
+}
+
+/// `flat_form` once per distinct subterm.
+fn flat_form_memo(term: &Term, memo: &mut HashMap<Term, Term>) -> Term {
+    if let Some(known) = memo.get(term) {
+        return known.clone();
     }
-    Term::new(&term.op, term.children.iter().map(flat_form).collect())
+    let result = if term.op == "Args" || term.op == "Empty" {
+        match list_elements(term) {
+            Some(elements) => encoded_args(elements.iter().map(|e| flat_form_memo(e, memo)).collect()),
+            None => Term::new(&term.op, term.children.iter().map(|c| flat_form_memo(c, memo)).collect()),
+        }
+    } else {
+        Term::new(&term.op, term.children.iter().map(|c| flat_form_memo(c, memo)).collect())
+    };
+    memo.insert(term.clone(), result.clone());
+    result
 }
 
 /// Decompose an encoded application `Mk(op(list))` into its operator and
@@ -331,6 +494,151 @@ pub fn decode_inner(inner: &Term, names: &HashMap<String, String>) -> Option<Str
         }
         _ => None,
     }
+}
+
+/// Decodes encoded terms into Alethe text with sharing across all the terms
+/// decoded with one table (the steps of one certificate), so that no term
+/// is printed as a tree: the first decoding of an application with a
+/// compound argument is `(! t :named <prefix><i>)`, every later one the
+/// name.  A failed decoding forgets the names it defined; so does
+/// `rollback` to a `mark`, for a caller that discards emitted text.
+pub struct SharedDecoder {
+    prefix: String,
+    defined: HashMap<Term, String>,
+    order: Vec<Term>,
+}
+
+impl SharedDecoder {
+    pub fn new(prefix: impl Into<String>) -> Self {
+        Self { prefix: prefix.into(), defined: HashMap::new(), order: Vec::new() }
+    }
+
+    pub fn mark(&self) -> usize {
+        self.order.len()
+    }
+
+    pub fn rollback(&mut self, mark: usize) {
+        for term in self.order.drain(mark..) {
+            self.defined.remove(&term);
+        }
+    }
+
+    /// `term`'s text, wrapped in `Mk` or not.
+    pub fn decode(&mut self, term: &Term, names: &HashMap<String, String>) -> Option<String> {
+        let mark = self.mark();
+        let text = self.decode_inner(unwrapped(term), names);
+        if text.is_none() {
+            self.rollback(mark);
+        }
+        text
+    }
+
+    fn decode_inner(&mut self, inner: &Term, names: &HashMap<String, String>) -> Option<String> {
+        if let Some(name) = self.defined.get(inner) {
+            return Some(name.clone());
+        }
+        let (text, compound) = match (inner.op.as_str(), inner.children.as_slice()) {
+            ("App", [_, _]) => {
+                let mut arguments = Vec::new();
+                let mut current = inner;
+                while let ("App", [next, argument]) =
+                    (current.op.as_str(), current.children.as_slice())
+                {
+                    arguments.push(argument);
+                    current = next;
+                }
+                arguments.reverse();
+                let compound = !is_atom(unwrapped(current))
+                    || arguments.iter().any(|argument| !is_atom(unwrapped(argument)));
+                let head = self.decode_inner(unwrapped(current), names)?;
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.decode_inner(unwrapped(argument), names))
+                    .collect::<Option<Vec<_>>>()?;
+                (format!("({} {})", head, arguments.join(" ")), compound)
+            }
+            (operator, [arguments]) if operator.starts_with('@') => {
+                let elements = list_elements(arguments)?;
+                let compound = elements.iter().any(|element| !is_atom(unwrapped(element)));
+                let decoded = elements
+                    .iter()
+                    .map(|element| self.decode_inner(unwrapped(element), names))
+                    .collect::<Option<Vec<_>>>()?;
+                (format!("({} {})", &operator[1..], decoded.join(" ")), compound)
+            }
+            _ => return decode_inner(inner, names),
+        };
+        if !compound {
+            return Some(text);
+        }
+        let name = format!("{}{}", self.prefix, self.order.len());
+        self.defined.insert(inner.clone(), name.clone());
+        self.order.push(inner.clone());
+        Some(format!("(! {text} :named {name})"))
+    }
+}
+
+/// `term` without its `Mk` wrapper.
+fn unwrapped(term: &Term) -> &Term {
+    match (term.op.as_str(), term.children.as_slice()) {
+        ("Mk", [inner]) => inner,
+        _ => term,
+    }
+}
+
+/// An encoded leaf: a constant, a variable, a literal.
+fn is_atom(inner: &Term) -> bool {
+    matches!(
+        inner.op.as_str(),
+        "Const" | "Bool" | "Op" | "Num" | "Real" | "RatConst" | "BigNum" | "Var"
+    )
+}
+
+/// Whether two encoded terms decode to the same text, without printing
+/// either: the same structure down to leaves that decode alike (a literal
+/// spelled `Real` on one side and `RatConst` on the other), each pair once.
+pub fn decode_alike(lhs: &Term, rhs: &Term, names: &HashMap<String, String>) -> bool {
+    fn walk(
+        lhs: &Term,
+        rhs: &Term,
+        names: &HashMap<String, String>,
+        seen: &mut std::collections::HashSet<(Term, Term)>,
+    ) -> bool {
+        let (lhs, rhs) = (unwrapped(lhs), unwrapped(rhs));
+        if lhs == rhs || seen.contains(&(lhs.clone(), rhs.clone())) {
+            return true;
+        }
+        let alike = if is_atom(lhs) || is_atom(rhs) {
+            is_atom(lhs)
+                && is_atom(rhs)
+                && decode_inner(lhs, names).is_some()
+                && decode_inner(lhs, names) == decode_inner(rhs, names)
+        } else {
+            match (
+                (lhs.op.as_str(), lhs.children.as_slice()),
+                (rhs.op.as_str(), rhs.children.as_slice()),
+            ) {
+                ((a, [la]), (b, [lb])) if a == b && a.starts_with('@') => {
+                    match (list_elements(la), list_elements(lb)) {
+                        (Some(x), Some(y)) => {
+                            x.len() == y.len()
+                                && x.iter().zip(&y).all(|(p, q)| walk(p, q, names, seen))
+                        }
+                        _ => false,
+                    }
+                }
+                (("App", [f, a]), ("App", [g, b])) => {
+                    walk(f, g, names, seen) && walk(a, b, names, seen)
+                }
+                _ => false,
+            }
+        };
+        if alike {
+            seen.insert((lhs.clone(), rhs.clone()));
+        }
+        alike
+    }
+    walk(lhs, rhs, names, &mut std::collections::HashSet::new())
 }
 
 pub fn leak(string: String) -> &'static str {

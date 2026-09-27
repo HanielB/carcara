@@ -432,6 +432,14 @@ impl Reconstructor<'_> {
     /// Classify every goal subterm up front so lazy representative extraction
     /// can prefer goal-shaped terms.
     pub fn seed_goal_terms(&mut self, term: &Term) {
+        self.seed_goal_terms_once(term, &mut HashSet::new());
+    }
+
+    /// Each distinct subterm once: the goal is a DAG.
+    fn seed_goal_terms_once(&mut self, term: &Term, seen: &mut HashSet<Term>) {
+        if !seen.insert(term.clone()) {
+            return;
+        }
         if let Some(eclass) = self.class_of(term) {
             let terms = self.terms_by_class.entry(eclass).or_default();
             if !terms.contains(term) {
@@ -439,7 +447,7 @@ impl Reconstructor<'_> {
             }
         }
         for child in &term.children {
-            self.seed_goal_terms(child);
+            self.seed_goal_terms_once(child, seen);
         }
     }
 

@@ -116,6 +116,64 @@ pub(crate) fn write_term(
     Ok(())
 }
 
+/// Names for the terms of one document printed in pieces -- the steps of a
+/// certificate, the lines of a hole's input -- so that no term is printed
+/// as a tree: the first print of a compound term outside binders is
+/// `(! t :named <prefix><i>)`, every later one, in any piece, the name.
+/// A term whose arguments are all atoms is printed as it is.  The prefix
+/// must be unique within the document (pieces printed by different
+/// processes are concatenated).
+pub struct SharedNames {
+    prefix: String,
+    indices: IndexMap<Rc<Term>, usize>,
+    strict: bool,
+}
+
+impl SharedNames {
+    pub fn new(prefix: impl Into<String>) -> Self {
+        Self { prefix: prefix.into(), indices: IndexMap::new(), strict: false }
+    }
+
+    /// SMT-LIB-strict numerals (a problem's assertions), or not (a proof).
+    pub fn set_strict(&mut self, strict: bool) {
+        self.strict = strict;
+    }
+
+    /// `term`'s text in this document.
+    pub fn print(&mut self, term: &Rc<Term>) -> String {
+        let mut buf = Vec::new();
+        // The printer's pool serves only its free-variable cache, which
+        // this naming rule does not consult.
+        let mut pool = PrimitivePool::new();
+        let mut printer = AlethePrinter {
+            pool: &mut pool,
+            inner: &mut buf,
+            term_indices: Some(std::mem::take(&mut self.indices)),
+            term_sharing_variable_prefix: self.prefix.clone(),
+            global_variables: HashSet::new(),
+            defined_constants: HashMap::new(),
+            smt_lib_strict: self.strict,
+            use_sharing: true,
+            name_compound: true,
+            binder_depth: 0,
+        };
+        let written = term.print_with_sharing(&mut printer);
+        self.indices = printer.term_indices.take().unwrap_or_default();
+        written.expect("writing to a buffer does not fail");
+        String::from_utf8(buf).expect("the printer writes UTF-8")
+    }
+
+    /// The number of names defined so far: a mark to roll back to.
+    pub fn mark(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// Forgets the names defined since `mark` (their text was discarded).
+    pub fn rollback(&mut self, mark: usize) {
+        self.indices.truncate(mark);
+    }
+}
+
 trait PrintProof {
     fn write_proof(&mut self, proof: &Proof) -> io::Result<()>;
 }
@@ -137,7 +195,22 @@ impl PrintWithSharing for Rc<Term> {
         }
         if let Some(indices) = &mut p.term_indices {
             // There are a few cases where we don't use sharing when printing a term:
-            let cannot_use_sharing =
+            let cannot_use_sharing = if p.name_compound {
+                // Every compound term outside binders, but those whose
+                // arguments are all atoms (their text is as short as a
+                // name's definition), and a lambda in head position.
+                self.is_const()
+                    || self.is_var()
+                    || p.binder_depth > 0
+                    || matches!(self.as_ref(), Term::Binder(Binder::Lambda, ..))
+                    || match self.as_ref() {
+                        Term::Op(_, args) => args.iter().all(|a| a.is_const() || a.is_var()),
+                        Term::App(f, args) => {
+                            (f.is_const() || f.is_var()) && args.iter().all(|a| a.is_const() || a.is_var())
+                        }
+                        _ => false,
+                    }
+            } else {
                 // - Terminal terms (i.e., constants or variables) could in theory be shared,
                 // but, since they are very small, it's not worth it to give them a name.
                 self.is_const() || self.is_var()
@@ -154,7 +227,8 @@ impl PrintWithSharing for Rc<Term> {
                 // - A lambda heads applications (`((lambda ...) a b)`, what a `define-fun`
                 // application parses to), and a name in head position reads back as a nullary
                 // constant: "expected 0 arguments, got 2".  It stays spelled out.
-                || matches!(self.as_ref(), Term::Binder(Binder::Lambda, ..));
+                || matches!(self.as_ref(), Term::Binder(Binder::Lambda, ..))
+            };
 
             if !cannot_use_sharing {
                 return if let Some(i) = indices.get(self) {
@@ -246,6 +320,13 @@ pub struct AlethePrinter<'a> {
     defined_constants: HashMap<Rc<Term>, String>,
     smt_lib_strict: bool,
     use_sharing: bool,
+    /// Name every compound term outside binders at its first print (the
+    /// rule of [`SharedNames`]), instead of guessing from reference counts
+    /// which terms recur.
+    name_compound: bool,
+    /// How many binders the term being printed is under: a term there may
+    /// hold bound variables, and is not named.
+    binder_depth: usize,
 }
 
 impl PrintProof for AlethePrinter<'_> {
@@ -342,6 +423,8 @@ impl<'a> AlethePrinter<'a> {
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
             use_sharing,
+            name_compound: false,
+            binder_depth: 0,
         }
     }
 
@@ -415,18 +498,22 @@ impl<'a> AlethePrinter<'a> {
                 write!(self.inner, "({} ", binder)?;
                 bindings.print_with_sharing(self)?;
                 write!(self.inner, " ")?;
-                // TODO: should we avoid creating names within binders?
-                // let place_holder = self.use_sharing;
-                // self.use_sharing = false;
-                term.print_with_sharing(self)?;
-                // self.use_sharing = place_holder;
+                // A term under the binder may hold its variables: no
+                // names there.
+                self.binder_depth += 1;
+                let body = term.print_with_sharing(self);
+                self.binder_depth -= 1;
+                body?;
                 write!(self.inner, ")")
             }
             Term::Let(bindings, term) => {
                 write!(self.inner, "(let ")?;
                 bindings.print_with_sharing(self)?;
                 write!(self.inner, " ")?;
-                term.print_with_sharing(self)?;
+                self.binder_depth += 1;
+                let body = term.print_with_sharing(self);
+                self.binder_depth -= 1;
+                body?;
                 write!(self.inner, ")")
             }
             Term::Match(term, cases) => {
@@ -579,6 +666,8 @@ impl fmt::Display for Term {
             defined_constants: HashMap::new(),
             smt_lib_strict: false,
             use_sharing,
+            name_compound: false,
+            binder_depth: 0,
         };
         printer.write_raw_term(self).unwrap();
         let result = std::str::from_utf8(&buf).unwrap();

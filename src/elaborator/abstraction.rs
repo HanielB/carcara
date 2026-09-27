@@ -157,6 +157,7 @@ fn is_symbol_char(c: char) -> bool {
 
 /// `line` with every occurrence of the symbol `name` (as a whole token)
 /// replaced by `replacement`.
+#[cfg(test)]
 fn replace_symbol(line: &str, name: &str, replacement: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut rest = line;
@@ -177,29 +178,54 @@ fn replace_symbol(line: &str, name: &str, replacement: &str) -> String {
     out
 }
 
-/// The certificate's steps with every fresh constant replaced by the text of
-/// the subterm it stands for, so the steps speak of the original goal.
+/// The certificate's steps speaking of the original goal: the first
+/// occurrence of each fresh constant becomes `(! t :named <constant>)`, t
+/// the subterm it stands for, and every later occurrence, already that
+/// symbol, refers to it -- the subterm's text appears once, not at every
+/// occurrence.
 pub fn instantiate_steps(steps: Vec<String>, bindings: &[(String, Rc<Term>)]) -> Vec<String> {
     if bindings.is_empty() {
         return steps;
     }
-    // `{:#}` prints without term sharing, so the text stands on its own.
-    let texts: Vec<(&str, String)> = bindings
-        .iter()
-        .map(|(name, term)| (name.as_str(), format!("{term:#}")))
-        .collect();
-    steps
-        .into_iter()
-        .map(|line| {
-            let mut line = line;
-            for (name, text) in &texts {
-                if line.contains(name) {
-                    line = replace_symbol(&line, name, text);
-                }
+    let mut names = crate::ast::printer::SharedNames::new("@abs.");
+    let mut pending: Vec<(&str, &Rc<Term>)> =
+        bindings.iter().map(|(name, term)| (name.as_str(), term)).collect();
+    let mut out = Vec::with_capacity(steps.len());
+    for line in steps {
+        let mut line = line;
+        let mut index = 0;
+        while index < pending.len() {
+            let (name, term) = pending[index];
+            if let Some(position) = first_symbol(&line, name) {
+                let definition = format!("(! {} :named {name})", names.print(term));
+                line.replace_range(position..position + name.len(), &definition);
+                pending.remove(index);
+            } else {
+                index += 1;
             }
-            line
-        })
-        .collect()
+        }
+        out.push(line);
+    }
+    out
+}
+
+/// The position of the first occurrence of the symbol `name` in `line`.
+fn first_symbol(line: &str, name: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(offset) = line[from..].find(name) {
+        let position = from + offset;
+        let before_ok = position == 0
+            || !line[..position].chars().next_back().is_some_and(is_symbol_char);
+        let after_ok = !line[position + name.len()..]
+            .chars()
+            .next()
+            .is_some_and(is_symbol_char);
+        if before_ok && after_ok {
+            return Some(position);
+        }
+        from = position + name.len();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -230,7 +256,7 @@ mod tests {
         );
         assert_eq!(
             steps[0],
-            "(step t1.1 (cl (= (= (and p q) false) (not (and p q)))) :rule rare_rewrite :args (\"bool-eq-false\" (and p q)))"
+            "(step t1.1 (cl (= (= (! (and p q) :named @abs_0) false) (not @abs_0))) :rule rare_rewrite :args (\"bool-eq-false\" @abs_0))"
         );
     }
 

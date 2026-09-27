@@ -688,6 +688,7 @@ impl Normalizer {
         }
         let mut emitter = Emitter {
             prefix: id.to_owned(),
+            names: crate::ast::printer::SharedNames::new(format!("@{}.b", id)),
             steps: Vec::new(),
             memo: HashMap::new(),
         };
@@ -726,6 +727,7 @@ impl Normalizer {
         let inner_last = super::rare_hole::last_step_id(&inner, id);
         let mut emitter = Emitter {
             prefix: id.to_owned(),
+            names: crate::ast::printer::SharedNames::new(format!("@{}.b", id)),
             steps: inner,
             memo: HashMap::new(),
         };
@@ -838,6 +840,8 @@ struct Emitter {
     prefix: String,
     steps: Vec<String>,
     memo: HashMap<Rc<Term>, Option<String>>,
+    /// The steps' terms are printed with sharing: no term as a tree.
+    names: crate::ast::printer::SharedNames,
 }
 
 impl Emitter {
@@ -855,8 +859,9 @@ impl Emitter {
         } else {
             format!(" :premises ({})", premises.join(" "))
         };
+        let (left, right) = (self.names.print(lhs), self.names.print(rhs));
         self.steps.push(format!(
-            "(step {id} (cl (= {lhs:#} {rhs:#})) :rule {rule}{premises})"
+            "(step {id} (cl (= {left} {right})) :rule {rule}{premises})"
         ));
         id
     }
@@ -972,32 +977,18 @@ impl Emitter {
             );
         };
         let negated_scale = Rational::from(-tighten.scale.clone()).to_string();
-        let above = self.emit_clause(
-            &format!("(not {from:#}) {helper:#}"),
-            "la_generic",
-            &[],
-            &format!("{scale} 1"),
-        );
-        let below = self.emit_clause(
-            &format!("(not {from:#}) (not {helper:#})"),
-            "la_generic",
-            &[],
-            &format!("{negated_scale} 1"),
-        );
-        let refuted =
-            self.emit_clause(&format!("(not {from:#})"), "resolution", &[above, below], "");
-        let simplified = self.emit_clause(
-            &format!("(= (= {from:#} false) (not {from:#}))"),
-            "equiv_simplify",
-            &[],
-            "",
-        );
-        let split = self.emit_clause(
-            &format!("(= {from:#} false) (not (not {from:#}))"),
-            "equiv2",
-            &[simplified],
-            "",
-        );
+        // Each mention printed afresh: the first defines the shared names,
+        // the later ones use them.
+        let text = format!("(not {}) {}", self.names.print(from), self.names.print(helper));
+        let above = self.emit_clause(&text, "la_generic", &[], &format!("{scale} 1"));
+        let text = format!("(not {}) (not {})", self.names.print(from), self.names.print(helper));
+        let below = self.emit_clause(&text, "la_generic", &[], &format!("{negated_scale} 1"));
+        let text = format!("(not {})", self.names.print(from));
+        let refuted = self.emit_clause(&text, "resolution", &[above, below], "");
+        let text = format!("(= (= {} false) (not {}))", self.names.print(from), self.names.print(from));
+        let simplified = self.emit_clause(&text, "equiv_simplify", &[], "");
+        let text = format!("(= {} false) (not (not {}))", self.names.print(from), self.names.print(from));
+        let split = self.emit_clause(&text, "equiv2", &[simplified], "");
         self.emit(pool, from, to, "resolution", &[split, refuted])
     }
 
@@ -1012,34 +1003,28 @@ impl Emitter {
         args_a_b: &str,
         args_b_a: &str,
     ) -> String {
-        let a_implies_b =
-            self.emit_clause(&format!("(not {a:#}) {b:#}"), "la_generic", &[], args_a_b);
-        let b_implies_a =
-            self.emit_clause(&format!("(not {b:#}) {a:#}"), "la_generic", &[], args_b_a);
-        let neg2 = self.emit_clause(
-            &format!("(= {a:#} {b:#}) {a:#} {b:#}"),
-            "equiv_neg2",
-            &[],
-            "",
-        );
-        let with_b = self.emit_clause(
-            &format!("(= {a:#} {b:#}) {b:#}"),
-            "resolution",
-            &[neg2, a_implies_b],
-            "",
-        );
-        let neg1 = self.emit_clause(
-            &format!("(= {a:#} {b:#}) (not {a:#}) (not {b:#})"),
-            "equiv_neg1",
-            &[],
-            "",
-        );
-        let with_not_b = self.emit_clause(
-            &format!("(= {a:#} {b:#}) (not {b:#})"),
-            "resolution",
-            &[neg1, b_implies_a],
-            "",
-        );
+        // Each mention printed afresh: the first defines the shared names,
+        // the later ones use them.
+        let text = format!("(not {}) {}", self.names.print(a), self.names.print(b));
+        let a_implies_b = self.emit_clause(&text, "la_generic", &[], args_a_b);
+        let text = format!("(not {}) {}", self.names.print(b), self.names.print(a));
+        let b_implies_a = self.emit_clause(&text, "la_generic", &[], args_b_a);
+        let (x, y) = (self.names.print(a), self.names.print(b));
+        let (x2, y2) = (self.names.print(a), self.names.print(b));
+        let text = format!("(= {x} {y}) {x2} {y2}");
+        let neg2 = self.emit_clause(&text, "equiv_neg2", &[], "");
+        let (x, y) = (self.names.print(a), self.names.print(b));
+        let y2 = self.names.print(b);
+        let text = format!("(= {x} {y}) {y2}");
+        let with_b = self.emit_clause(&text, "resolution", &[neg2, a_implies_b], "");
+        let (x, y) = (self.names.print(a), self.names.print(b));
+        let (x2, y2) = (self.names.print(a), self.names.print(b));
+        let text = format!("(= {x} {y}) (not {x2}) (not {y2})");
+        let neg1 = self.emit_clause(&text, "equiv_neg1", &[], "");
+        let (x, y) = (self.names.print(a), self.names.print(b));
+        let y2 = self.names.print(b);
+        let text = format!("(= {x} {y}) (not {y2})");
+        let with_not_b = self.emit_clause(&text, "resolution", &[neg1, b_implies_a], "");
         let _ = pool;
         self.emit(pool, a, b, "resolution", &[with_b, with_not_b])
     }

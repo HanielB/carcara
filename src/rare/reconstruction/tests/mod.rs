@@ -655,6 +655,7 @@ fn elaborates_certificates_to_alethe_steps() {
     .expect("the mixed chain should reconstruct");
     let steps = AletheElaborator::elaborate(&certificate, "t1")
         .expect("the mixed certificate should elaborate to Alethe");
+    let steps = expand_shared_names(&steps);
     eprintln!("distinct_symm elaboration:\n{}", steps.join("\n"));
     assert!(
         steps
@@ -709,6 +710,7 @@ fn elaborates_certificates_to_alethe_steps() {
     .expect("the interior chain should reconstruct");
     let steps = AletheElaborator::elaborate(&certificate, "t2")
         .expect("the interior certificate should elaborate to Alethe");
+    let steps = expand_shared_names(&steps);
     eprintln!("interior distinct elaboration:\n{}", steps.join("\n"));
     assert!(
         steps
@@ -2725,6 +2727,7 @@ fn aci_steps_are_emitted_as_the_checker_takes_them() {
             names: names.clone(),
             rare: HashMap::new(),
             sorts: ArithSorts::default(),
+            decoder: SharedDecoder::new("@t1.e"),
         };
         let last = elaborator
             .emit_aci(&lhs, &rhs)
@@ -2825,6 +2828,7 @@ fn la_generic_equivalence_certifies_relations_the_routing_cannot() {
             names: names.clone(),
             rare: HashMap::new(),
             sorts: ArithSorts::default(),
+            decoder: SharedDecoder::new("@t1.e"),
         };
         let last = elaborator
             .la_generic_equivalence(&lhs, &rhs)
@@ -3326,4 +3330,77 @@ fn elaborates_holes_with_the_untranslated_rewrite_tag() {
     .expect("the elaborated proof should print");
     let printed = String::from_utf8(printed).expect("printed proof should be UTF-8");
     assert!(!printed.contains(":rule hole"), "{printed}");
+}
+
+/// The steps with their shared names expanded (`(! t :named n)` to `t`, a
+/// later `n` to `t`): for asserting on small certificates' text.
+fn expand_shared_names(steps: &[String]) -> Vec<String> {
+    let mut names: HashMap<String, String> = HashMap::new();
+    let mut out = Vec::new();
+    for step in steps {
+        out.push(expand_line(step, &mut names));
+    }
+    out
+}
+
+fn expand_line(line: &str, names: &mut HashMap<String, String>) -> String {
+    let tokens: Vec<char> = line.chars().collect();
+    let mut position = 0;
+    let mut out = String::new();
+    while position < tokens.len() {
+        out.push_str(&expand_at(&tokens, &mut position, names));
+    }
+    out
+}
+
+/// One element starting at `position`: a `(! t :named n)`, a list, or a
+/// token (a name expanded); whitespace passes through.
+fn expand_at(tokens: &[char], position: &mut usize, names: &mut HashMap<String, String>) -> String {
+    let c = tokens[*position];
+    if c == '(' {
+        let mut inner = String::new();
+        *position += 1;
+        let annotated = tokens.get(*position) == Some(&'!') && tokens.get(*position + 1) == Some(&' ');
+        if annotated {
+            *position += 2;
+        }
+        let mut parts = Vec::new();
+        while *position < tokens.len() && tokens[*position] != ')' {
+            if tokens[*position] == ' ' {
+                *position += 1;
+                continue;
+            }
+            parts.push(expand_at(tokens, position, names));
+        }
+        *position += 1;
+        if annotated {
+            // parts: term, ":named", name
+            let term = parts[0].clone();
+            if parts.len() == 3 && parts[1] == ":named" {
+                names.insert(parts[2].clone(), term.clone());
+            }
+            return term;
+        }
+        inner.push('(');
+        inner.push_str(&parts.join(" "));
+        inner.push(')');
+        return inner;
+    }
+    if c == ' ' {
+        *position += 1;
+        return " ".to_owned();
+    }
+    let mut token = String::new();
+    let mut quoted = false;
+    while *position < tokens.len() {
+        let c = tokens[*position];
+        if c == '"' {
+            quoted = !quoted;
+        } else if !quoted && (c == ' ' || c == '(' || c == ')') {
+            break;
+        }
+        token.push(c);
+        *position += 1;
+    }
+    names.get(&token).cloned().unwrap_or(token)
 }

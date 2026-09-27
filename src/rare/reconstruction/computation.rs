@@ -427,21 +427,36 @@ pub const ARITH_OPS: [&str; 10] = [
 /// and is otherwise an opaque atom, and any non-arithmetic term is an
 /// opaque atom.
 pub fn poly_of(term: &Term) -> Option<Poly> {
-    let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
-        return None;
-    };
-    match (inner.op.as_str(), inner.children.as_slice()) {
-        ("Num", [value]) => Some(Poly::constant(value.op.parse::<Integer>().ok()?.into())),
-        ("Real", [numer, denom]) => Some(Poly::constant(rational_from_leaves(numer, denom)?)),
-        ("RatConst", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
-        ("BigNum", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
-        (operator, [arguments]) if ARITH_OPS.contains(&operator) => {
-            let elements = list_elements(arguments)?;
-            let polys = elements.iter().map(poly_of).collect::<Option<Vec<_>>>()?;
-            fold_arith(operator, &elements, &polys)
-        }
-        _ => Some(Poly::atom(term.clone())),
+    poly_of_memo(term, &mut HashMap::new())
+}
+
+/// `poly_of` once per distinct subterm: the terms are DAGs.
+fn poly_of_memo(term: &Term, memo: &mut HashMap<Term, Option<Poly>>) -> Option<Poly> {
+    if let Some(known) = memo.get(term) {
+        return known.clone();
     }
+    let result = (|| {
+        let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
+            return None;
+        };
+        match (inner.op.as_str(), inner.children.as_slice()) {
+            ("Num", [value]) => Some(Poly::constant(value.op.parse::<Integer>().ok()?.into())),
+            ("Real", [numer, denom]) => Some(Poly::constant(rational_from_leaves(numer, denom)?)),
+            ("RatConst", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
+            ("BigNum", [literal]) => Some(Poly::constant(bigrat_literal(&literal.op)?)),
+            (operator, [arguments]) if ARITH_OPS.contains(&operator) => {
+                let elements = list_elements(arguments)?;
+                let polys = elements
+                    .iter()
+                    .map(|e| poly_of_memo(e, memo))
+                    .collect::<Option<Vec<_>>>()?;
+                fold_arith(operator, &elements, &polys)
+            }
+            _ => Some(Poly::atom(term.clone())),
+        }
+    })();
+    memo.insert(term.clone(), result.clone());
+    result
 }
 
 /// The atoms of an arithmetic relation or term as `rel_key` and `poly_of`
@@ -450,12 +465,13 @@ pub fn poly_of(term: &Term) -> Option<Poly> {
 /// the term is neither a relation nor an arithmetic term.
 pub fn arith_atoms(term: &Term) -> Option<Vec<Term>> {
     let mut atoms = Vec::new();
+    let mut seen = HashSet::new();
     match relation_sides(term) {
         Some([a, b]) => {
-            poly_atoms(&a, &mut atoms)?;
-            poly_atoms(&b, &mut atoms)?;
+            poly_atoms(&a, &mut atoms, &mut seen)?;
+            poly_atoms(&b, &mut atoms, &mut seen)?;
         }
-        None => poly_atoms(term, &mut atoms)?,
+        None => poly_atoms(term, &mut atoms, &mut seen)?,
     }
     Some(atoms)
 }
@@ -473,7 +489,7 @@ pub fn replace_arith_atoms(term: &Term, map: &HashMap<Term, Term>) -> Term {
             );
         }
     }
-    replace_poly_atoms(term, map)
+    replace_poly_atoms(term, map, &mut HashMap::new())
 }
 
 fn relation_sides(term: &Term) -> Option<[Term; 2]> {
@@ -490,7 +506,10 @@ fn relation_sides(term: &Term) -> Option<[Term; 2]> {
     }
 }
 
-fn poly_atoms(term: &Term, atoms: &mut Vec<Term>) -> Option<()> {
+fn poly_atoms(term: &Term, atoms: &mut Vec<Term>, seen: &mut HashSet<Term>) -> Option<()> {
+    if !seen.insert(term.clone()) {
+        return Some(());
+    }
     let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
         return None;
     };
@@ -498,7 +517,7 @@ fn poly_atoms(term: &Term, atoms: &mut Vec<Term>) -> Option<()> {
         ("Num" | "Real" | "RatConst" | "BigNum", _) => Some(()),
         (operator, [arguments]) if ARITH_OPS.contains(&operator) => {
             for element in list_elements(arguments)? {
-                poly_atoms(&element, atoms)?;
+                poly_atoms(&element, atoms, seen)?;
             }
             Some(())
         }
@@ -511,23 +530,28 @@ fn poly_atoms(term: &Term, atoms: &mut Vec<Term>) -> Option<()> {
     }
 }
 
-fn replace_poly_atoms(term: &Term, map: &HashMap<Term, Term>) -> Term {
+fn replace_poly_atoms(term: &Term, map: &HashMap<Term, Term>, memo: &mut HashMap<Term, Term>) -> Term {
     if let Some(replacement) = map.get(term) {
         return replacement.clone();
     }
-    let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
-        return term.clone();
-    };
-    match (inner.op.as_str(), inner.children.as_slice()) {
-        (operator, [arguments]) if ARITH_OPS.contains(&operator) => match list_elements(arguments) {
-            Some(elements) => encoded_app(
-                operator,
-                elements.iter().map(|e| replace_poly_atoms(e, map)).collect(),
-            ),
-            None => term.clone(),
+    if let Some(known) = memo.get(term) {
+        return known.clone();
+    }
+    let result = match (term.op.as_str(), term.children.as_slice()) {
+        ("Mk", [inner]) => match (inner.op.as_str(), inner.children.as_slice()) {
+            (operator, [arguments]) if ARITH_OPS.contains(&operator) => match list_elements(arguments) {
+                Some(elements) => encoded_app(
+                    operator,
+                    elements.iter().map(|e| replace_poly_atoms(e, map, memo)).collect(),
+                ),
+                None => term.clone(),
+            },
+            _ => term.clone(),
         },
         _ => term.clone(),
-    }
+    };
+    memo.insert(term.clone(), result.clone());
+    result
 }
 
 pub fn fold_arith(operator: &str, elements: &[Term], polys: &[Poly]) -> Option<Poly> {

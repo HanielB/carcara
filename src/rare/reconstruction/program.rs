@@ -13,7 +13,20 @@ pub fn collect_variable_names(
     original: &crate::ast::Rc<crate::ast::Term>,
     names: &mut HashMap<String, String>,
 ) {
+    collect_variable_names_once(encoded, original, names, &mut std::collections::HashSet::new());
+}
+
+/// `collect_variable_names` over each distinct pair once.
+fn collect_variable_names_once(
+    encoded: &Term,
+    original: &crate::ast::Rc<crate::ast::Term>,
+    names: &mut HashMap<String, String>,
+    seen: &mut std::collections::HashSet<(Term, crate::ast::Rc<crate::ast::Term>)>,
+) {
     use crate::ast::Term as Original;
+    if !seen.insert((encoded.clone(), original.clone())) {
+        return;
+    }
     // The Mk wrapper is present on formula positions but absent on the raw
     // arguments of curried App chains; tolerate both.
     let inner = match (encoded.op.as_str(), encoded.children.as_slice()) {
@@ -33,7 +46,7 @@ pub fn collect_variable_names(
             if let Some(elements) = list_elements(arguments) {
                 if elements.len() == args.len() {
                     for (element, arg) in elements.iter().zip(args) {
-                        collect_variable_names(element, arg, names);
+                        collect_variable_names_once(element, arg, names, seen);
                     }
                 }
             }
@@ -47,10 +60,10 @@ pub fn collect_variable_names(
                 current = next;
             }
             chain.reverse();
-            collect_variable_names(current, function, names);
+            collect_variable_names_once(current, function, names, seen);
             if chain.len() == args.len() {
                 for (element, arg) in chain.iter().zip(args) {
-                    collect_variable_names(element, arg, names);
+                    collect_variable_names_once(element, arg, names, seen);
                 }
             }
         }
@@ -59,9 +72,19 @@ pub fn collect_variable_names(
 }
 
 pub fn term_from_egglog_expr(expression: &EgglogExpr) -> Term {
+    term_from_egglog_expr_in(expression, &HashMap::new())
+}
+
+/// `expression` as a term, the program's `let`-bound globals (the shared
+/// subterms of the step's terms) resolved to the terms they bind.
+pub fn term_from_egglog_expr_in(expression: &EgglogExpr, bindings: &HashMap<String, Term>) -> Term {
+    let recurse = |child: &EgglogExpr| term_from_egglog_expr_in(child, bindings);
     match expression {
         GenericExpr::Lit(_, literal) => Term::leaf(&literal.to_string()),
-        GenericExpr::Var(_, variable) => Term::leaf(&variable.to_string()),
+        GenericExpr::Var(_, variable) => {
+            let name = variable.to_string();
+            bindings.get(&name).cloned().unwrap_or_else(|| Term::leaf(&name))
+        }
         // A big rational is one value to egglog, which the snapshot
         // serializes as the literal `(bigrat (from-string "n") (from-string
         // "d"))`; the goal's term spells it the same way, as one leaf, so
@@ -83,16 +106,12 @@ pub fn term_from_egglog_expr(expression: &EgglogExpr) -> Term {
                 (Some(numer), Some(denom)) => Term::leaf(&format!(
                     "(bigrat (from-string {numer}) (from-string {denom}))"
                 )),
-                _ => Term::new(
-                    &operator.to_string(),
-                    children.iter().map(term_from_egglog_expr).collect(),
-                ),
+                _ => Term::new(&operator.to_string(), children.iter().map(recurse).collect()),
             }
         }
-        GenericExpr::Call(_, operator, children) => Term::new(
-            &operator.to_string(),
-            children.iter().map(term_from_egglog_expr).collect(),
-        ),
+        GenericExpr::Call(_, operator, children) => {
+            Term::new(&operator.to_string(), children.iter().map(recurse).collect())
+        }
     }
 }
 
@@ -102,16 +121,21 @@ pub fn generated_goals(program: &str) -> (Term, Term) {
         .expect("Carcara's generated egglog program should parse");
     let mut lhs = None;
     let mut rhs = None;
+    // Every `let`, in order: the goal's sides refer to the shared subterms
+    // bound before them.
+    let mut bindings: HashMap<String, Term> = HashMap::new();
 
     for command in commands {
         let EgglogCommand::Action(EgglogAction::Let(_, name, expression)) = command else {
             continue;
         };
+        let term = term_from_egglog_expr_in(&expression, &bindings);
         match name.to_string().as_str() {
-            "goal_lhs" => lhs = Some(term_from_egglog_expr(&expression)),
-            "goal_rhs" => rhs = Some(term_from_egglog_expr(&expression)),
+            "goal_lhs" => lhs = Some(term.clone()),
+            "goal_rhs" => rhs = Some(term.clone()),
             _ => {}
         }
+        bindings.insert(name.to_string(), term);
     }
 
     (

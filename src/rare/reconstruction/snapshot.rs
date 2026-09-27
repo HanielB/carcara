@@ -92,6 +92,14 @@ impl EGraphSnapshot {
         serialized
             .nodes
             .values()
+            // A program's globals (the goal's sides, its shared subterms)
+            // are names for classes, not terms of them.
+            .filter(|node| {
+                let op = node.op.as_str();
+                !(op.starts_with(crate::rare::engine::SHARED_PREFIX)
+                    || op == "goal_lhs"
+                    || op == "goal_rhs")
+            })
             .map(|node| {
                 (
                     node.op.clone(),
@@ -241,6 +249,11 @@ impl EGraphSnapshot {
             classes: &mut HashMap<Term, u32>,
             representatives: &mut HashMap<u32, Term>,
         ) {
+            // Classified means done (a term is classified after its
+            // children): each distinct subterm once.
+            if classes.contains_key(term) {
+                return;
+            }
             for child in &term.children {
                 insert_subterms(snapshot, child, classes, representatives);
             }

@@ -31,6 +31,9 @@ pub enum EggExpr {
     Mk(Box<EggExpr>),
     BitVec(Integer, Integer),
     Literal(String),
+    /// A global the program binds with `let` to a shared subterm of the
+    /// step's terms: ground, unlike a `Literal` (a rule's variable).
+    Global(String),
     Ground(Box<EggExpr>),
     Equal(Box<EggExpr>, Box<EggExpr>),
     Distinct(Box<EggExpr>, Box<EggExpr>),

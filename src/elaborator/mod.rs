@@ -531,7 +531,11 @@ impl<'e> Elaborator<'e> {
                 let left = normalizer.normalize(self.pool, &lhs);
                 let right = normalizer.normalize(self.pool, &rhs);
                 if left == right {
-                    log::debug!("hole {}: closed by normalization to {:#}", step.id, left);
+                    log::debug!(
+                        "hole {}: closed by normalization to {}",
+                        step.id,
+                        crate::ast::printer::SharedNames::new("@log.").print(&left)
+                    );
                     let steps = if self.config.hole_check_only {
                         Vec::new()
                     } else {
@@ -647,7 +651,11 @@ impl<'e> Elaborator<'e> {
                 let conclusion = step.clause.first()?;
                 let abstraction::Abstraction { goal, bindings } =
                     abstraction::abstract_shared(self.pool, conclusion, min_nodes)?;
-                log::debug!("hole {}: abstract goal {:#}", step.id, goal);
+                log::debug!(
+                    "hole {}: abstract goal {}",
+                    step.id,
+                    crate::ast::printer::SharedNames::new("@log.").print(&goal)
+                );
                 let mut abstract_step = step.clone();
                 abstract_step.clause = vec![goal];
                 Some((abstract_step, bindings))

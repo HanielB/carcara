@@ -331,8 +331,8 @@ pub fn collect_equality_subterms(term: &Rc<Term>) -> Vec<Rc<Term>> {
 /// key under which a normal form found while checking one hole is handed to
 /// the child checking a later hole, which parses its own copy of the terms.
 /// Variables hash by name and sort, constants by value, applications by
-/// operator and children; binders and the rarer shapes hash by their
-/// printed form.  `memo` is keyed by the term's pointer.
+/// operator and children, binders by their bindings and body; the rarer
+/// shapes by their printed form (with sharing).  `memo` is keyed by the term's pointer.
 pub fn structural_hash(term: &Rc<Term>, memo: &mut HashMap<usize, u64>) -> u64 {
     let key = Rc::as_ptr(term) as *const () as usize;
     if let Some(&hash) = memo.get(&key) {
@@ -363,9 +363,34 @@ pub fn structural_hash(term: &Rc<Term>, memo: &mut HashMap<usize, u64>) -> u64 {
                 structural_hash(arg, memo).hash(&mut hasher);
             }
         }
+        Term::Binder(binder, bindings, body) => {
+            5u8.hash(&mut hasher);
+            format!("{binder:?}").hash(&mut hasher);
+            for (name, sort) in bindings.iter() {
+                name.hash(&mut hasher);
+                format!("{sort}").hash(&mut hasher);
+            }
+            structural_hash(body, memo).hash(&mut hasher);
+        }
+        Term::Let(bindings, body) => {
+            6u8.hash(&mut hasher);
+            for (name, value) in bindings.iter() {
+                name.hash(&mut hasher);
+                structural_hash(value, memo).hash(&mut hasher);
+            }
+            structural_hash(body, memo).hash(&mut hasher);
+        }
+        Term::ParamOp { op, op_args, args } => {
+            7u8.hash(&mut hasher);
+            format!("{op:?}").hash(&mut hasher);
+            for arg in op_args.iter().chain(args) {
+                structural_hash(arg, memo).hash(&mut hasher);
+            }
+        }
         _ => {
+            // The rarer shapes by their text, printed with sharing.
             4u8.hash(&mut hasher);
-            format!("{term:#}").hash(&mut hasher);
+            crate::ast::printer::SharedNames::new("@h.").print(term).hash(&mut hasher);
         }
     }
     let hash = hasher.finish();

@@ -111,7 +111,7 @@ fn to_expr(e: EggExpr) -> Expr {
                 egglog::ast::Literal::String(op.into()),
             )],
         ),
-        Literal(s) => Expr::Var(dummy_span(), Symbol::from(s.as_str())),
+        Literal(s) | Global(s) => Expr::Var(dummy_span(), Symbol::from(s.as_str())),
         Ground(e1) => Expr::Call(dummy_span(), Symbol::from("Ground"), vec![to_expr(*e1)]),
         App(f, x) => Expr::Call(
             dummy_span(),

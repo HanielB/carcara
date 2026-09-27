@@ -552,7 +552,116 @@ fn create_avaliable_premise(
     }))
 }
 
+thread_local! {
+    static SHARING: std::cell::RefCell<Option<Sharing>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The shared subterms of one program: while a program is built (see
+/// `SharingScope`), every compound subterm the step's translation meets is
+/// bound once with `let` and referred to by that name afterwards, so the
+/// program is as large as the terms' DAG, never their tree.
+#[derive(Default)]
+struct Sharing {
+    names: HashMap<Rc<Term>, String>,
+    lets: Vec<EggStatement>,
+}
+
+/// The prefix of the program's sharing globals.
+pub const SHARED_PREFIX: &str = "shared__";
+
+/// Installs a fresh `Sharing` for the program being built; `finish` hands
+/// its `let`s back, and a dropped scope (an early return) restores the
+/// previous one.
+struct SharingScope {
+    previous: Option<Option<Sharing>>,
+}
+
+impl SharingScope {
+    fn begin() -> Self {
+        let previous = SHARING.with(|sharing| sharing.replace(Some(Sharing::default())));
+        Self { previous: Some(previous) }
+    }
+
+    fn finish(mut self) -> Vec<EggStatement> {
+        let previous = self.previous.take().unwrap_or_default();
+        let current = SHARING.with(|sharing| sharing.replace(previous));
+        current.map(|sharing| sharing.lets).unwrap_or_default()
+    }
+}
+
+impl Drop for SharingScope {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            SHARING.with(|sharing| sharing.replace(previous));
+        }
+    }
+}
+
+/// The `let`s bound before the first statement that names one of them
+/// (after the declarations their constructors need, before any use).
+fn insert_sharing_lets(ast: &mut Vec<EggStatement>, lets: Vec<EggStatement>) {
+    if lets.is_empty() {
+        return;
+    }
+    let first_use = ast
+        .iter()
+        .position(|statement| format!("{statement:?}").contains("Global("))
+        .unwrap_or(ast.len());
+    ast.splice(first_use..first_use, lets);
+}
+
+/// A subterm the sharing binds: a compound term whose translation is a
+/// term (a `rare-list` is an argument list).
+fn shareable(term: &Rc<Term>) -> bool {
+    match term.as_ref() {
+        Term::Op(Operator::RareList, _) => false,
+        Term::Op(_, args) | Term::App(_, args) => !args.is_empty(),
+        Term::Binder(..) | Term::Let(..) | Term::ParamOp { .. } => true,
+        _ => false,
+    }
+}
+
+/// `term_rc` in egglog, shared within the program being built (see
+/// `Sharing`) when there is one and the translation is of the step's own
+/// terms (no rule variables).
 pub fn to_egg_expr(
+    term_rc: &Rc<Term>,
+    subs: &IndexMap<&String, (EggExpr, AttributeParameters)>,
+    func_cache: &mut EggFunctions,
+    var_map: &mut HashMap<String, u64>,
+    collect_functions_shape: bool,
+) -> Option<EggExpr> {
+    let shared = subs.is_empty()
+        && shareable(term_rc)
+        && SHARING.with(|sharing| sharing.borrow().is_some());
+    if shared {
+        let known = SHARING.with(|sharing| {
+            sharing
+                .borrow()
+                .as_ref()
+                .and_then(|sharing| sharing.names.get(term_rc).cloned())
+        });
+        if let Some(name) = known {
+            return Some(EggExpr::Global(name));
+        }
+    }
+    let expr = to_egg_expr_unshared(term_rc, subs, func_cache, var_map, collect_functions_shape)?;
+    if !shared {
+        return Some(expr);
+    }
+    SHARING.with(|sharing| {
+        let mut sharing = sharing.borrow_mut();
+        let Some(sharing) = sharing.as_mut() else {
+            return Some(expr);
+        };
+        let name = format!("{SHARED_PREFIX}{}", sharing.lets.len());
+        sharing.lets.push(EggStatement::Let(name.clone(), Box::new(expr)));
+        sharing.names.insert(term_rc.clone(), name.clone());
+        Some(EggExpr::Global(name))
+    })
+}
+
+fn to_egg_expr_unshared(
     term_rc: &Rc<Term>,
     subs: &IndexMap<&String, (EggExpr, AttributeParameters)>,
     func_cache: &mut EggFunctions,
@@ -2616,6 +2725,7 @@ fn run_egglog_with_premises_inner(
     // from the ones coming from the RARE rule database, so that the arith poly
     // norm machinery is only enabled when the proof step itself involves
     // arithmetic, and not just because some rule in the database does.
+    let sharing = SharingScope::begin();
     let mut goal_functions = EggFunctions::default();
     let premises =
         match construct_premises(pool, premise_clauses, &mut var_map, &mut goal_functions) {
@@ -2741,9 +2851,11 @@ fn run_egglog_with_premises_inner(
         ));
     }
 
+    let lets = sharing.finish();
     let mut ast = declarations;
     ast.extend(premises);
     ast.extend(goals_ast);
+    insert_sharing_lets(&mut ast, lets);
 
     let (mut egglog, _) = compile_program(ast);
     egglog.retain(|command| {
@@ -2871,6 +2983,7 @@ fn check_hole_rewrites_batched_inner(
     let mut code_str = baseline.code.clone();
     let mut egraph = baseline.egraph.clone();
     let mut var_map = baseline.var_map.clone();
+    let sharing = SharingScope::begin();
     let mut goal_functions = EggFunctions::default();
 
     // Per goal: its premises, its two bound names, and its subterm
@@ -3000,9 +3113,11 @@ fn check_hole_rewrites_batched_inner(
             &goal_functions,
         ));
     }
+    let lets = sharing.finish();
     let mut ast = declarations;
     ast.extend(premises_ast);
     ast.extend(goals_ast);
+    insert_sharing_lets(&mut ast, lets);
     let (mut egglog, _) = compile_program(ast);
     egglog.retain(|command| {
         !should_deduplicate_command(command) || !baseline.commands.contains(&command.to_string())

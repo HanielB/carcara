@@ -204,7 +204,7 @@ fn is_ground(expr: &EggExpr) -> bool {
     match expr {
         Literal(_) => false,
         Var(..) | NativeBool(_) | Bool(_) | Num(_) | String(_) | RawString(_) | Real(_)
-        | BitVec(..) | Op(_) | Const(_) | Empty() => true,
+        | BitVec(..) | Op(_) | Const(_) | Empty() | Global(_) => true,
         Ground(e) | Mk(e) => is_ground(e),
         App(a, b) | Args(a, b) | Equal(a, b) | Distinct(a, b) | Union(a, b) | Set(a, b) => {
             is_ground(a) && is_ground(b)

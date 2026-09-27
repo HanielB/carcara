@@ -21,6 +21,8 @@ pub struct AletheElaborator {
     /// Which uninterpreted atoms are integer-valued, for the integer
     /// tightening that relates a negated `>=` to a `<=`.
     pub sorts: ArithSorts,
+    /// The certificate's terms are printed with sharing: no term as a tree.
+    pub decoder: SharedDecoder,
 }
 
 impl AletheElaborator {
@@ -58,6 +60,7 @@ impl AletheElaborator {
             names,
             rare,
             sorts,
+            decoder: SharedDecoder::new(format!("@{prefix}.e")),
         };
         elaborator.step_for(certificate)?;
         Some(elaborator.steps)
@@ -65,19 +68,86 @@ impl AletheElaborator {
 
     pub fn emit(&mut self, lhs: &Term, rhs: &Term, rule: &str, tail: &str) -> Option<String> {
         let id = format!("{}.{}", self.prefix, self.steps.len() + 1);
-        let decoded = |term: &Term, names: &HashMap<String, String>| {
-            let text = decode_any(term, names);
-            if text.is_none() {
-                log::debug!("certificate term failed to decode ({rule}): {}", term.to_egglog());
-            }
-            text
-        };
-        self.steps.push(format!(
-            "(step {id} (cl (= {} {})) :rule {rule}{tail})",
-            decoded(lhs, &self.names)?,
-            decoded(rhs, &self.names)?,
-        ));
+        let (left, right) = self.dec2(lhs, rhs)?;
+        self.steps
+            .push(format!("(step {id} (cl (= {left} {right})) :rule {rule}{tail})"));
         Some(id)
+    }
+
+    /// A `rare_rewrite` step for rule `name`, its arguments decoded after
+    /// the clause (a name the clause defines comes before its uses); an
+    /// argument is a term, a `:list` sequence, or (`None`) the empty list.
+    pub fn emit_rule(
+        &mut self,
+        lhs: &Term,
+        rhs: &Term,
+        premise_tail: &str,
+        name: &str,
+        arguments: &[Option<&Term>],
+    ) -> Option<String> {
+        let id = format!("{}.{}", self.prefix, self.steps.len() + 1);
+        let mark = self.decoder.mark();
+        let text = (|| {
+            let left = self.dec(lhs)?;
+            let right = self.dec(rhs)?;
+            let mut decoded = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                decoded.push(match argument {
+                    Some(term) => match self.dec(term) {
+                        Some(text) => text,
+                        None => self.dec_sequence(term)?,
+                    },
+                    None => "(rare-list)".to_owned(),
+                });
+            }
+            Some(format!(
+                "(step {id} (cl (= {left} {right})) :rule rare_rewrite{premise_tail} :args (\"{name}\" {}))",
+                decoded.join(" ")
+            ))
+        })();
+        match text {
+            Some(text) => {
+                self.steps.push(text);
+                Some(id)
+            }
+            None => {
+                self.decoder.rollback(mark);
+                None
+            }
+        }
+    }
+
+    /// `term`'s text in this certificate (shared).
+    fn dec(&mut self, term: &Term) -> Option<String> {
+        let text = self.decoder.decode(term, &self.names);
+        if text.is_none() {
+            log::debug!("certificate term failed to decode: {}", abbreviated_encoded(term));
+        }
+        text
+    }
+
+    /// Two terms' texts, or neither (the names of a partial success are
+    /// forgotten: their text is not emitted).
+    fn dec2(&mut self, a: &Term, b: &Term) -> Option<(String, String)> {
+        let mark = self.decoder.mark();
+        match (self.dec(a), self.dec(b)) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => {
+                self.decoder.rollback(mark);
+                None
+            }
+        }
+    }
+
+    /// The `rare-list` term of an encoded argument chain: what a `:list`
+    /// parameter binding several arguments is written as.
+    fn dec_sequence(&mut self, term: &Term) -> Option<String> {
+        let elements = list_elements(term)?;
+        let mut decoded = Vec::with_capacity(elements.len());
+        for element in &elements {
+            decoded.push(self.dec(element)?);
+        }
+        Some(format!("(rare-list {})", decoded.join(" ")))
     }
 
     /// An ACI step as Carcara's checker takes it.  The search's ACI
@@ -182,12 +252,8 @@ impl AletheElaborator {
         if parameters.len() != arguments.len() {
             return None;
         }
-        let decoded = arguments
-            .iter()
-            .map(|argument| decode_any(argument, &self.names))
-            .collect::<Option<Vec<_>>>()?;
-        let tail = format!(" :args (\"{name}\" {})", decoded.join(" "));
-        self.emit(lhs, rhs, "rare_rewrite", &tail)
+        let arguments: Vec<Option<&Term>> = arguments.iter().map(|argument| Some(*argument)).collect();
+        self.emit_rule(lhs, rhs, "", name, &arguments)
     }
 
     /// Rewrites one side of the goal into an equivalent `>=` relation, or
@@ -445,31 +511,35 @@ impl AletheElaborator {
                 (left.clone(), right.clone(), false)
             };
             let scale = self.relation_scale(&negated, &positive)?;
-            let (r1, r2) = (
-                decode_any(&negated, &self.names)?,
-                decode_any(&positive, &self.names)?,
-            );
+            // Decoded afresh for each step: the first text defines the
+            // shared names, every later one uses them.
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let cover = self.emit_clause(&format!("{r1} {r2}"), "la_generic", &[], &format!("{scale} 1"));
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let exclude = self.emit_clause(
                 &format!("(not {r1}) (not {r2})"),
                 "la_generic",
                 &[],
                 &format!("{scale} 1"),
             );
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let neg2 = self.emit_clause(
                 &format!("(= (not {r1}) {r2}) (not {r1}) {r2}"),
                 "equiv_neg2",
                 &[],
                 "",
             );
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let with_r2 =
                 self.emit_clause(&format!("(= (not {r1}) {r2}) {r2}"), "resolution", &[neg2, cover], "");
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let neg1 = self.emit_clause(
                 &format!("(= (not {r1}) {r2}) (not (not {r1})) (not {r2})"),
                 "equiv_neg1",
                 &[],
                 "",
             );
+            let (r1, r2) = self.dec2(&negated, &positive)?;
             let with_not_r2 = self.emit_clause(
                 &format!("(= (not {r1}) {r2}) (not {r2})"),
                 "resolution",
@@ -490,19 +560,23 @@ impl AletheElaborator {
             };
         }
         let scale = self.relation_scale(&left, &right)?;
-        let (a, b) = (
-            decode_any(&left, &self.names)?,
-            decode_any(&right, &self.names)?,
-        );
+        // Decoded afresh for each step: the first text defines the shared
+        // names, every later one uses them.
+        let (a, b) = self.dec2(&left, &right)?;
         let a_implies_b =
             self.emit_clause(&format!("(not {a}) {b}"), "la_generic", &[], &format!("{scale} 1"));
+        let (a, b) = self.dec2(&left, &right)?;
         let b_implies_a =
             self.emit_clause(&format!("(not {b}) {a}"), "la_generic", &[], &format!("1 {scale}"));
+        let (a, b) = self.dec2(&left, &right)?;
         let neg2 = self.emit_clause(&format!("(= {a} {b}) {a} {b}"), "equiv_neg2", &[], "");
+        let (a, b) = self.dec2(&left, &right)?;
         let with_b =
             self.emit_clause(&format!("(= {a} {b}) {b}"), "resolution", &[neg2, a_implies_b], "");
+        let (a, b) = self.dec2(&left, &right)?;
         let neg1 =
             self.emit_clause(&format!("(= {a} {b}) (not {a}) (not {b})"), "equiv_neg1", &[], "");
+        let (a, b) = self.dec2(&left, &right)?;
         let with_not_b = self.emit_clause(
             &format!("(= {a} {b}) (not {b})"),
             "resolution",
@@ -527,6 +601,7 @@ impl AletheElaborator {
         }
 
         let mark = self.steps.len();
+        let names_mark = self.decoder.mark();
         let chain = (|| {
             let (left_polarity, left_geq, left_bridge) = self.to_geq(lhs)?;
             let (right_polarity, right_geq, right_bridge) = self.to_geq(rhs)?;
@@ -603,6 +678,7 @@ impl AletheElaborator {
             // A partial chain must not be left behind for the trusted
             // fallback to be appended to.
             self.steps.truncate(mark);
+            self.decoder.rollback(names_mark);
         }
         chain
     }
@@ -657,24 +733,15 @@ impl AletheElaborator {
                     return self.emit_aci(lhs, rhs);
                 }
                 if let Some(parameters) = self.rare.get(name).cloned() {
-                    let decoded: Option<Vec<String>> = parameters
-                        .iter()
-                        .map(|parameter| match substitution.get(parameter) {
-                            // A `:list` parameter binds a sequence of
-                            // arguments: a whole chain of them, or none at
-                            // all when the rule's empty-list variant is what
-                            // matched.  `rare-list` is the term for such a
-                            // sequence, which the checker splices back into
-                            // the operator when it recomputes the rule.
-                            Some(term) => decode_any(term, &self.names)
-                                .or_else(|| decode_sequence(term, &self.names)),
-                            None => Some("(rare-list)".to_owned()),
-                        })
-                        .collect();
-                    if let Some(decoded) = decoded {
-                        let tail =
-                            format!("{premise_tail} :args (\"{name}\" {})", decoded.join(" "));
-                        return self.emit(lhs, rhs, "rare_rewrite", &tail);
+                    // A `:list` parameter binds a sequence of arguments: a
+                    // whole chain of them, or none at all when the rule's
+                    // empty-list variant is what matched.  `rare-list` is the
+                    // term for such a sequence, which the checker splices
+                    // back into the operator when it recomputes the rule.
+                    let arguments: Vec<Option<&Term>> =
+                        parameters.iter().map(|parameter| substitution.get(parameter)).collect();
+                    if let Some(step) = self.emit_rule(lhs, rhs, &premise_tail, name, &arguments) {
+                        return Some(step);
                     }
                 }
                 // An engine-internal rewrite (`gen-N`: the built-in
@@ -703,7 +770,7 @@ impl AletheElaborator {
             Certificate::Computational { kind, lhs, rhs } => match kind {
                 // A literal renormalization (`Real` to `RatConst`) decodes to
                 // the same text on both sides: nothing to trust.
-                _ if decode_any(lhs, &self.names) == decode_any(rhs, &self.names) => {
+                _ if decode_alike(lhs, rhs, &self.names) => {
                     self.emit(lhs, rhs, "refl", "")
                 }
                 Computation::DistinctElim => self.emit(lhs, rhs, "distinct_elim", ""),
@@ -825,7 +892,7 @@ impl AletheElaborator {
                 // renormalization) adds nothing: the other leg already
                 // states the whole equality.
                 let identity = |certificate: &Certificate, names: &HashMap<String, String>| {
-                    decode_any(certificate.lhs(), names) == decode_any(certificate.rhs(), names)
+                    decode_alike(certificate.lhs(), certificate.rhs(), names)
                 };
                 if identity(first, &self.names) {
                     return self.step_for(second);
@@ -1064,6 +1131,7 @@ fn hole_problem_string<'a>(
     prelude: &ProblemPrelude,
     terms: impl IntoIterator<Item = &'a crate::ast::Rc<crate::ast::Term>>,
     assertions: impl IntoIterator<Item = &'a crate::ast::Rc<crate::ast::Term>>,
+    names: &mut crate::ast::printer::SharedNames,
 ) -> String {
     let mut declared: std::collections::HashSet<String> = prelude
         .function_declarations
@@ -1086,10 +1154,13 @@ fn hole_problem_string<'a>(
     let mut text = String::new();
     let _ = writeln!(text, "(set-option :produce-proofs true)");
     let _ = write!(text, "{prelude}{declarations}");
-    let mut asserts = Vec::new();
-    if crate::ast::printer::write_asserts(pool, prelude, &mut asserts, assertions, false).is_ok() {
-        text.push_str(&String::from_utf8_lossy(&asserts));
+    // Shared with the document's proof half: a name the problem defines is
+    // the proof's too.
+    names.set_strict(true);
+    for assertion in assertions {
+        let _ = writeln!(text, "(assert {})", names.print(assertion));
     }
+    names.set_strict(false);
     let _ = writeln!(text, "(check-sat)\n(get-proof)\n(exit)");
     text
 }
@@ -1122,19 +1193,21 @@ pub fn hole_input(
         })
         .chain(extra_premises.iter().cloned())
         .collect();
+    // One document, its terms printed with sharing.
+    let mut names = crate::ast::printer::SharedNames::new("p_in.");
     let mut text = hole_problem_string(
         pool,
         prelude,
         assumptions.iter().chain(std::iter::once(conclusion)),
         [],
+        &mut names,
     );
     text.push_str(HOLE_INPUT_BOUNDARY);
     text.push('\n');
     let mut ids = Vec::new();
     for (index, term) in assumptions.iter().enumerate() {
         let id = format!("h{index}");
-        // `{:#}` prints without term sharing, so the text stands on its own.
-        writeln!(text, "(assume {id} {term:#})").ok()?;
+        writeln!(text, "(assume {id} {})", names.print(term)).ok()?;
         ids.push(id);
     }
     let premises = if ids.is_empty() {
@@ -1143,16 +1216,19 @@ pub fn hole_input(
         format!(" :premises ({})", ids.join(" "))
     };
     for (index, (hash, normal_form)) in hints.iter().enumerate() {
+        // The second side is the name the first defines.
         writeln!(
             text,
-            "(step nf{index} (cl (= {normal_form} {normal_form})) :rule {NF_HINT_RULE} :args ({hash}))"
+            "(step nf{index} (cl (= {normal_form} {})) :rule {NF_HINT_RULE} :args ({hash}))",
+            named_reference(normal_form)
         )
         .ok()?;
     }
     writeln!(
         text,
-        "(step {} (cl {conclusion:#}) :rule hole{premises} :args (\"TRUST_THEORY_REWRITE\"))",
-        step.id
+        "(step {} (cl {}) :rule hole{premises} :args (\"TRUST_THEORY_REWRITE\"))",
+        step.id,
+        names.print(conclusion)
     )
     .ok()?;
     Some(text)
@@ -1187,14 +1263,15 @@ pub fn holes_input(
             assumptions.iter().chain(std::iter::once(conclusion))
         })
         .collect();
-    let mut text = hole_problem_string(pool, prelude, terms, []);
+    let mut names = crate::ast::printer::SharedNames::new("p_in.");
+    let mut text = hole_problem_string(pool, prelude, terms, [], &mut names);
     text.push_str(HOLE_INPUT_BOUNDARY);
     text.push('\n');
     for (hole_index, (id, assumptions, conclusion)) in per_hole.iter().enumerate() {
         let mut ids = Vec::new();
         for (index, term) in assumptions.iter().enumerate() {
             let assume_id = format!("h{hole_index}_{index}");
-            writeln!(text, "(assume {assume_id} {term:#})").ok()?;
+            writeln!(text, "(assume {assume_id} {})", names.print(term)).ok()?;
             ids.push(assume_id);
         }
         let premises = if ids.is_empty() {
@@ -1204,7 +1281,8 @@ pub fn holes_input(
         };
         writeln!(
             text,
-            "(step {id} (cl {conclusion:#}) :rule hole{premises} :args (\"TRUST_THEORY_REWRITE\"))"
+            "(step {id} (cl {}) :rule hole{premises} :args (\"TRUST_THEORY_REWRITE\"))",
+            names.print(conclusion)
         )
         .ok()?;
     }
@@ -1572,13 +1650,13 @@ fn export_normal_forms(
         {
             continue;
         }
-        let Some(text) = decode_any(&representative, &names) else {
+        // A hint's text stands on its own in each input it enters: its
+        // own names, shared within it.
+        let hash = crate::rare::util::structural_hash(&subterm, &mut memo);
+        let Some(text) = SharedDecoder::new(format!("@nf{hash}.")).decode(&representative, &names) else {
             continue;
         };
-        lines.push(format!(
-            "nf {} {text}",
-            crate::rare::util::structural_hash(&subterm, &mut memo)
-        ));
+        lines.push(format!("nf {hash} {text}"));
     }
     lines
 }
@@ -1592,6 +1670,19 @@ fn align_encoded(
     encoded: &Term,
     out: &mut Vec<(crate::ast::Rc<crate::ast::Term>, Term)>,
 ) {
+    align_encoded_once(term, encoded, out, &mut std::collections::HashSet::new());
+}
+
+/// `align_encoded` over each distinct pair once: both terms are DAGs.
+fn align_encoded_once(
+    term: &crate::ast::Rc<crate::ast::Term>,
+    encoded: &Term,
+    out: &mut Vec<(crate::ast::Rc<crate::ast::Term>, Term)>,
+    seen: &mut std::collections::HashSet<(crate::ast::Rc<crate::ast::Term>, Term)>,
+) {
+    if !seen.insert((term.clone(), encoded.clone())) {
+        return;
+    }
     let ("Mk", [inner]) = (encoded.op.as_str(), encoded.children.as_slice()) else {
         return;
     };
@@ -1611,7 +1702,7 @@ fn align_encoded(
             }
             out.push((term.clone(), encoded.clone()));
             for (arg, element) in args.iter().zip(&elements) {
-                align_encoded(arg, element, out);
+                align_encoded_once(arg, element, out, seen);
             }
         }
         crate::ast::Term::App(function, args) => {
@@ -1627,9 +1718,9 @@ fn align_encoded(
                 return;
             }
             out.push((term.clone(), encoded.clone()));
-            align_encoded(function, current, out);
+            align_encoded_once(function, current, out, seen);
             for (arg, argument) in args.iter().zip(arguments) {
-                align_encoded(arg, argument, out);
+                align_encoded_once(arg, argument, out, seen);
             }
         }
         _ => {}
@@ -1639,15 +1730,19 @@ fn align_encoded(
 /// Whether every variable of an encoded term has a name in `names`, i.e.
 /// comes from the goal; a term over a premise's variables cannot be printed.
 fn all_variables_named(term: &Term, names: &HashMap<String, String>) -> bool {
-    if term.op == "Var" {
-        return term
-            .children
-            .first()
-            .is_some_and(|id| names.contains_key(&id.op));
+    fn walk(term: &Term, names: &HashMap<String, String>, seen: &mut std::collections::HashSet<Term>) -> bool {
+        if !seen.insert(term.clone()) {
+            return true;
+        }
+        if term.op == "Var" {
+            return term
+                .children
+                .first()
+                .is_some_and(|id| names.contains_key(&id.op));
+        }
+        term.children.iter().all(|child| walk(child, names, seen))
     }
-    term.children
-        .iter()
-        .all(|child| all_variables_named(child, names))
+    walk(term, names, &mut std::collections::HashSet::new())
 }
 
 /// The smallest term of a class, built from the class's enodes over the
@@ -2370,7 +2465,8 @@ fn subgoal_in_fresh_process(
                 let tail = rest
                     .find(") :rule hole")
                     .ok_or_else(|| "fresh process: the hole step has no rule".to_owned())?;
-                text.push_str(&format!("(step {prefix} (cl {goal:#}){}", &rest[tail + 1..]));
+                let mut names = crate::ast::printer::SharedNames::new(format!("@{prefix}.g"));
+                text.push_str(&format!("(step {prefix} (cl {}){}", names.print(goal), &rest[tail + 1..]));
                 replaced = true;
             }
             None => text.push_str(line),
@@ -2551,6 +2647,7 @@ fn descend(
     rhs: &crate::ast::Rc<crate::ast::Term>,
     id: &str,
     out: &mut Vec<String>,
+    names: &mut crate::ast::printer::SharedNames,
     goals: &mut usize,
     base: &mut dyn FnMut(
         &mut dyn TermPool,
@@ -2572,7 +2669,7 @@ fn descend(
     {
         if fa.len() == 2 && fa[0] != fa[1] {
             let (a, b) = (fa[0].clone(), fa[1].clone());
-            let inner = descend(pool, &a, &b, id, out, goals, base)?
+            let inner = descend(pool, &a, &b, id, out, names, goals, base)?
                 .ok_or_else(|| "descent: identical sides under an equality".to_owned())?;
             let reflexive = pool.add(crate::ast::Term::Op(
                 crate::ast::Operator::Equals,
@@ -2580,15 +2677,15 @@ fn descend(
             ));
             let cong_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {cong_id} (cl (= {lhs:#} {reflexive:#})) :rule cong :premises ({inner}))"
+                "(step {cong_id} (cl (= {} {})) :rule cong :premises ({inner}))", names.print(&lhs), names.print(&reflexive)
             ));
             let refl_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {refl_id} (cl (= {reflexive:#} {rhs:#})) :rule rare_rewrite :args (\"eq-refl\" {b:#}))"
+                "(step {refl_id} (cl (= {} {})) :rule rare_rewrite :args (\"eq-refl\" {}))", names.print(&reflexive), names.print(&rhs), names.print(&b)
             ));
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({cong_id} {refl_id}))"
+                "(step {step_id} (cl (= {} {})) :rule trans :premises ({cong_id} {refl_id}))", names.print(&lhs), names.print(&rhs)
             ));
             return Ok(Some(step_id));
         }
@@ -2603,7 +2700,7 @@ fn descend(
         if fa.len() == 2 && ga.len() == 2 && fa[0] == ga[1] && fa[1] == ga[0] {
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule eq_symmetric)"
+                "(step {step_id} (cl (= {} {})) :rule eq_symmetric)", names.print(&lhs), names.print(&rhs)
             ));
             return Ok(Some(step_id));
         }
@@ -2628,7 +2725,7 @@ fn descend(
         let aligned_rhs = pool.add(crate::ast::Term::Op(op, ga.clone()));
         let mut premises = Vec::new();
         for (a, b) in fa.iter().zip(ga.iter()) {
-            if let Some(step) = descend(pool, a, b, id, out, goals, base)? {
+            if let Some(step) = descend(pool, a, b, id, out, names, goals, base)? {
                 premises.push(step);
             }
         }
@@ -2636,7 +2733,7 @@ fn descend(
         if aligned_lhs != *lhs {
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {step_id} (cl (= {lhs:#} {aligned_lhs:#})) :rule aci_simp)"
+                "(step {step_id} (cl (= {} {})) :rule aci_simp)", names.print(&lhs), names.print(&aligned_lhs)
             ));
             chain.push(step_id);
         }
@@ -2646,15 +2743,14 @@ fn descend(
         if !premises.is_empty() {
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {step_id} (cl (= {aligned_lhs:#} {aligned_rhs:#})) :rule cong :premises ({}))",
-                premises.join(" ")
+                "(step {step_id} (cl (= {} {})) :rule cong :premises ({}))", names.print(&aligned_lhs), names.print(&aligned_rhs), premises.join(" ")
             ));
             chain.push(step_id);
         }
         if aligned_rhs != *rhs {
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
-                "(step {step_id} (cl (= {aligned_rhs:#} {rhs:#})) :rule aci_simp)"
+                "(step {step_id} (cl (= {} {})) :rule aci_simp)", names.print(&aligned_rhs), names.print(&rhs)
             ));
             chain.push(step_id);
         }
@@ -2663,9 +2759,8 @@ fn descend(
         }
         let step_id = format!("{id}.{}", out.len() + 1);
         out.push(format!(
-            "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({}))",
-            chain.join(" ")
-        ));
+                "(step {step_id} (cl (= {} {})) :rule trans :premises ({}))", names.print(&lhs), names.print(&rhs), chain.join(" ")
+            ));
         return Ok(Some(step_id));
     }
     *goals += 1;
@@ -2674,17 +2769,19 @@ fn descend(
 
 /// The size of an encoded term as a tree (the `Args` cells and wrappers
 /// included), what a candidate vertex of the search costs to hold.
-fn term_nodes(term: &Term) -> usize {
-    1 + term.children.iter().map(term_nodes).sum::<usize>()
-}
 
 /// `term` printed, cut to a line for a log message.
 fn abbreviated(term: &crate::ast::Rc<crate::ast::Term>) -> String {
-    let text = format!("{term:#}");
+    // Printed with sharing (never as a tree), then cut to a line.
+    let text = crate::ast::printer::SharedNames::new("@log.").print(term);
     if text.len() <= 240 {
         text
     } else {
-        format!("{}...", &text[..240])
+        let mut cut = 240;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}...", &text[..cut])
     }
 }
 
@@ -2693,16 +2790,26 @@ fn leaves(
     term: &crate::ast::Rc<crate::ast::Term>,
     out: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
 ) {
-    match term.as_ref() {
-        crate::ast::Term::Op(_, args) => args.iter().for_each(|a| leaves(a, out)),
-        crate::ast::Term::App(function, args) => {
-            out.insert(function.clone());
-            args.iter().for_each(|a| leaves(a, out));
+    fn walk(
+        term: &crate::ast::Rc<crate::ast::Term>,
+        out: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
+        seen: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
+    ) {
+        if !seen.insert(term.clone()) {
+            return;
         }
-        _ => {
-            out.insert(term.clone());
+        match term.as_ref() {
+            crate::ast::Term::Op(_, args) => args.iter().for_each(|a| walk(a, out, seen)),
+            crate::ast::Term::App(function, args) => {
+                out.insert(function.clone());
+                args.iter().for_each(|a| walk(a, out, seen));
+            }
+            _ => {
+                out.insert(term.clone());
+            }
         }
     }
+    walk(term, out, &mut std::collections::HashSet::new())
 }
 
 /// The arguments of two `and`/`or` terms of the same arity, reordered so
@@ -2897,7 +3004,7 @@ fn reconstruct_by_descent(
         pairs += 1;
         Ok(String::new())
     };
-    if descend(pool, &lhs, &rhs, id, &mut Vec::new(), &mut 0, &mut dry).is_err() {
+    if descend(pool, &lhs, &rhs, id, &mut Vec::new(), &mut crate::ast::printer::SharedNames::new("@dry."), &mut 0, &mut dry).is_err() {
         return Descent::NotApplicable;
     }
     // The descent gets three quarters of what is left: a descent that
@@ -2956,7 +3063,8 @@ fn reconstruct_by_descent(
         out.extend(steps);
         Ok(last)
     };
-    match descend(pool, &lhs, &rhs, id, &mut out, &mut goals, &mut base) {
+    let mut names = crate::ast::printer::SharedNames::new(format!("@{id}.s"));
+    match descend(pool, &lhs, &rhs, id, &mut out, &mut names, &mut goals, &mut base) {
         Ok(Some(_)) => {
             for (name, total) in timed {
                 phase(&name, total);
@@ -2982,7 +3090,20 @@ fn arithmetic_atoms(
     term: &crate::ast::Rc<crate::ast::Term>,
     out: &mut Vec<crate::ast::Rc<crate::ast::Term>>,
 ) {
+    arithmetic_atoms_once(pool, term, out, &mut std::collections::HashSet::new());
+}
+
+/// `arithmetic_atoms` over each distinct subterm once.
+fn arithmetic_atoms_once(
+    pool: &mut dyn TermPool,
+    term: &crate::ast::Rc<crate::ast::Term>,
+    out: &mut Vec<crate::ast::Rc<crate::ast::Term>>,
+    seen: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
+) {
     use crate::ast::Operator::*;
+    if !seen.insert(term.clone()) {
+        return;
+    }
     let is_atom = match term.as_ref() {
         crate::ast::Term::App(..) | crate::ast::Term::Op(Ite | IntDiv | Mod | Abs | ToInt, _) => {
             is_numeric(term)
@@ -2998,7 +3119,7 @@ fn arithmetic_atoms(
     match term.as_ref() {
         crate::ast::Term::Op(_, args) | crate::ast::Term::App(_, args) => {
             for a in args {
-                arithmetic_atoms(pool, a, out);
+                arithmetic_atoms_once(pool, a, out, seen);
             }
         }
         _ => {}
@@ -3102,6 +3223,40 @@ fn rewrite_atoms(
     map: &[(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>, String)],
     id: &str,
     out: &mut Vec<String>,
+    names: &mut crate::ast::printer::SharedNames,
+) -> Option<(crate::ast::Rc<crate::ast::Term>, String)> {
+    rewrite_atoms_memo(pool, term, map, id, out, names, &mut HashMap::new())
+}
+
+/// `rewrite_atoms` once per distinct subterm: a shared subterm gets one
+/// `cong` step, cited wherever it occurs.
+#[allow(clippy::type_complexity)]
+fn rewrite_atoms_memo(
+    pool: &mut dyn TermPool,
+    term: &crate::ast::Rc<crate::ast::Term>,
+    map: &[(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>, String)],
+    id: &str,
+    out: &mut Vec<String>,
+    names: &mut crate::ast::printer::SharedNames,
+    memo: &mut HashMap<crate::ast::Rc<crate::ast::Term>, Option<(crate::ast::Rc<crate::ast::Term>, String)>>,
+) -> Option<(crate::ast::Rc<crate::ast::Term>, String)> {
+    if let Some(known) = memo.get(term) {
+        return known.clone();
+    }
+    let result = rewrite_atoms_step(pool, term, map, id, out, names, memo);
+    memo.insert(term.clone(), result.clone());
+    result
+}
+
+#[allow(clippy::type_complexity)]
+fn rewrite_atoms_step(
+    pool: &mut dyn TermPool,
+    term: &crate::ast::Rc<crate::ast::Term>,
+    map: &[(crate::ast::Rc<crate::ast::Term>, crate::ast::Rc<crate::ast::Term>, String)],
+    id: &str,
+    out: &mut Vec<String>,
+    names: &mut crate::ast::printer::SharedNames,
+    memo: &mut HashMap<crate::ast::Rc<crate::ast::Term>, Option<(crate::ast::Rc<crate::ast::Term>, String)>>,
 ) -> Option<(crate::ast::Rc<crate::ast::Term>, String)> {
     if let Some((_, to, step)) = map.iter().find(|(from, _, _)| from == term) {
         return Some((to.clone(), step.clone()));
@@ -3113,7 +3268,7 @@ fn rewrite_atoms(
     let mut new_args = Vec::with_capacity(args.len());
     let mut premises = Vec::new();
     for a in args {
-        match rewrite_atoms(pool, a, map, id, out) {
+        match rewrite_atoms_memo(pool, a, map, id, out, names, memo) {
             Some((rewritten, step)) => {
                 new_args.push(rewritten);
                 premises.push(step);
@@ -3132,9 +3287,8 @@ fn rewrite_atoms(
     let rewritten = pool.add(rewritten);
     let step_id = format!("{id}.{}", out.len() + 1);
     out.push(format!(
-        "(step {step_id} (cl (= {term:#} {rewritten:#})) :rule cong :premises ({}))",
-        premises.join(" ")
-    ));
+                "(step {step_id} (cl (= {} {})) :rule cong :premises ({}))", names.print(&term), names.print(&rewritten), premises.join(" ")
+            ));
     Some((rewritten, step_id))
 }
 
@@ -3205,7 +3359,8 @@ fn reconstruct_by_atoms(
             }
         }
     }
-    let Some((rewritten, cong_id)) = rewrite_atoms(pool, &lhs, &map, id, &mut out) else {
+    let mut names = crate::ast::printer::SharedNames::new(format!("@{id}.s"));
+    let Some((rewritten, cong_id)) = rewrite_atoms(pool, &lhs, &map, id, &mut out, &mut names) else {
         return Descent::NotApplicable;
     };
     if rewritten != rhs {
@@ -3232,8 +3387,8 @@ fn reconstruct_by_atoms(
                 out.extend(steps);
                 let step_id = format!("{id}.{}", out.len() + 1);
                 out.push(format!(
-                    "(step {step_id} (cl (= {lhs:#} {rhs:#})) :rule trans :premises ({cong_id} {last}))"
-                ));
+                "(step {step_id} (cl (= {} {})) :rule trans :premises ({cong_id} {last}))", names.print(&lhs), names.print(&rhs)
+            ));
             }
             Err(reason) => {
                 return failed(started, format!("{reason}; rewritten goal: {}", abbreviated(&whole)));
@@ -3290,7 +3445,7 @@ fn check_by_atoms(
         }
         map.push((a.clone(), b.clone(), format!("a{}", n + 1)));
     }
-    let (rewritten, _) = rewrite_atoms(pool, &lhs, &map, "check", &mut Vec::new())?;
+    let (rewritten, _) = rewrite_atoms(pool, &lhs, &map, "check", &mut Vec::new(), &mut crate::ast::printer::SharedNames::new("@check.s"))?;
     if rewritten != rhs {
         let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let whole = pool.add(crate::ast::Term::Op(
@@ -3340,7 +3495,7 @@ fn check_by_descent(
         pairs += 1;
         Ok(String::new())
     };
-    descend(pool, &lhs, &rhs, "check", &mut Vec::new(), &mut 0, &mut dry).ok()?;
+    descend(pool, &lhs, &rhs, "check", &mut Vec::new(), &mut crate::ast::printer::SharedNames::new("@dry."), &mut 0, &mut dry).ok()?;
     let deadline = deadline.map(|d| started + d.saturating_duration_since(started) * 3 / 4);
     let mut out = Vec::new();
     let mut goals = 0;
@@ -3375,7 +3530,7 @@ fn check_by_descent(
             .map(|()| format!("d{n}"))
             .map_err(|error| format!("{error}; atom goal {n}: {}", abbreviated(&goal)))
     };
-    let verdict = descend(pool, &lhs, &rhs, "check", &mut out, &mut goals, &mut base);
+    let verdict = descend(pool, &lhs, &rhs, "check", &mut out, &mut crate::ast::printer::SharedNames::new("@check.s"), &mut goals, &mut base);
     match verdict {
         Ok(Some(_)) => {
             phase("egglog", started.elapsed());
@@ -3456,7 +3611,7 @@ fn reconstruct_goal(
                 deadline,
                 (options.memory_soft_cap_mb > 0).then_some(options.memory_soft_cap_mb),
             )
-            .sized_for(term_nodes(&lhs) + term_nodes(&rhs))
+            .sized_for(lhs.dag_size() + rhs.dag_size())
         } else {
             SearchStrategy::default()
         },
@@ -3517,14 +3672,34 @@ pub fn last_step_id(steps: &[String], prefix: &str) -> String {
         .unwrap_or_else(|| format!("{prefix}.{}", steps.len()))
 }
 
+/// The name a `(! t :named N)` text defines, for its second mention; the
+/// text itself when it defines none (an atom-level term).
+fn named_reference(text: &str) -> &str {
+    text.strip_suffix(')')
+        .filter(|_| text.starts_with("(! "))
+        .and_then(|inner| inner.rfind(" :named ").map(|at| &inner[at + " :named ".len()..]))
+        .unwrap_or(text)
+}
+
+/// An encoded term for a log line: its operator and sizes, never its tree.
+fn abbreviated_encoded(term: &Term) -> String {
+    format!("<{} of {} nodes, {} distinct>", term.op, term.size(), term.dag_size())
+}
+
 /// Whether `term` holds an `and`/`or` application of one argument.
 fn has_singleton_connective(term: &Term) -> bool {
-    if let Some((operator, elements)) = encoded_application(term) {
-        if (operator == "@and" || operator == "@or") && elements.len() == 1 {
-            return true;
+    fn walk(term: &Term, seen: &mut std::collections::HashSet<Term>) -> bool {
+        if !seen.insert(term.clone()) {
+            return false;
         }
+        if let Some((operator, elements)) = encoded_application(term) {
+            if (operator == "@and" || operator == "@or") && elements.len() == 1 {
+                return true;
+            }
+        }
+        term.children.iter().any(|child| walk(child, seen))
     }
-    term.children.iter().any(has_singleton_connective)
+    walk(term, &mut std::collections::HashSet::new())
 }
 
 /// The connective of an encoded `and`/`or` side and its identity.
@@ -3611,18 +3786,24 @@ fn and_or_simplify_accepts(lhs: &Term, rhs: &Term) -> Option<&'static str> {
 /// (a `define-fun` the producer printed inlined), whose beta reduction is
 /// left to another route.  Tallied `out-of-scope`, as the pivot defect is.
 pub fn out_of_scope(term: &crate::ast::Rc<crate::ast::Term>) -> Option<&'static str> {
-    fn applies_lambda(term: &crate::ast::Rc<crate::ast::Term>) -> bool {
+    fn applies_lambda(
+        term: &crate::ast::Rc<crate::ast::Term>,
+        seen: &mut std::collections::HashSet<crate::ast::Rc<crate::ast::Term>>,
+    ) -> bool {
+        if !seen.insert(term.clone()) {
+            return false;
+        }
         match term.as_ref() {
             crate::ast::Term::App(function, args) => {
                 matches!(function.as_ref(), crate::ast::Term::Binder(crate::ast::Binder::Lambda, ..))
-                    || args.iter().any(applies_lambda)
+                    || args.iter().any(|a| applies_lambda(a, seen))
             }
-            crate::ast::Term::Op(_, args) => args.iter().any(applies_lambda),
-            crate::ast::Term::Binder(_, _, body) | crate::ast::Term::Let(_, body) => applies_lambda(body),
+            crate::ast::Term::Op(_, args) => args.iter().any(|a| applies_lambda(a, seen)),
+            crate::ast::Term::Binder(_, _, body) | crate::ast::Term::Let(_, body) => applies_lambda(body, seen),
             _ => false,
         }
     }
-    applies_lambda(term)
+    applies_lambda(term, &mut std::collections::HashSet::new())
         .then_some("out of scope: the goal applies a lambda, whose beta reduction is not attempted")
 }
 
@@ -3693,16 +3874,23 @@ pub fn insert_steps(
         crate::ast::Operator::Not,
         vec![conclusion.clone()],
     ));
+    // The problem's assertion is printed with SMT-LIB-strict numerals and
+    // the proof's assumption as the certificate prints them: two tables, so
+    // that the assumption is spelled like the steps it is resolved against.
+    let mut problem_names = crate::ast::printer::SharedNames::new(format!("p_{}.", step.id));
     let problem = hole_problem_string(
         elaborator.pool,
         &elaborator.problem.prelude,
         [conclusion],
         [&negated],
+        &mut problem_names,
     );
+    let mut names = crate::ast::printer::SharedNames::new(format!("@{}.h", step.id));
     let assumption = format!("{}.h", step.id);
     let last = last_step_id(&steps, &step.id);
     let proof = format!(
-        "(assume {assumption} {negated})\n{}\n(step {}.{} (cl) :rule resolution :premises ({last} {assumption}))\n",
+        "(assume {assumption} {})\n{}\n(step {}.{} (cl) :rule resolution :premises ({last} {assumption}))\n",
+        names.print(&negated),
         steps.join("\n"),
         step.id,
         steps.len() + 1,
@@ -3751,16 +3939,6 @@ fn parse_and_check(
     Ok((proof.commands, status))
 }
 
-/// The `rare-list` term of an encoded argument chain: what a `:list`
-/// parameter binding several arguments is written as.
-fn decode_sequence(term: &Term, names: &HashMap<String, String>) -> Option<String> {
-    let elements = list_elements(term)?;
-    let decoded = elements
-        .iter()
-        .map(|element| decode_any(element, names))
-        .collect::<Option<Vec<_>>>()?;
-    Some(format!("(rare-list {})", decoded.join(" ")))
-}
 
 /// The direct arguments of an encoded `and`/`or`, if the term is one.
 fn literals_of(term: &Term) -> Option<Vec<Term>> {
