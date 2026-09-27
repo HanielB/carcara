@@ -2662,6 +2662,101 @@ fn every_checked_hole_of_the_gap_corpus_is_elaborated() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// ACI steps emitted the way Carcara's checker takes them: its
+/// `aci_simp` drops only adjacent duplicates and reads each side under its
+/// own connective, so a set-equal obligation may need `and_simplify` /
+/// `or_simplify` (the identity, every duplicate, an all-identity side) or
+/// a flatten-dedupe-permute chain.  Every emitted certificate must check.
+#[test]
+fn aci_steps_are_emitted_as_the_checker_takes_them() {
+    use crate::elaborator::rare_hole::AletheElaborator;
+    let var = |id: &str| {
+        Term::new(
+            "Mk",
+            vec![Term::new(
+                "Var",
+                vec![
+                    Term::leaf(id),
+                    Term::new("Sort", vec![Term::new("Const", vec![Term::leaf("\"Bool\"")])]),
+                ],
+            )],
+        )
+    };
+    let names: HashMap<String, String> = ["b", "c", "d", "e", "f"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ((i + 1).to_string(), name.to_string()))
+        .collect();
+    let (b, c, d, e, f) = (var("1"), var("2"), var("3"), var("4"), var("5"));
+    let and = |elements: Vec<Term>| encoded_app("@and", elements);
+    let or = |elements: Vec<Term>| encoded_app("@or", elements);
+    let (t, ff) = (encoded_bool(true), encoded_bool(false));
+    let cases: Vec<(Term, Term, &str, &str)> = vec![
+        (or(vec![ff.clone(), ff.clone()]), ff.clone(), "(or false false)", "false"),
+        (ff.clone(), or(vec![ff.clone(), ff.clone()]), "false", "(or false false)"),
+        (
+            and(vec![t.clone(), and(vec![b.clone(), c.clone()]), b.clone(), c.clone()]),
+            and(vec![b.clone(), c.clone()]),
+            "(and true (and b c) b c)",
+            "(and b c)",
+        ),
+        (
+            and(vec![
+                and(vec![e.clone(), and(vec![b.clone(), c.clone()])]),
+                f.clone(),
+                t.clone(),
+                and(vec![b.clone(), c.clone()]),
+            ]),
+            and(vec![e.clone(), f.clone(), b.clone(), c.clone()]),
+            "(and (and e (and b c)) f true (and b c))",
+            "(and e f b c)",
+        ),
+        (
+            or(vec![and(vec![b.clone(), and(vec![c.clone(), d.clone()])]), ff.clone()]),
+            and(vec![b.clone(), and(vec![c.clone(), d.clone()])]),
+            "(or (and b (and c d)) false)",
+            "(and b (and c d))",
+        ),
+    ];
+    for (lhs, rhs, left, right) in cases {
+        let mut elaborator = AletheElaborator {
+            prefix: "t1".to_owned(),
+            steps: Vec::new(),
+            names: names.clone(),
+            rare: HashMap::new(),
+            sorts: ArithSorts::default(),
+        };
+        let last = elaborator
+            .emit_aci(&lhs, &rhs)
+            .unwrap_or_else(|| panic!("{left} = {right}: nothing emitted"));
+        let steps = elaborator.steps;
+        let negated = format!("(not (= {left} {right}))");
+        let proof = format!(
+            "(assume t1.h {negated})\n{}\n(step t1.{} (cl) :rule resolution :premises ({last} t1.h))\n",
+            steps.join("\n"),
+            steps.len() + 1
+        );
+        let problem = format!(
+            "(declare-const b Bool)\n(declare-const c Bool)\n(declare-const d Bool)\n(declare-const e Bool)\n(declare-const f Bool)\n(assert {negated})\n"
+        );
+        let mut pool = crate::ast::pool::PrimitivePool::new();
+        let (problem, proof_parsed, _) = parser::parse_instance_with_pool(
+            parser::Source::new(std::path::Path::new("<p>"), &problem),
+            parser::Source::new(std::path::Path::new("<c>"), &proof),
+            None,
+            parser::Config::new(),
+            &mut pool,
+        )
+        .unwrap_or_else(|e| panic!("{left} = {right}: certificate does not parse: {e}\n{proof}"));
+        let rules = crate::ast::rare_rules::Rules::default();
+        let mut checker =
+            crate::checker::ProofChecker::new(&mut pool, &rules, crate::checker::Config::new());
+        checker
+            .check(&problem, &proof_parsed)
+            .unwrap_or_else(|e| panic!("{left} = {right}: certificate rejected: {e}\n{proof}"));
+    }
+}
+
 /// The `la_generic` equivalence the elaborator states a relation obligation
 /// with when the `poly_simp_rel` routing cannot express it (a trust step
 /// before): each pair of relations below is equivalent over the integers,

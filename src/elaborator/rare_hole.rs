@@ -96,6 +96,10 @@ impl AletheElaborator {
         if let Some(rule) = and_or_simplify_accepts(lhs, rhs) {
             return self.emit(lhs, rhs, rule, "");
         }
+        if let Some(rule) = and_or_simplify_accepts(rhs, lhs) {
+            let simplified = self.emit(rhs, lhs, rule, "")?;
+            return self.emit(lhs, rhs, "symm", &format!(" :premises ({simplified})"));
+        }
         let (Some((operator, identity)), reversed) = (match aci_connective(lhs) {
             Some(connective) => (Some(connective), false),
             None => (aci_connective(rhs), true),
@@ -3526,6 +3530,11 @@ fn and_or_simplify_accepts(lhs: &Term, rhs: &Term) -> Option<&'static str> {
         phis.len() == result.len() && phis.iter().zip(result).all(|(a, b)| wrapped(a) == wrapped(b))
     };
     phis.retain(|t| bool_value(&wrapped(t)) != Some(identity));
+    // Nothing left but the identity: the result is the identity itself.
+    if phis.is_empty() {
+        return (result.len() == 1 && bool_value(&wrapped(&result[0])) == Some(identity))
+            .then_some(rule);
+    }
     if same(&phis, &result) {
         return Some(rule);
     }
