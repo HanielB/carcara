@@ -1052,10 +1052,20 @@ impl<'e> Elaborator<'e> {
                             }
                             None => run(pool, step, options),
                         };
-                        // The normalized goal before that, when there is one.
+                        // The normalized goal before that, when there is one,
+                        // on a third of the hole's budget: a normal form egglog
+                        // finds harder than the goal (an oriented `<=` against
+                        // the producer's `(not (>= x 2))`: 8 s of egglog where
+                        // the goal as stated takes half a second) must leave
+                        // the stated goal its whole budget, and the normal
+                        // forms that are the reconstructable ones are cheap.
+                        let normalized_options = RunEgglogOptions {
+                            timeout: options.timeout.map(|timeout| timeout / 3),
+                            ..options
+                        };
                         let result = match normalized.get(&step.id) {
                             Some((normalized_step, _, _)) => {
-                                match run(&mut pool, normalized_step, options) {
+                                match run(&mut pool, normalized_step, normalized_options) {
                                     Ok(steps) => {
                                         normalized_proved
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
