@@ -5935,3 +5935,45 @@ terminator_03-2 813/817, nested6 1076/1077, Goel sokoban at 8 workers
 3.5 GB cap.  Two of the causes (the empty `cong`, the premise placement)
 and the Goel one were latent before today's work; the ACI one was
 latent and made common by the absorption.  295 lib tests pass.
+
+### 47.24 The whole-first cap, harder normal forms, and calypto-t202 (2026-09-27)
+
+**The 10 s whole-first cap.**  In the local replays of §47.23 (d1df6fd1),
+327 failed whole-first attempts: 51 at the cap, of which 23 holes were
+then justified by the descent or the atom alignment and 18 distinct holes
+were lost.  Ten of the lost ones, sliced and run as the whole goal alone
+(no descent, no normalization) at 300 s and 6 GB
+(`~/exp/egglog-holes/rejects/cap/`): egglog finishes the whole goal in 2
+to 4 s and the search then fails (five Goel `Unidec_br` holes on memory
+within 13 s, one `for_infinite_loop` hole on time at 300 s), or egglog
+itself runs out of memory in 31 to 43 s (two `terminator`, the two
+`benchmark17` holes of §47.22).  None needs 10 to 60 s of egglog and then
+succeeds, so a longer cap recovers none of them and takes budget from the
+descent, which recovered 23 of the 51.  (calypto-t202, below, needs 64 to
+80 s of egglog, more than a hole's 60 s whatever the split.)
+
+**Harder normal forms.**  §49's rule (a normal form larger than the goal
+and reached by no other hole is not used) is the checking pass's; the
+elaboration pass tries every rewritten goal's normal form first and the
+stated goal after, since a normal form can be the reconstructable one.
+Size would not have caught `t1427` either: its normal form is smaller
+(98 to 86 nodes) but costs egglog 8 s against half a second, the
+normalizer orienting `(<= x 1)` while cvc5's side keeps `(not (>= x 2))`,
+which the normalizer leaves alone by design.  In rw4 the normal form was
+the path that worked for 99.2% (QF_UF), 97.6% (QF_LIA) and 99.7% (QF_LRA)
+of the rewritten goals (`elab_bridged` against `elab_rewritten`), about
+9,000 of 750,000 falling back; since 8d248b69 a failed normal-form
+attempt costs at most a third of the hole's budget.
+
+**calypto-t202 and the search's memory.**  The goal is `(= (= (not (not
+(>= S 1))) (>= S' 1)) true)`, `S` a sum of nested `ite`s over integers
+encoded from 64-bit vectors (`2^64` coefficients), `S'` its rewrite: 188
+nodes shared, 247,127 as a tree.  egglog proves it in 64 to 80 s (checking
+only: 64 s); the elaboration dies at the 6 GB cap in the search.  The
+search's `Term` is a tree, so every candidate is another copy of a
+quarter-million-node term; the Goel `Unidec_br` holes above are the same
+thing smaller (207 shared, 13,262 as a tree, the search out of memory 9 s
+after egglog).  The fix is a shared representation in the reconstruction
+(interned terms, memo and class caches keyed by ids), not a budget; the
+shared-subterm abstraction does not apply, since the sharing is within
+one side and the rewriting happens inside the shared subterms.
