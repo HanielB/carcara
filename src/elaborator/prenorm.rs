@@ -723,7 +723,7 @@ impl Normalizer {
     ) -> Vec<String> {
         let left = self.normalize(pool, lhs);
         let right = self.normalize(pool, rhs);
-        let inner_last = format!("{id}.{}", inner.len());
+        let inner_last = super::rare_hole::last_step_id(&inner, id);
         let mut emitter = Emitter {
             prefix: id.to_owned(),
             steps: inner,

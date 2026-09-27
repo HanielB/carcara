@@ -2851,8 +2851,11 @@ fn descent_sides(
         return None;
     }
     let (_, lhs, rhs) = crate::rare::util::get_equational_terms(conclusion)?;
+    // As `descend` takes it: an equality of two different sides.  `(= (= x
+    // x) true)` is no descent's (it fell through to one pair, the whole
+    // goal, in a process of its own).
     let predicate_to_true = rhs.is_bool_true()
-        && matches!(lhs.as_ref(), crate::ast::Term::Op(crate::ast::Operator::Equals, fa) if fa.len() == 2);
+        && matches!(lhs.as_ref(), crate::ast::Term::Op(crate::ast::Operator::Equals, fa) if fa.len() == 2 && fa[0] != fa[1]);
     if !(shares_skeleton(pool, lhs, rhs) || predicate_to_true)
         || super::term_dag_size(conclusion) < options.descend_min_nodes
     {
@@ -2942,14 +2945,14 @@ fn reconstruct_by_descent(
         if let Descent::Proved(steps) =
             reconstruct_by_atoms(pool, node, &goal, &prefix, rules, atom_options, deadline, &mut accumulate)
         {
-            let last = format!("{prefix}.{}", steps.len());
+            let last = last_step_id(&steps, &prefix);
             out.extend(steps);
             return Ok(last);
         }
         let steps =
             reconstruct_subgoal(pool, node, &goal, &prefix, rules, sub_options, deadline, &mut accumulate)
                 .map_err(|reason| format!("{reason}; atom goal {n}: {}", abbreviated(&goal)))?;
-        let last = format!("{prefix}.{}", steps.len());
+        let last = last_step_id(&steps, &prefix);
         out.extend(steps);
         Ok(last)
     };
@@ -3193,7 +3196,7 @@ fn reconstruct_by_atoms(
         };
         match reconstruct_subgoal(pool, node, &goal, &prefix, rules, sub_options, pair_deadline, &mut accumulate) {
             Ok(steps) => {
-                let last = format!("{prefix}.{}", steps.len());
+                let last = last_step_id(&steps, &prefix);
                 out.extend(steps);
                 map.push((a.clone(), b.clone(), last));
             }
@@ -3225,7 +3228,7 @@ fn reconstruct_by_atoms(
         };
         match reconstruct_subgoal(pool, node, &whole, &prefix, rules, whole_options, deadline, &mut accumulate) {
             Ok(steps) => {
-                let last = format!("{prefix}.{}", steps.len());
+                let last = last_step_id(&steps, &prefix);
                 out.extend(steps);
                 let step_id = format!("{id}.{}", out.len() + 1);
                 out.push(format!(
@@ -3502,6 +3505,18 @@ pub fn elaborate(
 /// Checks the reconstructed steps against the problem and splices them in.
 /// Always runs on the proof's own pool: the steps arrive as text precisely so
 /// that the terms they mention are interned once, here.
+/// The id of a certificate's concluding step, read off its last line; the
+/// steps are not all numbered `{prefix}.{k}` (a descent's pairs are
+/// `{prefix}.d{n}.{k}`), so the count is only the fallback.
+pub fn last_step_id(steps: &[String], prefix: &str) -> String {
+    steps
+        .last()
+        .and_then(|line| line.strip_prefix("(step "))
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{prefix}.{}", steps.len()))
+}
+
 /// Whether `term` holds an `and`/`or` application of one argument.
 fn has_singleton_connective(term: &Term) -> bool {
     if let Some((operator, elements)) = encoded_application(term) {
@@ -3685,7 +3700,7 @@ pub fn insert_steps(
         [&negated],
     );
     let assumption = format!("{}.h", step.id);
-    let last = format!("{}.{}", step.id, steps.len());
+    let last = last_step_id(&steps, &step.id);
     let proof = format!(
         "(assume {assumption} {negated})\n{}\n(step {}.{} (cl) :rule resolution :premises ({last} {assumption}))\n",
         steps.join("\n"),
