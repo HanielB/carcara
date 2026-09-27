@@ -916,13 +916,17 @@ impl Reconstructor<'_> {
         // independently checkable no matter how it was discovered.
         let prune_mark = self.prune_events;
         self.in_progress.insert(key.clone());
+        let started = std::time::Instant::now();
         let certificate = self.prove_in_class(source, target, source_class);
         if log::log_enabled!(log::Level::Debug) {
             log::debug!(
-                "obligation {} = {}: {}",
+                "obligation {} in {:.3}s (DAG sizes {} and {}): {} = {}",
+                if certificate.is_some() { "proved" } else { "failed" },
+                started.elapsed().as_secs_f64(),
+                source.dag_size(),
+                target.dag_size(),
                 source.to_egglog(),
-                target.to_egglog(),
-                if certificate.is_some() { "proved" } else { "failed" }
+                target.to_egglog()
             );
         }
         self.in_progress.remove(&key);
@@ -1061,6 +1065,7 @@ impl Reconstructor<'_> {
             // one (a `false` conjunct, a duplicated inlined definition):
             // the absorption reads the other side's literals off the
             // e-graph and proves each piece on its own.
+            .or_else(|| self.prove_by_annihilator(source, target))
             .or_else(|| self.prove_by_absorption(source, target))
             .or_else(|| self.prove_by_transitivity(source, target, eclass))
             .or_else(|| self.prove_by_aci(source, target))
@@ -1294,6 +1299,62 @@ impl Reconstructor<'_> {
     /// and duplicates, one ACI step.  cvc5's rewriter produces such blocks
     /// after non-clausal simplification substitutes the circuit
     /// propagator's literals and inlines definitions that share conjuncts.
+    /// An `and` equal to `false` (an `or` equal to `true`) needs one
+    /// element of that constant's class, where the absorption needs every
+    /// element placed: the element is proved equal to the constant on its
+    /// own, put in place by congruence, and `bool-and-false`
+    /// (`bool-or-true`) closes.  The transitive search finds the same
+    /// two-edge path when the constant's class is small; in a saturated
+    /// e-graph it holds every such subterm of the goal, and the rule
+    /// matches the search grounds there spend the state budget first
+    /// (forinf-t7528: `(and (= x 1) (or false (and (= y 1) false) false)) =
+    /// false`, proved alone, failed ten thousand times inside the hole).
+    pub fn prove_by_annihilator(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        if let Some(certificate) = self.annihilate_directed(source, target) {
+            return Some(certificate);
+        }
+        self.annihilate_directed(target, source).map(reverse)
+    }
+
+    fn annihilate_directed(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        if source.op != "Mk" {
+            return None;
+        }
+        let (operator, identity) = connective(source)?;
+        let annihilator = encoded_bool(!identity);
+        if *target != annihilator {
+            return None;
+        }
+        let class = self.class_of(&annihilator)?;
+        let (_, elements) = encoded_application(source)?;
+        // An element that is the constant already is the list rule's case.
+        if elements.contains(&annihilator) {
+            return None;
+        }
+        let mut candidates: Vec<Term> = elements
+            .into_iter()
+            .filter(|element| self.class_of(element) == Some(class))
+            .collect();
+        candidates.sort_by_key(Term::dag_size);
+        candidates.dedup();
+        for element in candidates {
+            if self.strategy.out_of_time() {
+                return None;
+            }
+            if self.prove(&element, &annihilator).is_none() {
+                continue;
+            }
+            let map = HashMap::from([(element, annihilator.clone())]);
+            let rewritten = replace_elements(source, operator, &map);
+            let Some(closing) = self.prove_by_list_rule(&rewritten, &annihilator) else {
+                continue;
+            };
+            let first = self.congruence_by_pairs(source, &rewritten, &map)?;
+            return Some(chain(source.clone(), vec![first, closing]));
+        }
+        None
+    }
+
     pub fn prove_by_absorption(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
         if let Some(certificate) = self.absorb_directed(source, target) {
             return Some(certificate);

@@ -160,16 +160,38 @@ impl Term {
         seen.len()
     }
 
-    /// The term in egglog syntax, for a log line: at most a few hundred
-    /// nodes, the rest elided -- a log never expands a DAG into its tree.
+    /// The term in egglog syntax, for a log line, as a DAG: a compound
+    /// subterm with more than one parent is `#k=(...)` where it first
+    /// occurs and `#k` after, and at most a few hundred nodes are written,
+    /// the rest elided.
     pub fn to_egglog(&self) -> String {
+        let key = |term: &Term| std::sync::Arc::as_ptr(&term.0);
+        let mut parents: HashMap<*const TermNode, usize> = HashMap::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![self];
+        while let Some(term) = stack.pop() {
+            if !seen.insert(key(term)) {
+                continue;
+            }
+            for child in &term.children {
+                *parents.entry(key(child)).or_default() += 1;
+                stack.push(child);
+            }
+        }
+        let mut labels = HashMap::new();
         let mut out = String::new();
         let mut budget = 400usize;
-        self.write_egglog(&mut out, &mut budget);
+        self.write_egglog(&mut out, &mut budget, &parents, &mut labels);
         out
     }
 
-    fn write_egglog(&self, out: &mut String, budget: &mut usize) {
+    fn write_egglog(
+        &self,
+        out: &mut String,
+        budget: &mut usize,
+        parents: &HashMap<*const TermNode, usize>,
+        labels: &mut HashMap<*const TermNode, usize>,
+    ) {
         if *budget == 0 {
             out.push('…');
             return;
@@ -183,15 +205,24 @@ impl Term {
             }
             return;
         }
+        let key = std::sync::Arc::as_ptr(&self.0);
+        if let Some(label) = labels.get(&key) {
+            out.push_str(&format!("#{label}"));
+            return;
+        }
+        if parents.get(&key).is_some_and(|&count| count > 1) && self.size() > 2 {
+            let label = labels.len();
+            labels.insert(key, label);
+            out.push_str(&format!("#{label}="));
+        }
         out.push('(');
         out.push_str(&self.op);
         for child in &self.children {
             out.push(' ');
-            child.write_egglog(out, budget);
+            child.write_egglog(out, budget, parents, labels);
         }
         out.push(')');
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

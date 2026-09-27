@@ -6062,3 +6062,38 @@ which the representation does not touch: `benchmark17`'s two and
 `terminator`'s two run out of memory in egglog within 31 to 40 s, and
 `for_infinite_loop`'s runs out of 300 s in the search after 2 s of
 egglog -- the search's own open item, not a representation one.
+
+### 47.26 forinf-t7528: an annihilator, not a budget (2026-09-27)
+
+The last hole §47.25 left to the search is a `MACRO_REWRITE` Boolean
+cleanup: an `or` of 27 disjuncts, nested `and`/`or` several levels deep
+with `false` leaves, against its propagated form, an `or` of 4.  egglog
+proves it in 2 s; the search spent its 300 s and failed.
+
+With each obligation timed in the debug log (verdict and time first, the
+terms after, as DAGs): one sub-obligation, the nested 9-way `or` against
+its 2-way form, took about 120 s and failed, and was redone three times
+(a failure under a fired recursion guard is not cached).  Inside it,
+36,772 failed obligations, most of them the same few of the shape
+`(and (= x 1) (or false (and (= y 1) false) false)) = false`, each failing
+in milliseconds.  Alone, that goal elaborates and re-checks.  In the hole
+it fell through every strategy to the transitive search: the list rule
+needs a literal `false` among the elements, the absorption needs every
+element placed, and the search's two-edge path (the false element to
+`false` by congruence, then `bool-and-false`) is found on a small class
+but not on the class of `false` in this e-graph, which holds every
+false-valued subterm of the goal: the rule matches the search grounds
+there spend the state budget first.
+
+`prove_by_annihilator` (before the absorption): an `and` equal to `false`
+(an `or` equal to `true`) needs one element of the constant's class; the
+smallest such element is proved equal to the constant on its own, put in
+place by congruence, and the list rule closes.  forinf-t7528 is justified
+in 1.9 s (search 0.03 s) and is a fixture (`gaps/forinf-t7528`, the
+problem cut to its 61 declarations).  The whole `for_infinite_loop_1`
+proof: 550 of 550 justified, re-check valid (549 before); the six
+regression replays of §47.25 unchanged to the hole, no rejection.
+
+The search's debug lines no longer print trees either: `to_egglog` labels
+a subterm with more than one parent (`#k=` where it first occurs, `#k`
+after), within its 400-node bound.
