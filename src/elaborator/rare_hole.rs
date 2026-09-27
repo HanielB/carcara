@@ -645,6 +645,17 @@ impl AletheElaborator {
                 } else {
                     format!(" :premises ({})", premise_steps.join(" "))
                 };
+                // The checker instantiates a rule with singleton elimination:
+                // `(or (or x)) = (or x)` by `bool-or-flatten` becomes `x = x`
+                // there and no longer matches the stated step.  A step with a
+                // one-argument connective whose sides are ACI-equal is stated
+                // as the checker's ACI step instead.
+                if premises.is_empty()
+                    && (has_singleton_connective(lhs) || has_singleton_connective(rhs))
+                    && crate::rare::reconstruction::computation::aci_equal(lhs, rhs)
+                {
+                    return self.emit_aci(lhs, rhs);
+                }
                 if let Some(parameters) = self.rare.get(name).cloned() {
                     let decoded: Option<Vec<String>> = parameters
                         .iter()
@@ -838,13 +849,36 @@ impl AletheElaborator {
                 // The premises in argument order: a spine met from the far
                 // side, or a chain the search composed out of order, lists
                 // its legs otherwise, and `cong` reads them by position.
-                if let Some((_, elements)) = encoded_application(lhs) {
-                    arguments.sort_by_key(|argument| {
-                        elements
-                            .iter()
-                            .position(|element| element == argument.lhs())
-                            .unwrap_or(usize::MAX)
-                    });
+                // A premise's place is the unused position whose two sides it
+                // states (either way round): by its left side alone, a side
+                // that holds one literal twice with two different partners
+                // (`(or .. (not (= x x)) .. (not (= x x)) ..)` against two
+                // different `false` conjunctions) sent both premises to the
+                // first occurrence.
+                if let Some((_, left)) = encoded_application(lhs) {
+                    let right = encoded_application(rhs).map(|(_, elements)| elements);
+                    let mut used = vec![false; left.len()];
+                    let mut placed: Vec<(usize, Certificate)> = Vec::new();
+                    for argument in arguments.drain(..) {
+                        let states = |k: usize| match &right {
+                            Some(right) if k < right.len() => {
+                                (left[k] == *argument.lhs() && right[k] == *argument.rhs())
+                                    || (left[k] == *argument.rhs() && right[k] == *argument.lhs())
+                            }
+                            _ => false,
+                        };
+                        let position = (0..left.len())
+                            .find(|&k| !used[k] && states(k))
+                            .or_else(|| {
+                                (0..left.len()).find(|&k| !used[k] && left[k] == *argument.lhs())
+                            });
+                        if let Some(k) = position {
+                            used[k] = true;
+                        }
+                        placed.push((position.unwrap_or(usize::MAX), argument));
+                    }
+                    placed.sort_by_key(|(k, _)| *k);
+                    arguments = placed.into_iter().map(|(_, argument)| argument).collect();
                 }
                 let premises = arguments
                     .iter()
@@ -2606,12 +2640,17 @@ fn descend(
             ));
             chain.push(step_id);
         }
-        let step_id = format!("{id}.{}", out.len() + 1);
-        out.push(format!(
-            "(step {step_id} (cl (= {aligned_lhs:#} {aligned_rhs:#})) :rule cong :premises ({}))",
-            premises.join(" ")
-        ));
-        chain.push(step_id);
+        // Sides that differ only in the order of their arguments align to
+        // one term: no `cong` between them (an empty `:premises` does not
+        // parse), the two reorderings carry the step.
+        if !premises.is_empty() {
+            let step_id = format!("{id}.{}", out.len() + 1);
+            out.push(format!(
+                "(step {step_id} (cl (= {aligned_lhs:#} {aligned_rhs:#})) :rule cong :premises ({}))",
+                premises.join(" ")
+            ));
+            chain.push(step_id);
+        }
         if aligned_rhs != *rhs {
             let step_id = format!("{id}.{}", out.len() + 1);
             out.push(format!(
@@ -3463,6 +3502,16 @@ pub fn elaborate(
 /// Checks the reconstructed steps against the problem and splices them in.
 /// Always runs on the proof's own pool: the steps arrive as text precisely so
 /// that the terms they mention are interned once, here.
+/// Whether `term` holds an `and`/`or` application of one argument.
+fn has_singleton_connective(term: &Term) -> bool {
+    if let Some((operator, elements)) = encoded_application(term) {
+        if (operator == "@and" || operator == "@or") && elements.len() == 1 {
+            return true;
+        }
+    }
+    term.children.iter().any(has_singleton_connective)
+}
+
 /// The connective of an encoded `and`/`or` side and its identity.
 fn aci_connective(term: &Term) -> Option<(&'static str, bool)> {
     match encoded_application(&wrapped(term)) {
@@ -3646,8 +3695,18 @@ pub fn insert_steps(
     log::debug!("hole {}: reconstructed steps:\n{proof}", step.id);
     // A holey inner proof (a relation hole the routing could not discharge)
     // is still accepted: the trusted content strictly decreased.
-    let (commands, _status) = parse_and_check(elaborator.pool, &problem, &proof, rules)
-        .map_err(|error| fail("checking the reconstructed steps", error.to_string()))?;
+    let checked = parse_and_check(elaborator.pool, &problem, &proof, rules);
+    // A diagnostic: the rejected certificates, one file per hole.
+    if checked.is_err() {
+        if let Ok(dir) = std::env::var("CARCARA_REJECT_DUMP") {
+            let _ = std::fs::write(
+                format!("{dir}/{}.rejected", step.id),
+                format!("{problem}\n;; --- reconstructed steps\n{proof}"),
+            );
+        }
+    }
+    let (commands, _status) =
+        checked.map_err(|error| fail("checking the reconstructed steps", error.to_string()))?;
     Ok(external::insert_solver_proof(
         elaborator.pool,
         commands,
