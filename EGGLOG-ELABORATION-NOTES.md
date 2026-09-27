@@ -5874,3 +5874,36 @@ gen8 is open now.  Correction: `gaps.sh` wrote no header into
 `summary.txt` but its tally skipped the first line, which is always
 `calypto-ho31` (never checked), so every earlier tally's "not checked"
 was one short; the "checked, not elaborated" counts stand.  Fixed.
+
+**rw4 read (2026-09-27).**  Finished at 00:48 PDT; results synced to
+`~/exp/results/egglog-holes/rw4`, reader `analysis-rw4/read_rw4.py`
+(`read_rw4.txt`).  Against rw3 (same benchmarks):
+
+| | QF_UF | QF_LIA | QF_LRA |
+|---|---|---|---|
+| holes attempted, rw4 / rw3 | 1,171,831 / same | 901,413 / 705,120 (the four tags) | 520,546 / 433,860 |
+| justified | 99.88% / 99.85% | 99.75% / 99.49% | 99.95% / 99.75% |
+| kept | 1,452 / 1,728 | 1,633 / 2,963 | 284 / 1,074 |
+| no-certificate | 12 / 47 | 8 / 985 | 14 / 484 |
+| unproved | -- | 68 / 789 (plus 212 out-of-scope: lambda) | -- |
+| checker-rejected | 67 / 534 | 27 / 8 | 32 / 0 |
+| hole-time | 1,355 / 1,110 | 1,249 / 952 | 236 / 580 |
+| fully justified | 3,283 / 2,907 (514 gained, 138 lost) | 2,380 / 2,350 (35, 5) | 387 / 325 (68, 6) |
+| re-check `valid` | **1,437** / 675 | **2,370** / 1,350 | **387** / 203 |
+| dsl1 `valid` (comparison) | 2,230 | 2,510 | 505 |
+| elaboration pass, summed | 48.5 h / 48.8 h | 36.7 h / 38.2 h | 11.7 h / 12.8 h |
+
+`valid` doubles in QF_UF and QF_LRA and rises by 1,020 in QF_LIA (0
+lost): the four tags attempted make proofs without a `THEORY_LEMMA`
+hole closable, and the corpus fixes clear `no-certificate` (1,516 to 34)
+and `unproved`.  Ten proofs are `valid` in rw4 and not in dsl1 (3
+QF_LIA, 7 QF_LRA) -- the first the pipeline closes that cvc5's own
+expansion does not.  Costs: QF_UF loses 138 fully justified proofs,
+mostly QG-classification, to one `hole-time` each (the timeouts spread
+over search 770, serialize 725, egglog 660, emit 536 in the sampled
+lines), against 514 gained; the `checker-rejected` are mostly
+`aci_simp` steps with non-adjacent duplicates (Dartagnan 40 of the 59
+sampled, QG 2), which 88e14256's emission fixes, plus a few
+`rare_rewrite` conclusions in bofill-scheduling and `cong` premises in
+QG, to look at.  rw4 ran e6bc8ae4, without §47.22; the local QG replays
+of §47.22 are 5--9 times faster, which bears on the QF_UF timeouts.
