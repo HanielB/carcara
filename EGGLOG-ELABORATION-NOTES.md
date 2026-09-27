@@ -5723,3 +5723,15 @@ of §47.17): all sixteen elaborate and re-check closed --
 suite).  The harness's check-only pass now passes
 `--rare-descend-min-nodes 32` too (`gaps.sh`; it did not, so a hole the
 elaboration closed could count as not checked -- gen7's `rings-ho56`).
+
+**The four proofs replayed whole** (rw3's settings: 60 s a hole, the
+pass 1,200 s, three workers on a loaded machine): `count_by_nondet` 525
+of 525 justified, re-check **valid** (rw3: 4 unproved); `RC-06` 3 of 5,
+the two left `hole-time` (the fifty-summand relations need about 60 s
+each at the descent's budget; the slice closed at 120 s); `race` 1,013
+of 1,035, 7 kept (4 hole-time, 3 pass-budget) and 15 skipped at the pass
+budget (the earlier local replay: 25 kept, 8 of them memory, 1
+unproved); `simple_vardep_1` 1,332 of 1,357, 6 kept (3 hole-time, 3
+pass-budget), 19 skipped (before: 13 kept, 10 unproved).  No `unproved`
+and no `memory` left on the four; what is left is the pass budget on
+1,000-hole proofs and the 60 s hole budget on the long sums.
