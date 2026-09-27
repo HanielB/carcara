@@ -769,8 +769,9 @@ fn reconstructs_distinct_symm_mix_from_production_egraph() {
 
 /// The `or_eval` fixture through the full production pipeline: the step
 /// claims `(= (or p (and true false)) p)`, so evaluation must fold the
-/// conjunction inside a congruence obligation before the RARE rule
-/// `bool-or-false` strips the identity.
+/// conjunction inside a congruence obligation before the identity goes.
+/// The absorption strategy (before the transitive search) strips it with
+/// an ACI step; `bool-or-false` was the transitive search's way.
 #[test]
 fn reconstructs_or_evaluation_mix_from_production_egraph() {
     let run = run_qf_uf_case(
@@ -791,15 +792,16 @@ fn reconstructs_or_evaluation_mix_from_production_egraph() {
     );
     let certificate = reconstruction
         .certificate
-        .expect("evaluation under congruence should chain with bool-or-false");
+        .expect("evaluation under congruence should chain with the identity's removal");
 
     assert!(certificate.verify(&rules));
     assert_eq!(certificate.lhs(), &run.lhs);
     assert_eq!(certificate.rhs(), &run.rhs);
     let mut names = Vec::new();
     certificate.rule_names(&mut names);
-    assert_eq!(names, ["bool-or-false"]);
+    assert!(names.is_empty(), "the absorption needs no rule: {names:?}");
     assert!(certificate.contains_computation(Computation::Evaluation));
+    assert!(certificate.contains_computation(Computation::AciNorm));
     eprintln!(
         "or_eval mix: saturation={:?}, stats={:?}",
         run.saturation, reconstruction.stats,
@@ -1630,9 +1632,10 @@ fn reconstructs_distinct_elimination_mixed_with_eq_symm() {
     assert!(certificate.contains_congruence());
 }
 
-/// Evaluation buried inside a congruence child obligation, chained with a
-/// RARE rule: `(or p (and true false))` needs the inner conjunction folded
-/// to `false` before `bool-or-false` can strip it.
+/// Evaluation buried inside a congruence child obligation:
+/// `(or p (and true false))` needs the inner conjunction folded to `false`
+/// before the identity can go -- by the absorption's ACI step, which runs
+/// before the transitive search (whose way was `bool-or-false`).
 #[test]
 fn reconstructs_evaluation_inside_congruence_with_rare_rule() {
     let snapshot = raw_solver_snapshot(
@@ -1663,14 +1666,15 @@ fn reconstructs_evaluation_inside_congruence_with_rare_rule() {
     );
     let certificate = reconstruction
         .certificate
-        .expect("evaluation under congruence should chain with bool-or-false");
+        .expect("evaluation under congruence should chain with the identity's removal");
     assert!(certificate.verify(&rules));
     assert_eq!(certificate.lhs(), &source);
     assert_eq!(certificate.rhs(), &target);
     let mut names = Vec::new();
     certificate.rule_names(&mut names);
-    assert_eq!(names, ["bool-or-false"]);
+    assert!(names.is_empty(), "the absorption needs no rule: {names:?}");
     assert!(certificate.contains_computation(Computation::Evaluation));
+    assert!(certificate.contains_computation(Computation::AciNorm));
     assert!(certificate.contains_congruence());
 }
 

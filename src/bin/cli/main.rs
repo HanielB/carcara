@@ -504,7 +504,6 @@ fn reconstruct_hole_command(options: ReconstructHoleOptions) -> CliResult<()> {
         memory_soft_cap_mb: options.memory_soft_cap.unwrap_or(0),
         ..carcara::RunEgglogOptions::default()
     };
-    let started = std::time::Instant::now();
     let rules = parser::Source::new(std::path::Path::new(&options.rare_file), &rare_text);
     if options.batch {
         // Each verdict is printed and flushed as it is reached, so a parent

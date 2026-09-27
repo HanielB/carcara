@@ -80,6 +80,77 @@ impl AletheElaborator {
         Some(id)
     }
 
+    /// An ACI step as Carcara's checker takes it.  The search's ACI
+    /// equality is on literal sets; the checker's `aci_simp` flattens each
+    /// side under its own connective, drops the identity and *adjacent*
+    /// duplicates, and compares multisets, so a side with a duplicate
+    /// elsewhere, or an `(or a false)` whose `a` is a nested `and`, fails
+    /// it.  In order: one `aci_simp`; one `and_simplify`/`or_simplify`
+    /// (the identity and every duplicate dropped, order kept); else the
+    /// side flattened by `aci_simp`, its duplicates dropped by the
+    /// simplification rule, and the result permuted by `aci_simp`.
+    pub fn emit_aci(&mut self, lhs: &Term, rhs: &Term) -> Option<String> {
+        if aci_simp_accepts(lhs, rhs) {
+            return self.emit(lhs, rhs, "aci_simp", "");
+        }
+        if let Some(rule) = and_or_simplify_accepts(lhs, rhs) {
+            return self.emit(lhs, rhs, rule, "");
+        }
+        let (Some((operator, identity)), reversed) = (match aci_connective(lhs) {
+            Some(connective) => (Some(connective), false),
+            None => (aci_connective(rhs), true),
+        }) else {
+            return self.emit(lhs, rhs, "aci_simp", "");
+        };
+        let (side, other) = if reversed { (rhs, lhs) } else { (lhs, rhs) };
+        let rule = if operator == "@and" { "and_simplify" } else { "or_simplify" };
+        let mut literals = Vec::new();
+        flatten_aci(&wrapped(side), operator, identity, &mut literals);
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<Term> = literals.iter().filter(|t| seen.insert((*t).clone())).cloned().collect();
+        if literals.len() < 2 || deduped.is_empty() {
+            return self.emit(lhs, rhs, "aci_simp", "");
+        }
+        // The rebuilt sides take the original side's wrapping.
+        let shaped = |term: Term| {
+            if side.op == "Mk" || term.op != "Mk" {
+                term
+            } else {
+                term.children[0].clone()
+            }
+        };
+        let flat = shaped(encoded_app(operator, literals.clone()));
+        let dedup = if deduped.len() == 1 {
+            deduped[0].clone()
+        } else {
+            shaped(encoded_app(operator, deduped))
+        };
+        let mut premises = Vec::new();
+        if flat != *side {
+            if !aci_simp_accepts(side, &flat) {
+                return self.emit(lhs, rhs, "aci_simp", "");
+            }
+            premises.push(self.emit(side, &flat, "aci_simp", "")?);
+        }
+        premises.push(self.emit(&flat, &dedup, rule, "")?);
+        if wrapped(&dedup) != wrapped(other) {
+            if !aci_simp_accepts(&dedup, other) {
+                return self.emit(lhs, rhs, "aci_simp", "");
+            }
+            premises.push(self.emit(&dedup, other, "aci_simp", "")?);
+        }
+        let joined = if premises.len() == 1 {
+            premises.pop()?
+        } else {
+            self.emit(side, other, "trans", &format!(" :premises ({})", premises.join(" ")))?
+        };
+        if reversed {
+            self.emit(lhs, rhs, "symm", &format!(" :premises ({joined})"))
+        } else {
+            Some(joined)
+        }
+    }
+
     pub fn trusted(&mut self, lhs: &Term, rhs: &Term, name: &str) -> Option<String> {
         let tail = format!(" :args (\"TRUST_THEORY_REWRITE\" \"{name}\")");
         self.emit(lhs, rhs, "hole", &tail)
@@ -610,7 +681,7 @@ impl AletheElaborator {
                     }
                 }
                 if crate::rare::reconstruction::computation::aci_equal(lhs, rhs) {
-                    return self.emit(lhs, rhs, "aci_simp", "");
+                    return self.emit_aci(lhs, rhs);
                 }
                 self.trusted(lhs, rhs, name)
             }
@@ -635,7 +706,7 @@ impl AletheElaborator {
                     self.emit(lhs, rhs, "ite_simplify", "")
                 }
                 Computation::Evaluation => self.emit(lhs, rhs, "evaluate", ""),
-                Computation::AciNorm => self.emit(lhs, rhs, "aci_simp", ""),
+                Computation::AciNorm => self.emit_aci(lhs, rhs),
                 // A complementary pair short-circuits the connective, which
                 // is what `and_simplify`/`or_simplify` decide.
                 Computation::AciComplement => {
@@ -3388,6 +3459,81 @@ pub fn elaborate(
 /// Checks the reconstructed steps against the problem and splices them in.
 /// Always runs on the proof's own pool: the steps arrive as text precisely so
 /// that the terms they mention are interned once, here.
+/// The connective of an encoded `and`/`or` side and its identity.
+fn aci_connective(term: &Term) -> Option<(&'static str, bool)> {
+    match encoded_application(&wrapped(term)) {
+        Some(("@and", _)) => Some(("@and", true)),
+        Some(("@or", _)) => Some(("@or", false)),
+        _ => None,
+    }
+}
+
+/// One side as Carcara's `aci_simp` reads it: flattened under its own
+/// connective, the identity and adjacent duplicates dropped, a single
+/// element standing on its own.
+fn aci_simp_side(term: &Term) -> Term {
+    let side = wrapped(term);
+    let Some((operator, identity)) = aci_connective(&side) else {
+        return side;
+    };
+    let mut literals = Vec::new();
+    flatten_aci(&side, operator, identity, &mut literals);
+    literals.dedup();
+    if literals.len() == 1 {
+        wrapped(&literals[0])
+    } else {
+        encoded_app(operator, literals)
+    }
+}
+
+/// Whether Carcara's `aci_simp` accepts `lhs = rhs`: the two processed
+/// sides are applications of one connective with the same multiset of
+/// elements, or are equal.
+fn aci_simp_accepts(lhs: &Term, rhs: &Term) -> bool {
+    let (a, b) = (aci_simp_side(lhs), aci_simp_side(rhs));
+    match (encoded_application(&a), encoded_application(&b)) {
+        (Some((op1, mut e1)), Some((op2, mut e2)))
+            if op1 == op2 && (op1 == "@and" || op1 == "@or") =>
+        {
+            e1.sort();
+            e2.sort();
+            e1 == e2
+        }
+        _ => a == b,
+    }
+}
+
+/// The rule among `and_simplify`/`or_simplify` that accepts `lhs = rhs` by
+/// dropping the identity and duplicates from `lhs`'s direct elements,
+/// order kept (Carcara's `generic_and_or_simplify` without the
+/// short-circuit case); `None` when it does not.
+fn and_or_simplify_accepts(lhs: &Term, rhs: &Term) -> Option<&'static str> {
+    let (operator, identity) = aci_connective(lhs)?;
+    let rule = if operator == "@and" { "and_simplify" } else { "or_simplify" };
+    let (_, mut phis) = encoded_application(&wrapped(lhs))?;
+    if phis.len() == 1 {
+        if let Some((op, elements)) = encoded_application(&wrapped(&phis[0])) {
+            if op == operator {
+                phis = elements;
+            }
+        }
+    }
+    let result: Vec<Term> = match encoded_application(&wrapped(rhs)) {
+        Some((op, elements)) if op == operator => elements,
+        _ => vec![rhs.clone()],
+    };
+    let same = |phis: &[Term], result: &[Term]| {
+        phis.len() == result.len() && phis.iter().zip(result).all(|(a, b)| wrapped(a) == wrapped(b))
+    };
+    phis.retain(|t| bool_value(&wrapped(t)) != Some(identity));
+    if same(&phis, &result) {
+        return Some(rule);
+    }
+    let mut seen = std::collections::HashSet::new();
+    phis.retain(|t| seen.insert(wrapped(t)));
+    same(&phis, &result).then_some(rule)
+}
+
 /// Why a goal is one the pipeline does not attempt: it applies a lambda
 /// (a `define-fun` the producer printed inlined), whose beta reduction is
 /// left to another route.  Tallied `out-of-scope`, as the pivot defect is.

@@ -1,0 +1,2 @@
+(step t1 (cl (= (and (not (and a false)) e (or (and b c) (and a false)) f (or (and e (or (and b c) (and a false))) (and a false))) (and e f b c))) :rule hole :args ("MACRO_REWRITE" "RW_REWRITE"))
+(step slice_end (cl) :rule hole :premises (t1) :args ("trust"))

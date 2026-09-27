@@ -997,6 +997,9 @@ impl Reconstructor<'_> {
                 rhs: target.clone(),
             });
         }
+        if let Some(certificate) = self.prove_by_arith_modulo_atoms(source, target) {
+            return Some(certificate);
+        }
         let left = self.arith_candidates(source, source_class);
         let right = self.arith_candidates(target, target_class);
         for lhs in &left {
@@ -1043,7 +1046,14 @@ impl Reconstructor<'_> {
         self.prove_by_list_rule(source, target)
             .or_else(|| self.prove_by_computation(source, target))
             .or_else(|| self.prove_by_arith(source, target))
+            .or_else(|| self.prove_by_arith_modulo_atoms(source, target))
             .or_else(|| self.prove_by_congruence(source, target))
+            // Before the transitive search, which spends the budget on an
+            // `and` block whose literals the rewriter folded away one by
+            // one (a `false` conjunct, a duplicated inlined definition):
+            // the absorption reads the other side's literals off the
+            // e-graph and proves each piece on its own.
+            .or_else(|| self.prove_by_absorption(source, target))
             .or_else(|| self.prove_by_transitivity(source, target, eclass))
             .or_else(|| self.prove_by_aci(source, target))
             .or_else(|| self.prove_by_aci_modulo(source, target))
@@ -1209,6 +1219,277 @@ impl Reconstructor<'_> {
         let second = second?;
         self.stats.computational_edges += 1;
         Some(chain(source.clone(), vec![first, second]))
+    }
+
+    /// Arithmetic modulo the atoms' classes: two relations (or arithmetic
+    /// terms) whose atoms differ in spelling but not in class -- an `ite`
+    /// whose condition the producer rewrote, `(<= (ite c 0 1) 1)` against
+    /// `(not (>= (ite c' 0 1) 2))` -- are the source with its atoms
+    /// replaced by the target's (congruence, each atom pair proved in its
+    /// class) and then one arithmetic step, which the transitive search
+    /// otherwise finds only after rewriting the atoms one by one.
+    pub fn prove_by_arith_modulo_atoms(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        let source_atoms = arith_atoms(source)?;
+        let target_atoms = arith_atoms(target)?;
+        let mut by_class: HashMap<u32, Term> = HashMap::new();
+        for atom in &target_atoms {
+            let class = self.class_of(atom)?;
+            by_class.entry(class).or_insert_with(|| atom.clone());
+        }
+        let mut map: HashMap<Term, Term> = HashMap::new();
+        for atom in &source_atoms {
+            if target_atoms.contains(atom) {
+                continue;
+            }
+            let class = self.class_of(atom)?;
+            let partner = by_class.get(&class)?.clone();
+            map.insert(atom.clone(), partner);
+        }
+        if map.is_empty() {
+            return None;
+        }
+        let rewritten = replace_arith_atoms(source, &map);
+        let kind = arith_kind(&rewritten, target, self.sorts)?;
+        for (atom, partner) in &map {
+            if self.prove(atom, partner).is_none() {
+                log::debug!(
+                    "arith modulo atoms: no proof of {} = {}",
+                    atom.to_egglog(),
+                    partner.to_egglog()
+                );
+                return None;
+            }
+        }
+        let first = self.congruence_by_pairs(source, &rewritten, &map)?;
+        self.stats.computational_edges += 1;
+        Some(chain(
+            source.clone(),
+            vec![
+                first,
+                Certificate::Computational {
+                    kind,
+                    lhs: rewritten,
+                    rhs: target.clone(),
+                },
+            ],
+        ))
+    }
+
+    /// Absorption strategy for `and`/`or` sides whose literal sets differ
+    /// by more than a pairing: a literal of the source is replaced by what
+    /// its e-class says it is in terms of the target's literals -- one of
+    /// them (or a literal of its class), the connective's identity (`(not
+    /// (and x false))` in an `and`), or an application of the connective
+    /// whose elements are absorbed in turn (`(or (and b c) (and a false))`
+    /// is `(and b c)`) -- each replacement proved on its own, and the
+    /// rewritten source is then the target up to flattening, identities
+    /// and duplicates, one ACI step.  cvc5's rewriter produces such blocks
+    /// after non-clausal simplification substitutes the circuit
+    /// propagator's literals and inlines definitions that share conjuncts.
+    pub fn prove_by_absorption(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        if let Some(certificate) = self.absorb_directed(source, target) {
+            return Some(certificate);
+        }
+        if connective(target).is_some() {
+            return self.absorb_directed(target, source).map(reverse);
+        }
+        None
+    }
+
+    fn absorb_directed(&mut self, source: &Term, target: &Term) -> Option<Certificate> {
+        let (operator, identity) = connective(source)?;
+        let mut literals = Vec::new();
+        flatten_aci(&wrapped(target), operator, identity, &mut literals);
+        let mut targets: HashMap<u32, Term> = HashMap::new();
+        for literal in &literals {
+            let class = self.class_of(literal)?;
+            match targets.get(&class) {
+                // Two target literals of one class: which one a source
+                // literal stands for is not the class's to say.
+                Some(previous) if previous != literal => return None,
+                _ => {
+                    targets.insert(class, literal.clone());
+                }
+            }
+        }
+        let identity_term = encoded_bool(identity);
+        let context = AbsorptionContext {
+            operator,
+            identity_class: self.class_of(&identity_term),
+            identity_term,
+            targets,
+        };
+        let (_, elements) = encoded_application(source)?;
+        let mut plans = Vec::new();
+        let mut map: HashMap<Term, Term> = HashMap::new();
+        for element in elements {
+            if map.contains_key(&element) || plans.iter().any(|(e, _, _)| *e == element) {
+                continue;
+            }
+            let (result, plan) = self.absorption_plan(&element, &context, ABSORPTION_DEPTH)?;
+            if result != element {
+                map.insert(element.clone(), result.clone());
+                plans.push((element, result, plan));
+            }
+        }
+        if map.is_empty() {
+            return None;
+        }
+        let rewritten = replace_elements(source, operator, &map);
+        if !aci_equal(&rewritten, target) {
+            log::debug!("absorption: the rewritten source is not ACI-equal to the target");
+            return None;
+        }
+        for (element, result, plan) in &plans {
+            if self.execute_absorption(element, result, plan).is_none() {
+                log::debug!(
+                    "absorption: no proof of {} = {}",
+                    element.to_egglog(),
+                    result.to_egglog()
+                );
+                return None;
+            }
+        }
+        let first = self.congruence_by_pairs(source, &rewritten, &map)?;
+        let mut steps = vec![first];
+        if rewritten != *target {
+            steps.push(Certificate::Computational {
+                kind: Computation::AciNorm,
+                lhs: rewritten,
+                rhs: target.clone(),
+            });
+        }
+        self.stats.computational_edges += 1;
+        Some(chain(source.clone(), steps))
+    }
+
+    /// What `term` becomes under the absorption: a target literal of its
+    /// class, the identity, or (within `depth` levels) its class's smallest
+    /// known application of the connective with its elements absorbed;
+    /// computed from the classes alone, nothing proved yet.
+    fn absorption_plan(
+        &mut self,
+        term: &Term,
+        context: &AbsorptionContext,
+        depth: usize,
+    ) -> Option<(Term, Absorption)> {
+        if self.strategy.out_of_time() {
+            return None;
+        }
+        let class = self.class_of(term)?;
+        if let Some(literal) = context.targets.get(&class) {
+            return Some((literal.clone(), Absorption::Direct));
+        }
+        if context.identity_class == Some(class) {
+            return Some((context.identity_term.clone(), Absorption::Direct));
+        }
+        if depth == 0 {
+            return None;
+        }
+        let representative = self.representative(class)?;
+        let (operator, elements) = encoded_application(&representative)?;
+        if operator != context.operator {
+            return None;
+        }
+        let mut nested = Vec::new();
+        let mut map: HashMap<Term, Term> = HashMap::new();
+        for element in elements {
+            if map.contains_key(&element) || nested.iter().any(|(e, _, _)| *e == element) {
+                continue;
+            }
+            let (result, plan) = self.absorption_plan(&element, context, depth - 1)?;
+            if result != element {
+                map.insert(element.clone(), result.clone());
+                nested.push((element, result, plan));
+            }
+        }
+        let rewritten = replace_elements(&representative, context.operator, &map);
+        Some((
+            rewritten,
+            Absorption::Nested {
+                representative,
+                nested,
+                map,
+            },
+        ))
+    }
+
+    /// Proves `term = result` along its plan; a nested plan's proof is the
+    /// chain `term = representative` (in its class) then the congruence
+    /// over the absorbed elements, memoized for the caller's congruence.
+    fn execute_absorption(&mut self, term: &Term, result: &Term, plan: &Absorption) -> Option<()> {
+        match plan {
+            Absorption::Direct => {
+                if term != result {
+                    self.prove(term, result)?;
+                }
+            }
+            Absorption::Nested {
+                representative,
+                nested,
+                map,
+            } => {
+                for (element, element_result, element_plan) in nested {
+                    self.execute_absorption(element, element_result, element_plan)?;
+                }
+                let mut steps = Vec::new();
+                if term != representative {
+                    steps.push(self.prove(term, representative)?);
+                }
+                if !map.is_empty() {
+                    steps.push(self.congruence_by_pairs(representative, result, map)?);
+                }
+                if term != result {
+                    let certificate = chain(term.clone(), steps);
+                    self.memo
+                        .insert((term.clone(), result.clone()), Some(certificate));
+                }
+            }
+        }
+        Some(())
+    }
+
+    /// The congruence proof of `from = to` for two terms that differ only
+    /// at subterms `pairs` maps (`from`'s to `to`'s), each pair proved in
+    /// its class (or taken from the memo), built along the structure.
+    fn congruence_by_pairs(
+        &mut self,
+        from: &Term,
+        to: &Term,
+        pairs: &HashMap<Term, Term>,
+    ) -> Option<Certificate> {
+        if from == to {
+            return Some(Certificate::Refl { term: from.clone() });
+        }
+        if pairs.get(from) == Some(to) {
+            return self.prove(from, to);
+        }
+        if from.op != to.op || from.children.len() != to.children.len() {
+            return None;
+        }
+        let mut current = from.clone();
+        let mut steps = Vec::new();
+        for child_index in 0..current.children.len() {
+            if current.children[child_index] == to.children[child_index] {
+                continue;
+            }
+            let child = self.congruence_by_pairs(
+                &current.children[child_index],
+                &to.children[child_index],
+                pairs,
+            )?;
+            let mut children = current.children.clone();
+            children[child_index] = to.children[child_index].clone();
+            let next = Term::new(&current.op, children);
+            steps.push(Certificate::Congruence {
+                lhs: current.clone(),
+                rhs: next.clone(),
+                child_index,
+                child: Box::new(child),
+            });
+            current = next;
+        }
+        Some(chain(from.clone(), steps))
     }
 
     /// For `and`/`or` sides whose literal sets differ, the pairing of each
@@ -1910,6 +2191,67 @@ pub fn reconstruct(
 
 /// `term` with every literal of an `operator` list that `replacement` maps
 /// replaced, through nested lists of the same operator.
+/// How deep the absorption looks through nested applications of the
+/// connective (an `or` whose surviving disjunct is an `and` whose element
+/// is an `or` ...).
+const ABSORPTION_DEPTH: usize = 4;
+
+struct AbsorptionContext {
+    operator: &'static str,
+    identity_term: Term,
+    identity_class: Option<u32>,
+    targets: HashMap<u32, Term>,
+}
+
+/// The plan of one absorbed literal (see `prove_by_absorption`).
+enum Absorption {
+    /// A target literal or the identity, of the literal's own class.
+    Direct,
+    /// The class's representative, an application of the connective,
+    /// with its elements absorbed.
+    Nested {
+        representative: Term,
+        nested: Vec<(Term, Term, Absorption)>,
+        map: HashMap<Term, Term>,
+    },
+}
+
+/// The connective of an `and`/`or` application and its identity.
+fn connective(term: &Term) -> Option<(&'static str, bool)> {
+    match encoded_application(&wrapped(term)) {
+        Some(("@and", _)) => Some(("@and", true)),
+        Some(("@or", _)) => Some(("@or", false)),
+        _ => None,
+    }
+}
+
+/// `term`, an application of `operator`, with the elements `map` names
+/// replaced, keeping its argument chain's shape (segments and all), so
+/// that every rebuilt node has an e-graph signature when the replacements
+/// are of the replaced elements' classes.
+fn replace_elements(term: &Term, operator: &str, map: &HashMap<Term, Term>) -> Term {
+    let ("Mk", [application]) = (term.op.as_str(), term.children.as_slice()) else {
+        return term.clone();
+    };
+    if application.op != operator || application.children.len() != 1 {
+        return term.clone();
+    }
+    let list = replace_in_list(&application.children[0], map);
+    Term::new("Mk", vec![Term::new(operator, vec![list])])
+}
+
+fn replace_in_list(list: &Term, map: &HashMap<Term, Term>) -> Term {
+    let replace_cell = |cell: &Term| match cell.op.as_str() {
+        "Empty" => cell.clone(),
+        "Args" => replace_in_list(cell, map),
+        _ => map.get(cell).cloned().unwrap_or_else(|| cell.clone()),
+    };
+    match (list.op.as_str(), list.children.as_slice()) {
+        ("Args", [head, tail]) => Term::new("Args", vec![replace_cell(head), replace_cell(tail)]),
+        _ => list.clone(),
+    }
+}
+
 fn replace_literals(term: &Term, operator: &str, replacement: &HashMap<Term, Term>) -> Term {
     if let Some(mapped) = replacement.get(term) {
         return mapped.clone();

@@ -1,5 +1,5 @@
 //! Checker-side recomputation of the egglog solvers' computational unions.
-use std::{cmp::Ordering, collections::{BTreeMap, HashSet}};
+use std::{cmp::Ordering, collections::{BTreeMap, HashMap, HashSet}};
 use rug::{Integer, Rational};
 use egglog::ast::{Action as EgglogAction, Command as EgglogCommand, GenericExpr, Literal as EgglogLiteral};
 use super::*;
@@ -441,6 +441,92 @@ pub fn poly_of(term: &Term) -> Option<Poly> {
             fold_arith(operator, &elements, &polys)
         }
         _ => Some(Poly::atom(term.clone())),
+    }
+}
+
+/// The atoms of an arithmetic relation or term as `rel_key` and `poly_of`
+/// read them -- the maximal subterms that are neither numerals nor
+/// arithmetic applications -- in order of first occurrence; `None` when
+/// the term is neither a relation nor an arithmetic term.
+pub fn arith_atoms(term: &Term) -> Option<Vec<Term>> {
+    let mut atoms = Vec::new();
+    match relation_sides(term) {
+        Some([a, b]) => {
+            poly_atoms(&a, &mut atoms)?;
+            poly_atoms(&b, &mut atoms)?;
+        }
+        None => poly_atoms(term, &mut atoms)?,
+    }
+    Some(atoms)
+}
+
+/// `term` with its arithmetic atoms replaced as `map` says, only at atom
+/// positions (an atom that occurs inside another atom stays).
+pub fn replace_arith_atoms(term: &Term, map: &HashMap<Term, Term>) -> Term {
+    if let Some((operator, elements)) = encoded_application(term) {
+        let relation = matches!(operator, "@=" | "@>=" | "@<=" | "@>" | "@<") && elements.len() == 2;
+        let negated = operator == "@not" && elements.len() == 1 && relation_sides(term).is_some();
+        if relation || negated {
+            return encoded_app(
+                operator,
+                elements.iter().map(|e| replace_arith_atoms(e, map)).collect(),
+            );
+        }
+    }
+    replace_poly_atoms(term, map)
+}
+
+fn relation_sides(term: &Term) -> Option<[Term; 2]> {
+    let (operator, elements) = encoded_application(term)?;
+    match (operator, elements.as_slice()) {
+        ("@=" | "@>=" | "@<=" | "@>" | "@<", [a, b]) => Some([a.clone(), b.clone()]),
+        ("@not", [inner]) => match encoded_application(inner)? {
+            ("@>=" | "@<=" | "@>" | "@<", sides) if sides.len() == 2 => {
+                Some([sides[0].clone(), sides[1].clone()])
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn poly_atoms(term: &Term, atoms: &mut Vec<Term>) -> Option<()> {
+    let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
+        return None;
+    };
+    match (inner.op.as_str(), inner.children.as_slice()) {
+        ("Num" | "Real" | "RatConst" | "BigNum", _) => Some(()),
+        (operator, [arguments]) if ARITH_OPS.contains(&operator) => {
+            for element in list_elements(arguments)? {
+                poly_atoms(&element, atoms)?;
+            }
+            Some(())
+        }
+        _ => {
+            if !atoms.contains(term) {
+                atoms.push(term.clone());
+            }
+            Some(())
+        }
+    }
+}
+
+fn replace_poly_atoms(term: &Term, map: &HashMap<Term, Term>) -> Term {
+    if let Some(replacement) = map.get(term) {
+        return replacement.clone();
+    }
+    let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) else {
+        return term.clone();
+    };
+    match (inner.op.as_str(), inner.children.as_slice()) {
+        (operator, [arguments]) if ARITH_OPS.contains(&operator) => match list_elements(arguments) {
+            Some(elements) => encoded_app(
+                operator,
+                elements.iter().map(|e| replace_poly_atoms(e, map)).collect(),
+            ),
+            None => term.clone(),
+        },
+        _ => term.clone(),
     }
 }
 
