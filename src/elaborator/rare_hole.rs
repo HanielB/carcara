@@ -1286,6 +1286,19 @@ pub fn reconstruct_from_input(
         .into_iter()
         .next()
         .ok_or_else(|| "hole input contains no TRUST_THEORY_REWRITE hole".to_owned())?;
+    // The worker's goals run in fresh processes spawned from its input.
+    let options = if options.fresh_fallback && options.worker.is_none() {
+        let worker: &'static WorkerInput = Box::leak(Box::new(WorkerInput {
+            text: input.to_owned(),
+            hole_id: step.id.clone(),
+        }));
+        crate::checker::RunEgglogOptions {
+            worker: Some(worker),
+            ..options
+        }
+    } else {
+        options
+    };
     if check_only {
         // The normal forms the parent handed over replace the goal's
         // subterms before translation, so the engine never sees the
@@ -1333,19 +1346,6 @@ pub fn reconstruct_from_input(
             phase,
         );
     }
-    // The worker's goals run in fresh processes spawned from its input.
-    let options = if options.fresh_fallback && options.worker.is_none() {
-        let worker: &'static WorkerInput = Box::leak(Box::new(WorkerInput {
-            text: input.to_owned(),
-            hole_id: step.id.clone(),
-        }));
-        crate::checker::RunEgglogOptions {
-            worker: Some(worker),
-            ..options
-        }
-    } else {
-        options
-    };
     reconstruct_steps_timed(&mut pool, &node, &step, &database, options, phase)
 }
 
@@ -2219,7 +2219,29 @@ fn reconstruct_subgoal(
     if budget.is_some_and(|b| b.is_zero()) {
         return Err(format!("{prefix}: budget exhausted"));
     }
-    subgoal_in_fresh_process(worker, goal, prefix, budget)
+    subgoal_in_fresh_process(worker, goal, prefix, budget, true)
+}
+
+/// The checking-only counterpart of [`reconstruct_subgoal`]: the goal
+/// checked by egglog in a fresh process when the worker has one (the
+/// child inherits `--check-only`), in this one otherwise.
+fn check_subgoal(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    goal: &crate::ast::Rc<crate::ast::Term>,
+    prefix: &str,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    budget: Option<Duration>,
+) -> Result<(), String> {
+    if let Some(worker) = options.worker {
+        if budget.is_some_and(|b| b.is_zero()) {
+            return Err(format!("{prefix}: budget exhausted"));
+        }
+        return subgoal_in_fresh_process(worker, goal, prefix, budget, false).map(|_| ());
+    }
+    let (result, _) = run_egglog(pool, (goal.clone(), node), rules, options);
+    result.map(|_| ()).map_err(|error| format!("egglog check: {error}"))
 }
 
 fn subgoal_in_fresh_process(
@@ -2227,6 +2249,7 @@ fn subgoal_in_fresh_process(
     goal: &crate::ast::Rc<crate::ast::Term>,
     prefix: &str,
     budget: Option<Duration>,
+    expect_steps: bool,
 ) -> Result<Vec<String>, String> {
     use std::io::{Read, Write};
     let head = format!("(step {} (cl ", worker.hole_id);
@@ -2322,7 +2345,7 @@ fn subgoal_in_fresh_process(
                 .filter(|line| !line.trim().is_empty())
                 .map(str::to_owned)
                 .collect();
-            if steps.is_empty() {
+            if steps.is_empty() && expect_steps {
                 Err(format!("fresh process for {prefix}: no steps"))
             } else {
                 Ok(steps)
@@ -3133,12 +3156,17 @@ fn check_by_atoms(
             eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
             return None;
         }
+        let remaining = remaining.map(|r| {
+            let left = (pairs.len() - n).max(1) as u32;
+            r.min((r / left * 2).max(Duration::from_secs(8)))
+        });
         let pair = pool.add(crate::ast::Term::Op(
             crate::ast::Operator::Equals,
             vec![a.clone(), b.clone()],
         ));
-        let (result, _) = run_egglog(pool, (pair.clone(), node), rules, descent_pair_options(options, remaining));
-        if let Err(error) = result {
+        let prefix = format!("check.a{}", n + 1);
+        let sub_options = descent_pair_options(options, remaining);
+        if let Err(error) = check_subgoal(pool, node, &pair, &prefix, rules, sub_options, remaining) {
             eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
             log::debug!("atom pair {} not checked: {error}; {}", n + 1, abbreviated(&pair));
             return None;
@@ -3157,8 +3185,7 @@ fn check_by_atoms(
             descend_min_nodes: 0,
             ..options
         };
-        let (result, _) = run_egglog(pool, (whole.clone(), node), rules, whole_options);
-        if let Err(error) = result {
+        if let Err(error) = check_subgoal(pool, node, &whole, "check.w", rules, whole_options, remaining) {
             eprintln!("phase atoms-failed={:.3}", started.elapsed().as_secs_f64());
             log::debug!("rewritten goal not checked: {error}; {}", abbreviated(&whole));
             return None;
@@ -3185,6 +3212,19 @@ fn check_by_descent(
         .timeout
         .and_then(|timeout| Instant::now().checked_add(timeout));
     let started = Instant::now();
+    // The pairs counted first, for their shares (as in the elaboration).
+    let mut pairs = 0usize;
+    let mut dry = |_: &mut dyn TermPool,
+                   _: &crate::ast::Rc<crate::ast::Term>,
+                   _: &crate::ast::Rc<crate::ast::Term>,
+                   _: usize,
+                   _: &mut Vec<String>|
+     -> Result<String, String> {
+        pairs += 1;
+        Ok(String::new())
+    };
+    descend(pool, &lhs, &rhs, "check", &mut Vec::new(), &mut 0, &mut dry).ok()?;
+    let deadline = deadline.map(|d| started + d.saturating_duration_since(started) * 3 / 4);
     let mut out = Vec::new();
     let mut goals = 0;
     let mut base = |pool: &mut dyn TermPool,
@@ -3197,6 +3237,10 @@ fn check_by_descent(
         if remaining.is_some_and(|r| r.is_zero()) {
             return Err("descent: budget exhausted".to_owned());
         }
+        let remaining = remaining.map(|r| {
+            let left = (pairs + 1).saturating_sub(n).max(1) as u32;
+            r.min((r / left * 2).max(Duration::from_secs(8)))
+        });
         let goal = pool.add(crate::ast::Term::Op(
             crate::ast::Operator::Equals,
             vec![a.clone(), b.clone()],
@@ -3209,10 +3253,10 @@ fn check_by_descent(
         if let Some(Ok(())) = check_by_atoms(pool, node, &goal, rules, atom_options, &mut |_, _| {}) {
             return Ok(format!("d{n}"));
         }
-        let (result, _) = run_egglog(pool, (goal.clone(), node), rules, sub_options);
-        result
-            .map(|_| format!("d{n}"))
-            .map_err(|error| format!("egglog check: {error}; atom goal {n}: {}", abbreviated(&goal)))
+        let prefix = format!("check.d{n}");
+        check_subgoal(pool, node, &goal, &prefix, rules, sub_options, remaining)
+            .map(|()| format!("d{n}"))
+            .map_err(|error| format!("{error}; atom goal {n}: {}", abbreviated(&goal)))
     };
     let verdict = descend(pool, &lhs, &rhs, "check", &mut out, &mut goals, &mut base);
     match verdict {
