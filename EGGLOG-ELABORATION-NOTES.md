@@ -5735,3 +5735,20 @@ unproved); `simple_vardep_1` 1,332 of 1,357, 6 kept (3 hole-time, 3
 pass-budget), 19 skipped (before: 13 kept, 10 unproved).  No `unproved`
 and no `memory` left on the four; what is left is the pass budget on
 1,000-hole proofs and the 60 s hole budget on the long sums.
+
+**Corpus gen8** (db589348, `out-gen8`, the harness's check pass with the
+descent now): 37 of 39 checked holes closed, from 35 of 43 in gen7, no
+regression: `calypto-t476` is back (263 s), `t2764` and `t3103` close
+faster, `t3098` closes in 62 s and `t3103` in 47 s where gen7 killed
+both in a descent pair.  Left: `calypto-t202` (time in the search) and
+`dart-t2439` (no certificate).  Nine were not checked, two of them
+(`t3098`, `t3103`) elaborated and closed: the checking pass still ran
+its pairs inside the worker and died on a pair's memory.  It runs them
+in fresh processes with the pairs' shares now (e6bc8ae4; the check-only
+child answers with its exit code), and checks `t3098`, `t3103`,
+`t1194`, `t1427`, `t2755` in 23--42 s; the four left (`dart-t1988`,
+`dart-t2148`, `dart-t3372`, `calypto-ho33`) die at the memory limit in
+the whole goal's egglog, in a process of their own -- the resource
+bound, not the pipeline.  `t1194`, `t1427` and `t2755` are thus checked
+and not elaborated (gen8: no certificate, hole-time, no certificate):
+the next round's cases.  Static binary at e6bc8ae4.
