@@ -499,7 +499,13 @@ impl EGraph {
                 .iter()
                 .map(|(v, info)| {
                     let size = info.size_guess as isize;
-                    let cost = (info.occurences.len(), info.intersected_on, -size);
+                    // Carcara: a variable that shares an atom with one already
+                    // bound comes first.  Ordered by occurrences alone, a rule
+                    // whose leaves occur several times bound them one after
+                    // the other, each ranging over the whole table, before
+                    // any atom related them: a cross product.
+                    let connected = info.intersected_on > 0;
+                    let cost = (connected, info.occurences.len(), info.intersected_on, -size);
                     (cost, v)
                 })
                 .collect::<Vec<_>>();

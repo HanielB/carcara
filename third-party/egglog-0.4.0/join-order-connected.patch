@@ -1,0 +1,17 @@
+--- /home/hbarbosa/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egglog-0.4.0/src/gj.rs	2006-07-23 22:21:28.000000000 -0300
++++ third-party/egglog-0.4.0/src/gj.rs	2026-09-27 18:46:54.664104999 -0300
+@@ -499,7 +499,13 @@
+                 .iter()
+                 .map(|(v, info)| {
+                     let size = info.size_guess as isize;
+-                    let cost = (info.occurences.len(), info.intersected_on, -size);
++                    // Carcara: a variable that shares an atom with one already
++                    // bound comes first.  Ordered by occurrences alone, a rule
++                    // whose leaves occur several times bound them one after
++                    // the other, each ranging over the whole table, before
++                    // any atom related them: a cross product.
++                    let connected = info.intersected_on > 0;
++                    let cost = (connected, info.occurences.len(), info.intersected_on, -size);
+                     (cost, v)
+                 })
+                 .collect::<Vec<_>>();

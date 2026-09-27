@@ -6097,3 +6097,114 @@ regression replays of §47.25 unchanged to the hole, no rejection.
 The search's debug lines no longer print trees either: `to_egglog` labels
 a subterm with more than one parent (`#k=` where it first occurs, `#k`
 after), within its 400-node bound.
+
+### 47.27 The holes egglog died on, and egglog's join order (2026-09-27)
+
+After §47.26 four of §47.24's slices were left, all dying inside egglog
+before any search: `benchmark17`'s ho379 and ho560, `terminator`'s t14751
+and t15476.  The goals are small (2 to 4 KB printed with sharing, 70 to
+130 distinct compound subterms); what fails is one egglog iteration, which
+cannot be interrupted, while the caps (tuples, resident memory) are checked
+between iterations.  And egglog keeps every match of every rule of an
+iteration in one flat vector before it applies any, so a match explosion is
+a memory explosion.  Three mechanisms, in the order the holes met them:
+
+1. **The set form's splice.**  `general_set_conversion` splices a nested
+   `and` into its parent: an element of an `and` set whose class holds an
+   `and` is replaced by that `and`'s elements.  The class of `false` holds
+   every `(and ... false)` of the goal, so a set with a false-valued element
+   received every such conjunction, in every combination: ho379's e-graph
+   went 19k, 91k, 369k tuples in three steps of `set-ruleset` (the splice
+   matching 35k, 3.6M, 19M times), and the next step's allocation failed.
+   Splicing a constant-valued element is useless (the absorbing and identity
+   rules decide such a set); a guard that skips them saturates the set rules
+   at 15k to 41k tuples on the four.
+2. **Set-form list rules.**  A RARE list rule on the set form asks
+   `(set-contains elements (Mk b))` with `b` free; a primitive cannot bind
+   `b`, so the query enumerated every `Mk` node for every set (ho379 with the
+   guard: one rule 0.9M matches, `list-ruleset` steps of 25 s and 80 s on an
+   e-graph of 15k to 18k tuples).  The fix is a membership relation
+   `setMember (set, element)`, filled by position (`set-get`) for every
+   `Assoc` set, that the list rules and the splice match through.
+3. **egglog's join order**, reached once 1 and 2 were out of the way: see
+   below.
+
+Items 1 and 2 are not committed: with them, `benchmark02_linear`'s hole
+t2877 gets a different certificate, 2,609 steps with 24 trusted
+`arith_poly_norm_rel` steps (re-check holey) against 544 steps and none;
+the join order alone leaves it as it was.  That is the next thing to read.
+
+**The join order.**  A query is a conjunction of atoms, one per constructor
+application, every intermediate term a variable; the encoding wraps each
+pattern leaf in `Mk`, one atom `(Mk leaf _)` per use of the leaf, so a leaf
+used n times occurs in n atoms while a structural variable occurs in two
+(where its term is built and where its parent uses it).  egglog 0.4 joins
+one variable at a time (generic join): each variable is bound to the values
+every atom mentioning it allows given the variables bound before it, so an
+atom with another variable bound narrows the candidates to a few (a bound
+input of `Mk` leaves one output), and an atom with nothing bound offers its
+whole column.  The next variable is chosen greedily by (occurrences, atoms
+shared with the variables chosen, smallest table).  On RARE's `ite-eq`,
+`(ite C (= (ite C t1 t2) t1) (= (ite C t1 t2) t2)) = true` (39 atoms, `C`
+in 4, `t1` and `t2` in 3), the order was `C t1 t2 ...`: after `C`, the two
+leaves beat every structural variable connected to `C`, and each ranged
+over the whole `Mk` input column, since intersecting that column with
+itself narrows nothing.  At 1,788 `Mk` nodes that is 1,686 x 1,788 x 1,788
+= 5.4 billion partial bindings before any `Args` or `ite` atom, or the
+Boolean guard on `C`, is consulted; ho379's worker died in it.
+
+`join-order-connected.patch` (the vendored egglog's `src/gj.rs`, listed in
+`CARCARA-PATCHES.md`) puts first a variable that shares an atom with one
+already bound; the first variable is still the most frequent one.  The
+same query's order becomes `C $Mk9297 $Mk9286 $Args9285 $Args9287
+$@ite9284 $Mk9288 t1 ... t2 ...`: `C` filtered by its sort guard, then
+its parents up through the argument cells and the `ite`, and `t1` bound
+where its cell leaves one or two candidates (0.7 ms on an earlier
+iteration).  A join's matches are the same in any order; what changes is
+the work to enumerate them, and the order in which they are applied.
+
+**Replays**, the build before (f74ad5e9) against the join order alone,
+2 workers x 6 GB, each followed by the re-check
+(`~/exp/egglog-holes/rejects/joincheck.sh`, `basecheck.sh`): justified,
+re-check, hole pass.
+
+| replay (holes) | before | join order |
+|---|---|---|
+| Dartagnan for_infinite_loop_1 (550) | 550, valid, 98 s | 550, valid, 101 s |
+| SAL Carpark2-ausgabe-2 (4) | 4, valid, 39 s | 4, valid, 1.5 s |
+| SAL Carpark2-ausgabe-7 (253) | 253, valid, 151 s | 253, valid, 4.9 s |
+| bofill ex13700 (169) | 169, holey, 13 s | 169, holey, 14 s |
+| QG iso_brn028 (121) | 121, valid, 4.8 s | 121, valid, 5.1 s |
+| QG iso_icl108 (235) | 235, valid, 30 s | 235, valid, 30 s |
+| Dartagnan benchmark02 (132) | 132, valid, 35 s | 132, valid, 36 s |
+| Dartagnan benchmark17 (482) | 480, holey, 303 s | 480, holey, 284 s |
+| Dartagnan terminator_03-2 (817) | 814, holey, 431 s | 814, holey, 418 s |
+| Goel sokoban (883) | 883, valid, 149 s | 883, valid, 41 s |
+| Goel Unidec_br (748) | 747, holey, 109 s | 748, valid, 44 s |
+| Heizmann bubblesort (2,385) | 2,385, valid, 124 s | 2,385, valid, 121 s |
+
+bofill's holey is its one hole outside the pass, as before; no checker
+rejection, no trust step anywhere.  Per hole, egglog's time on the 4,135
+holes both builds logged at more than 20 ms: 1,009 s to 598 s in total,
+median ratio 0.99, 0.6% slower by more than 1.5x (all of them at tens of
+milliseconds).  The order changes nothing on the ordinary hole and removes
+the heavy tail: Carpark2-ausgabe-7 104 s of egglog to 7.6 s, sokoban 157 s
+to 40 s, Unidec_br 89 s to 36 s.  §47.24's whole-goal slices: calypto-t202's
+egglog 9.7 s to 0.4 s, the five `Unidec_br` holes 0.74 s to 0.06 s each,
+forinf-t7528 2.0 s to 0.15 s; the four above still die in the splice
+(mechanism 1), which the join order does not touch.
+
+**Newer egglog.**  1.0 replaced this engine with a new backend
+(`egglog-core-relations`), where the patch has nothing to apply to and the
+problem is handled by design (read in the 2.0 and 3.0 sources): the join
+stages are re-sorted at run time, before and during the join, by how often
+their atoms were already refined, then the estimated size under the current
+bindings; atoms with the same function and inputs are merged to fixpoint
+(2.0, #777), so `ite-eq`'s four `(Mk C _)` atoms are one; and 3.0 decomposes
+a query into bags evaluated separately.  The splice and the `set-contains`
+queries are the encoding's, not the planner's.
+
+Still weak: the first variable is chosen by occurrences, where the small
+semi-naive delta atom would be the natural start; the sizes are the
+tables', not given what is bound; a pattern whose parts share no variable
+is a cross product in any order.
