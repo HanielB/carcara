@@ -1706,7 +1706,7 @@ pub(crate) fn virtual_mb() -> Option<usize> {
 
 /// The process's resident set in megabytes, from `/proc/self/statm`; `None`
 /// where that is unavailable.
-fn resident_mb() -> Option<usize> {
+pub(crate) fn resident_mb() -> Option<usize> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let pages: usize = statm.split_whitespace().nth(1)?.parse().ok()?;
     Some(pages.saturating_mul(4096) / (1024 * 1024))

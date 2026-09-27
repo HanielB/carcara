@@ -986,6 +986,17 @@ impl Reconstructor<'_> {
         else {
             return None;
         };
+        // The goal's own sides first: when their keys agree the step is
+        // theirs, and the candidates' extraction over a long sum's `Args`
+        // chain is what the budget would go to.
+        if let Some(kind) = arith_kind(source, target, self.sorts) {
+            self.stats.computational_edges += 1;
+            return Some(Certificate::Computational {
+                kind,
+                lhs: source.clone(),
+                rhs: target.clone(),
+            });
+        }
         let left = self.arith_candidates(source, source_class);
         let right = self.arith_candidates(target, target_class);
         for lhs in &left {
@@ -1024,12 +1035,17 @@ impl Reconstructor<'_> {
         // path is a checkable certificate, while an arithmetic computation
         // still has to be routed into `poly_simp_rel` steps and may end up
         // trusted.
+        // The arithmetic normalizations come right after the exact
+        // computations: their steps are checker-decided too since the
+        // `la_generic` equivalence replaced the trusted form, and a
+        // relation over a forty-term sum against its mirror is one such
+        // step where the transitive search over the class does not end.
         self.prove_by_list_rule(source, target)
             .or_else(|| self.prove_by_computation(source, target))
+            .or_else(|| self.prove_by_arith(source, target))
             .or_else(|| self.prove_by_congruence(source, target))
             .or_else(|| self.prove_by_transitivity(source, target, eclass))
             .or_else(|| self.prove_by_aci(source, target))
-            .or_else(|| self.prove_by_arith(source, target))
             .or_else(|| self.prove_by_aci_modulo(source, target))
     }
 

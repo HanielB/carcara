@@ -812,7 +812,9 @@
 ;; exist; this creates the mirror so that `ite-not-cond` and the
 ;; tightening rules can reach the printed shape.  The mirror's inner
 ;; relation leads with a positive coefficient, so the rule does not fire
-;; on it again.
+;; on it again.  (Mirroring every relation, which would not depend on the
+;; term order the producer's leading coefficient is read in, made the
+;; e-graph of a Dartagnan goal four to six times slower.)
 ;; ------------------------------------------------------------------
 (ruleset arith_rel_flip)
 

@@ -106,6 +106,11 @@ pub struct ReconstructHoleOptions {
     #[clap(long, value_name = "NODES")]
     pub descend_min_nodes: Option<usize>,
 
+    /// The descent before the whole goal (a worker re-executed after a
+    /// failed whole-goal attempt).
+    #[clap(long)]
+    pub descend_first: bool,
+
     /// See `--rare-list-encoding`.
     #[clap(long, value_enum, default_value = "set-form")]
     pub list_encoding: ListEncodingArg,

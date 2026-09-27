@@ -1333,6 +1333,19 @@ pub fn reconstruct_from_input(
             phase,
         );
     }
+    // The worker's goals run in fresh processes spawned from its input.
+    let options = if options.fresh_fallback && options.worker.is_none() {
+        let worker: &'static WorkerInput = Box::leak(Box::new(WorkerInput {
+            text: input.to_owned(),
+            hole_id: step.id.clone(),
+        }));
+        crate::checker::RunEgglogOptions {
+            worker: Some(worker),
+            ..options
+        }
+    } else {
+        options
+    };
     reconstruct_steps_timed(&mut pool, &node, &step, &database, options, phase)
 }
 
@@ -2144,36 +2157,177 @@ pub fn reconstruct_steps_timed(
     let atoms = !structural && atom_sides(pool, conclusion, options).is_some();
     if !options.descend_first && (structural || atoms) {
         let started = Instant::now();
-        let quarter = deadline.map(|d| started + d.saturating_duration_since(started) / 4);
+        // A quarter of the budget, ten seconds at most: a goal the whole
+        // attempt closes closes fast, and a Dartagnan goal of seventy
+        // pairs needs the budget for its pairs.
+        let quarter = deadline.map(|d| {
+            started + (d.saturating_duration_since(started) / 4).min(Duration::from_secs(10))
+        });
         if let Ok(steps) =
-            reconstruct_goal(pool, node, conclusion, &step.id, rules, options, quarter, phase)
+            reconstruct_subgoal(pool, node, conclusion, &step.id, rules, options, quarter, phase)
         {
             return Ok(steps);
         }
         eprintln!("phase whole-first={:.3}", started.elapsed().as_secs_f64());
     }
-    match reconstruct_by_descent(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
-        Descent::Proved(steps) => return Ok(steps),
-        Descent::Failed if options.fresh_fallback => {
-            // The whole goal in a fresh process: the caller re-executes
-            // itself without the descent (see `DESCENT_RETRY`).
-            return Err(DESCENT_RETRY.to_owned());
-        }
-        Descent::Failed | Descent::NotApplicable => {}
+    if let Descent::Proved(steps) =
+        reconstruct_by_descent(pool, node, conclusion, &step.id, rules, options, deadline, phase)
+    {
+        return Ok(steps);
     }
     if atoms {
-        match reconstruct_by_atoms(pool, node, conclusion, &step.id, rules, options, deadline, phase) {
-            Descent::Proved(steps) => return Ok(steps),
-            Descent::Failed if options.fresh_fallback => return Err(DESCENT_RETRY.to_owned()),
-            Descent::Failed | Descent::NotApplicable => {}
+        if let Descent::Proved(steps) =
+            reconstruct_by_atoms(pool, node, conclusion, &step.id, rules, options, deadline, phase)
+        {
+            return Ok(steps);
         }
     }
-    reconstruct_goal(pool, node, conclusion, &step.id, rules, options, deadline, phase)
+    reconstruct_subgoal(pool, node, conclusion, &step.id, rules, options, deadline, phase)
 }
 
-/// The error a worker returns when its descent failed and the whole goal
-/// is to be retried in a fresh process (`RunEgglogOptions::fresh_fallback`).
-pub const DESCENT_RETRY: &str = "descent failed: retry the whole goal in a fresh process";
+/// An isolated worker's input and the id of its hole, kept (leaked, once)
+/// for the fresh processes the worker spawns for its goals.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WorkerInput {
+    pub text: String,
+    pub hole_id: String,
+}
+
+/// One goal `(= lhs rhs)`, numbered under `prefix`: in a fresh process
+/// when the worker has one to give (`RunEgglogOptions::worker`), in this
+/// one otherwise.  The child gets the worker's input with the hole step
+/// replaced by the goal, the worker's command line without the descent,
+/// what is left of the deadline as its budget, and a kill a few seconds
+/// past it; its steps are its stdout.
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_subgoal(
+    pool: &mut dyn TermPool,
+    node: &crate::ast::Rc<ProofNode>,
+    goal: &crate::ast::Rc<crate::ast::Term>,
+    prefix: &str,
+    rules: &Rules,
+    options: crate::checker::RunEgglogOptions,
+    deadline: Option<Instant>,
+    phase: &mut dyn FnMut(&str, Duration),
+) -> Result<Vec<String>, String> {
+    let Some(worker) = options.worker else {
+        return reconstruct_goal(pool, node, goal, prefix, rules, options, deadline, phase);
+    };
+    let budget = deadline
+        .map(|d| d.saturating_duration_since(Instant::now()))
+        .or(options.timeout);
+    if budget.is_some_and(|b| b.is_zero()) {
+        return Err(format!("{prefix}: budget exhausted"));
+    }
+    subgoal_in_fresh_process(worker, goal, prefix, budget)
+}
+
+fn subgoal_in_fresh_process(
+    worker: &WorkerInput,
+    goal: &crate::ast::Rc<crate::ast::Term>,
+    prefix: &str,
+    budget: Option<Duration>,
+) -> Result<Vec<String>, String> {
+    use std::io::{Read, Write};
+    let head = format!("(step {} (cl ", worker.hole_id);
+    let mut text = String::with_capacity(worker.text.len());
+    let mut replaced = false;
+    for line in worker.text.lines() {
+        match line.strip_prefix(&head) {
+            Some(rest) => {
+                let tail = rest
+                    .find(") :rule hole")
+                    .ok_or_else(|| "fresh process: the hole step has no rule".to_owned())?;
+                text.push_str(&format!("(step {prefix} (cl {goal:#}){}", &rest[tail + 1..]));
+                replaced = true;
+            }
+            None => text.push_str(line),
+        }
+        text.push('\n');
+    }
+    if !replaced {
+        return Err("fresh process: the hole step is not in the input".to_owned());
+    }
+    let mut arguments: Vec<String> = Vec::new();
+    let mut skip = false;
+    for argument in std::env::args().skip(1) {
+        if skip {
+            skip = false;
+            continue;
+        }
+        match argument.as_str() {
+            "--descend-min-nodes" | "--rare-check-timeout" => skip = true,
+            "--descend-first" => {}
+            _ => arguments.push(argument),
+        }
+    }
+    if let Some(budget) = budget {
+        arguments.push("--rare-check-timeout".to_owned());
+        arguments.push(budget.as_millis().max(1).to_string());
+    }
+    let exe = std::env::current_exe().map_err(|e| format!("fresh process: {e}"))?;
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(&arguments)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit());
+    // The child dies with this worker: the parent's budget kills this pid
+    // only, and an orphan would run on.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            command.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
+        }
+    }
+    let mut child = command.spawn().map_err(|e| format!("fresh process: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "fresh process: no stdout".to_owned())?;
+    let reader = std::thread::spawn(move || {
+        let mut output = String::new();
+        let _ = stdout.read_to_string(&mut output);
+        output
+    });
+    let started = Instant::now();
+    let kill_at = budget.map(|b| started + b + Duration::from_secs(3));
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| format!("fresh process: {e}"))? {
+            break Some(status);
+        }
+        if kill_at.is_some_and(|kill_at| Instant::now() >= kill_at) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let output = reader.join().unwrap_or_default();
+    match status {
+        Some(status) if status.success() => {
+            let steps: Vec<String> = output
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_owned)
+                .collect();
+            if steps.is_empty() {
+                Err(format!("fresh process for {prefix}: no steps"))
+            } else {
+                Ok(steps)
+            }
+        }
+        Some(status) => Err(format!("fresh process for {prefix} exited with {status}")),
+        None => Err(format!("fresh process for {prefix}: budget exhausted, killed")),
+    }
+}
 
 /// What the structural descent made of a goal.
 pub enum Descent {
@@ -2534,7 +2688,13 @@ fn descent_pair_options(
         // not hold it).
         growth_cap_arith: capped(options.growth_cap_arith, 20_000_000),
         growth_cap_plain: capped(options.growth_cap_plain, 4_000_000),
-        memory_soft_cap_mb: capped(options.memory_soft_cap_mb, 2_000),
+        // Two gigabytes of growth: the cap is on the resident set, and a
+        // process that already tried the whole goal (or earlier pairs)
+        // keeps what it freed.
+        memory_soft_cap_mb: capped(
+            options.memory_soft_cap_mb,
+            2_000 + crate::rare::engine::resident_mb().unwrap_or(0),
+        ),
         ..options
     }
 }
@@ -2579,10 +2739,28 @@ fn reconstruct_by_descent(
         return Descent::NotApplicable;
     };
     let started = Instant::now();
-    // The descent gets half of what is left: a descent that fails late
-    // would otherwise leave the whole-goal fallback nothing (rw3 lost
-    // fifteen LassoRanker proofs that way).
-    let deadline = deadline.map(|d| started + d.saturating_duration_since(started) / 2);
+    // How many pairs the descent has (a dry run, no goal solved), so
+    // that each gets its share of the budget: twice an even share, eight
+    // seconds at least, what is left at most -- one pair the alignment
+    // got wrong cannot take the others' time.
+    let mut pairs = 0usize;
+    let mut dry = |_: &mut dyn TermPool,
+                   _: &crate::ast::Rc<crate::ast::Term>,
+                   _: &crate::ast::Rc<crate::ast::Term>,
+                   _: usize,
+                   _: &mut Vec<String>|
+     -> Result<String, String> {
+        pairs += 1;
+        Ok(String::new())
+    };
+    if descend(pool, &lhs, &rhs, id, &mut Vec::new(), &mut 0, &mut dry).is_err() {
+        return Descent::NotApplicable;
+    }
+    // The descent gets three quarters of what is left: a descent that
+    // fails late must leave the whole-goal fallback something (rw3 lost
+    // fifteen LassoRanker proofs that way), and its pairs are where a
+    // Dartagnan goal's time goes.
+    let deadline = deadline.map(|d| started + d.saturating_duration_since(started) * 3 / 4);
     let mut timed: Vec<(String, Duration)> = Vec::new();
     let mut out = Vec::new();
     let mut goals = 0;
@@ -2596,6 +2774,11 @@ fn reconstruct_by_descent(
         if remaining.is_some_and(|r| r.is_zero()) {
             return Err("descent: budget exhausted".to_owned());
         }
+        let remaining = remaining.map(|r| {
+            let left = (pairs + 1).saturating_sub(n).max(1) as u32;
+            r.min((r / left * 2).max(Duration::from_secs(8)))
+        });
+        let deadline = remaining.map(|r| Instant::now() + r);
         let prefix = format!("{id}.d{n}");
         let goal = pool.add(crate::ast::Term::Op(
             crate::ast::Operator::Equals,
@@ -2608,8 +2791,22 @@ fn reconstruct_by_descent(
                 None => timed.push((name.to_owned(), spent)),
             }
         };
+        // A pair whose sides differ in a numeric atom (a relation over
+        // sums holding an `ite` the producer rewrote) goes through the
+        // atom alignment first; the pair as stated is its fallback.
+        let atom_options = crate::checker::RunEgglogOptions {
+            descend_min_nodes: options.descend_min_nodes,
+            ..sub_options
+        };
+        if let Descent::Proved(steps) =
+            reconstruct_by_atoms(pool, node, &goal, &prefix, rules, atom_options, deadline, &mut accumulate)
+        {
+            let last = format!("{prefix}.{}", steps.len());
+            out.extend(steps);
+            return Ok(last);
+        }
         let steps =
-            reconstruct_goal(pool, node, &goal, &prefix, rules, sub_options, deadline, &mut accumulate)
+            reconstruct_subgoal(pool, node, &goal, &prefix, rules, sub_options, deadline, &mut accumulate)
                 .map_err(|reason| format!("{reason}; atom goal {n}: {}", abbreviated(&goal)))?;
         let last = format!("{prefix}.{}", steps.len());
         out.extend(steps);
@@ -2820,8 +3017,9 @@ fn reconstruct_by_atoms(
         return Descent::NotApplicable;
     };
     let started = Instant::now();
-    // The pairs get half of what is left, the rewritten goal the rest.
-    let pair_deadline = deadline.map(|d| started + d.saturating_duration_since(started) / 2);
+    // The pairs get three quarters of what is left, each its share (as
+    // the descent's pairs), the rewritten goal the rest.
+    let pair_deadline = deadline.map(|d| started + d.saturating_duration_since(started) * 3 / 4);
     let mut timed: Vec<(String, Duration)> = Vec::new();
     let mut out = Vec::new();
     let mut map = Vec::new();
@@ -2835,6 +3033,11 @@ fn reconstruct_by_atoms(
         if remaining.is_some_and(|r| r.is_zero()) {
             return failed(started, "budget exhausted".to_owned());
         }
+        let remaining = remaining.map(|r| {
+            let left = (pairs.len() - n).max(1) as u32;
+            r.min((r / left * 2).max(Duration::from_secs(8)))
+        });
+        let pair_deadline = remaining.map(|r| Instant::now() + r);
         let prefix = format!("{id}.a{}", n + 1);
         let goal = pool.add(crate::ast::Term::Op(
             crate::ast::Operator::Equals,
@@ -2847,7 +3050,7 @@ fn reconstruct_by_atoms(
                 None => timed.push((name.to_owned(), spent)),
             }
         };
-        match reconstruct_goal(pool, node, &goal, &prefix, rules, sub_options, pair_deadline, &mut accumulate) {
+        match reconstruct_subgoal(pool, node, &goal, &prefix, rules, sub_options, pair_deadline, &mut accumulate) {
             Ok(steps) => {
                 let last = format!("{prefix}.{}", steps.len());
                 out.extend(steps);
@@ -2879,7 +3082,7 @@ fn reconstruct_by_atoms(
                 None => timed.push((name.to_owned(), spent)),
             }
         };
-        match reconstruct_goal(pool, node, &whole, &prefix, rules, whole_options, deadline, &mut accumulate) {
+        match reconstruct_subgoal(pool, node, &whole, &prefix, rules, whole_options, deadline, &mut accumulate) {
             Ok(steps) => {
                 let last = format!("{prefix}.{}", steps.len());
                 out.extend(steps);
@@ -2995,6 +3198,13 @@ fn check_by_descent(
             vec![a.clone(), b.clone()],
         ));
         let sub_options = descent_pair_options(options, remaining);
+        let atom_options = crate::checker::RunEgglogOptions {
+            descend_min_nodes: options.descend_min_nodes,
+            ..sub_options
+        };
+        if let Some(Ok(())) = check_by_atoms(pool, node, &goal, rules, atom_options, &mut |_, _| {}) {
+            return Ok(format!("d{n}"));
+        }
         let (result, _) = run_egglog(pool, (goal.clone(), node), rules, sub_options);
         result
             .map(|_| format!("d{n}"))

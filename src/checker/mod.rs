@@ -135,17 +135,22 @@ pub struct RunEgglogOptions {
     /// goal the fallback.  Zero disables it.
     pub descend_min_nodes: usize,
 
-    /// After a failed descent, ask the caller to retry the whole goal in a
-    /// fresh process instead of in this one: the sub-goals' e-graphs leave
-    /// the address space fragmented, and the whole goal's run then dies at
-    /// the memory limit where a fresh process proves it.  Set by the
-    /// isolated worker, which can re-execute itself.
+    /// Run every egglog goal in a fresh process (see `worker`): an
+    /// attempt's e-graph is freed but the address space it grew is not
+    /// given back, and a statement past its deadline is only stopped by a
+    /// kill.  Set by the isolated worker, which can re-execute itself.
     pub fresh_fallback: bool,
 
     /// Skip the whole-goal attempt that precedes the descent (a test's
     /// setting, to exercise the descent on a goal the whole attempt would
     /// close first).
     pub descend_first: bool,
+
+    /// The isolated worker's own input and hole, set by the worker when
+    /// `fresh_fallback` holds: every egglog goal (the whole goal, a
+    /// descent pair, an atom pair) then runs in a fresh process spawned
+    /// from it, with its own budget and address space.
+    pub worker: Option<&'static crate::elaborator::rare_hole::WorkerInput>,
 }
 
 /// The two compilations of a `:list` parameter, which stands for a possibly
@@ -181,6 +186,7 @@ impl Default for RunEgglogOptions {
             list_encoding: ListEncoding::SetForm,
             descend_min_nodes: 0,
             fresh_fallback: false,
+            worker: None,
             descend_first: false,
         }
     }

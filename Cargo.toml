@@ -14,6 +14,7 @@ license = "Apache-2.0"
 
 [dependencies]
 carcara-macros = { path = "carcara-macros" }
+libc = "0.2"
 clap = { version = "4.6.6", features = ["derive"] }
 crossbeam-queue = "0.3.13"
 ansi_term = "0.12"

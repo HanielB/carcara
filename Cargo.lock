@@ -137,6 +137,7 @@ dependencies = [
  "egglog 0.4.0",
  "egglog 3.0.0",
  "indexmap",
+ "libc",
  "log",
  "nom",
  "num",
