@@ -6329,9 +6329,11 @@ finished: 1,833 holes from hole-time to justified, and 126 checker-rejected,
 57 pass-budget, 34 no-certificate, 19 unproved and 9 memory holes
 justified; 70 hole-time holes now kept on memory, 57 as unproved and 29 as
 no-certificate (egglog now gets further within the 60 s).  Against that,
-225 holes rw4 justified are kept: 221 in Dartagnan (182 hole-time, 108 of
-them in in-de20-O0, not fully justified in either run; 21 pass-budget; 18
-memory, sendmail-close-angle) and 4 unproved in rings.  Of the hole-time
+225 holes rw4 justified are kept: 200 in Dartagnan (161 hole-time in 8
+proofs, 109 of them in in-de20-O0, not fully justified in either run, and
+38 in seq-3-O0; 21 pass-budget; 18 memory in sendmail-close-angle, seq-3
+and theatreSquare), 21 hole-time in clock_synchro, SMPT and LassoRanker, one
+or two per proof, and 4 unproved in rings.  Of the hole-time
 ones whose rw4 time is logged, 115 took 40 s or more in rw4 and 15 took 20
 to 40 s: holes at the 60 s limit.  The rings four took under 5 s in rw4 and
 egglog now saturates without the goal (`ring_2exp14_3vars_2ite_unsat`

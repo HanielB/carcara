@@ -11,6 +11,7 @@
 \graphicspath{{plots/}}
 \input{tables/macros}
 \input{tables/rw3-macros}
+\input{tables/rw5-macros}
 \emergencystretch=2em
 
 \newcommand{\UF}{QF\_UF}
@@ -22,7 +23,8 @@
   run \code{rw2} on \UF{}, \LIA{} and \LRA{}, and the state of the tooling}
 \author{Carcara branch \code{egglog/rewrite-holes}}
 \date{Run of 2026-09-24/25 (binary \code{3f982c71}) -- report of 2026-09-25 (tooling at \code{fedf0b31})\\
-  Addendum \S\ref{sec:rw3}: run \code{rw3} and the \code{dsl1} comparison arm of 2026-09-25/26}
+  Addendum \S\ref{sec:rw3}: run \code{rw3} and the \code{dsl1} comparison arm of 2026-09-25/26\\
+  Addendum \S\ref{sec:rw5}: runs \code{rw4} and \code{rw5} of 2026-09-27/28}
 
 \begin{document}
 \maketitle
@@ -705,21 +707,157 @@ a hole is closed from the rule set and the checker's own normal forms,
 which is the case the first sections make; on the producer's own proofs,
 the producer's expansion is the cheaper way to a \code{valid} verdict.
 
+\section{Addendum: runs \code{rw4} and \code{rw5}}\label{sec:rw5}
+
+Two more runs on \code{rw2}'s benchmarks with \code{rw3}'s settings and a
+92-rule file: \code{rw3}'s 91 rules and \code{bool-implies-or-distrib}, the
+rule \code{dsl1} missed. \code{rw4} (2026-09-27, commit \code{e6bc8ae4})
+attempts cvc5's arithmetic preprocessing holes too
+(\code{THEORY\_INFERENCE\_ARITH}, \code{ARITH\_STATIC\_LEARN},
+\code{MACRO\_THEORY\_REWRITE\_RCONS\_SIMPLE}, \code{SUBTYPE\_ELIMINATION}:
+the untagged holes of \S\ref{sec:limits}) and carries the fixes of a local
+corpus built from \code{rw3}'s residue: relation keys over all terms and a
+relation mirror, a one-to-many and an atom alignment in the structural
+descent, every worker goal in a fresh process on a share of its hole's
+budget, and lambda applications tallied out of scope. \code{rw5}
+(2026-09-27/28, commit \code{7ec65b7d}) fixes what \code{rw4} left:
+\begin{itemize}
+  \item the holes the search found no certificate for: absorbed
+    \code{and}/\code{or} literals, arithmetic modulo the classes of its
+    atoms, and ACI steps emitted in the shape the checker's
+    \code{aci\_simp} takes;
+  \item \code{rw4}'s 126 checker rejections: an empty \code{cong},
+    premises placed by one side only, singleton connectives in rule steps,
+    and a concluding step read off the wrong line;
+  \item the search on a DAG: hash-consed terms and memoized walks, and
+    every text a term is printed into (certificates, hole inputs, the egglog
+    program) naming its shared subterms, where a goal of 188 nodes as a DAG
+    and 247,127 as a tree had killed the search;
+  \item an \code{and} equal to \code{false}, or an \code{or} equal to
+    \code{true}, proved from one element of that constant's class, where
+    the search lost the two-step path inside the saturated class;
+  \item egglog's join order: the vendored egglog~0.4 binds a rule's pattern
+    variables in order of the atoms they occur in, and the encoding repeats
+    a leaf's atom at every use of the leaf, so leaves were bound before any
+    atom related them, a cross product; a variable connected to a bound one
+    now comes first (\code{third-party/egglog-0.4.0/CARCARA-PATCHES.md});
+  \item the set form's membership relation, through which the list rules
+    match a set's own elements instead of every term of the e-graph, and no
+    splice of a nested \code{and} through the class of a constant;
+  \item a relation step between ground sides emitted as two
+    \code{evaluate} steps instead of a trusted one.
+\end{itemize}
+Before it was submitted, \code{rw5} justified every hole of twelve replayed
+proofs (eleven \code{valid}, one \code{holey} on its \code{DIAMONDS} lemma)
+and every checked hole of the 49-slice corpus but one, which egglog
+saturates without proving.
+
+\paragraph{The runs side by side.} Table~\ref{tab:rw5}. \code{rw4}'s gain
+is breadth: the arithmetic tags add 196k \LIA{} and 87k \LRA{} holes to the
+pass, the corpus fixes take \LIA{}'s \code{no-certificate} and
+\code{unproved} holes from 985 and 789 to 8 and 68
+(Table~\ref{tab:rw5kept}), and \code{valid} proofs rise from
+\rwthreevalidall{} to \rwfourvalid{}. \code{rw5}'s gain is cost: the pass
+takes \rwfivepasshours{} hours instead of \rwfourpasshours{} (\UF{} 48.5
+to 15.9), the largest \UF{} task needs 8\,GB instead of 24, the holes lost
+to time fall from 2,840 to 1,210, and \code{valid} proofs rise to
+\rwfivevalid{} (1,828 / 2,404 / 447), with \rwfivefully{} proofs having
+every hole justified. Since \code{rw4} no fully justified proof re-checks
+\code{holey} on a step of the elaborator's own.
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/rw5-vs-rw4}}
+\caption{\code{rw5} and \code{rw4} against \code{rw3}, holes of the proofs
+  that ran the pass, as Table~\ref{tab:rw3}. \LIA{} and \LRA{} have more
+  holes from \code{rw4} on: the arithmetic preprocessing holes are
+  attempted.}\label{tab:rw5}
+\end{table}
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/rw5-kept}}
+\caption{Kept holes by the class of their reason. \code{out-of-scope} are
+  lambda applications left unreduced; \code{pass-budget} holes the pass
+  did not reach.}\label{tab:rw5kept}
+\end{table}
+
+\paragraph{Hole by hole.} Table~\ref{tab:rw5trans} follows every hole of
+the proofs both runs finished through its outcome in each (hole ids agree:
+the cvc5 proofs and the hoist are the same). \rwfivegains{} holes
+\code{rw4} kept are justified in \code{rw5}, most of them time kills
+(1,833) and \code{rw4}'s checker rejections (126); \rwfiveshifts{} change
+class and stay kept, mostly time kills that now end in egglog's verdict or
+its memory limit, egglog getting further within the 60\,s; and
+\rwfivelosses{} holes \code{rw4} justified are kept in \code{rw5}. Of
+these, 200 are in Dartagnan: 161 time kills in 8 proofs, 109 of them in
+\code{in-de20} (fully justified in neither run) and 38 in \code{seq-3}, 21 pass-budget
+skips and 18 memory kills (\code{sendmail-close-angle}, \code{seq-3},
+\code{theatreSquare}); 21 are time kills in \code{clock\_synchro}, SMPT
+and LassoRanker, one or two per proof. Of the time kills whose \code{rw4}
+time is logged, 115 took 40\,s or more there and 15 took 20--40\,s: holes
+at the 60\,s limit. The last four, in \code{rings}, are a completeness
+regression: \code{rw4} proved them in under 5\,s, and \code{rw5}'s egglog
+saturates without the goal; they, the memory kills and
+\code{theatreSquare}'s three new checker rejections are being looked at.
+The 18 proofs \code{rw5} loses to \code{rw4} are 10 \code{clock\_synchro}
+and 5 SMPT proofs, each on one time kill, the two \code{rings} proofs, and
+one CIRC proof whose cvc5 run aborted at its 60\,s limit.
+
+\begin{table}[htbp]\centering\footnotesize
+\input{tables/rw5-transitions}
+\caption{Holes whose outcome differs between \code{rw4} and \code{rw5}, on
+  the proofs whose elaboration pass finished in both; transitions of fewer
+  than three holes are left out.}\label{tab:rw5trans}
+\end{table}
+
+\paragraph{Against cvc5's expansion.} Table~\ref{tab:rw5h2h} and
+Figure~\ref{fig:rw5-cdf} repeat Table~\ref{tab:h2h} and
+Figure~\ref{fig:dsl-cdf} for \code{rw5}. \code{dsl1} closes
+\dslvalidfive{} proofs with nothing trusted left against \code{rw5}'s
+\rwfivevalidh{} (\code{rw3}: \rwthreevalid{}); \dslonlyfive{} are
+\code{dsl1}'s alone and \rwfiveonly{} \code{rw5}'s. The untagged holes no
+longer explain the gap: 567 of the 576 have a hole \code{rw5} kept or
+skipped, and the proofs \code{rw5} fully justifies and cannot call
+\code{valid} (1,890 in \UF{}, 17 in \LIA{}) carry \code{THEORY\_LEMMA}
+steps (1,789, \code{holey} in \code{dsl1} as well), \code{DIAMONDS} steps
+(114) or, in three proofs, another untagged step; one \LIA{} re-check ran
+out of time. The gap in cost narrows and stays: \rwfivehours{} hours from
+benchmark to checked proof against \code{dsl1}'s \dslhours{} (\code{rw3}:
+\rwthreehours{}), about \rwfivecheckhours{} checking only, and medians of
+2--12\,s against 0.1--1.2\,s.
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/rw5-head-to-head}}
+\caption{\code{rw5} against \code{dsl1} on the same benchmarks, as
+  Table~\ref{tab:h2h}.}\label{tab:rw5h2h}
+\end{table}
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=\textwidth]{rw5-cdf}
+\caption{Time to a checked proof, as Figure~\ref{fig:dsl-cdf} for
+  \code{rw5}; grey dashed: \code{rw3} with elaboration, proofs re-checked
+  \code{valid}.}\label{fig:rw5-cdf}
+\end{figure}
+
 \appendix
 \section{Files}
 \begin{itemize}
   \item Results: \code{\textasciitilde/exp/results/egglog-holes/rw2/results.json.gz}
     (JSONL; one record per benchmark with the runner's full output);
-    \code{rw3/} and \code{dsl1/} likewise for \S\ref{sec:rw3}.
+    \code{rw3/} and \code{dsl1/} likewise for \S\ref{sec:rw3}, \code{rw4/}
+    and \code{rw5/} for \S\ref{sec:rw5}.
   \item Analysis: \code{report-rw2/make-rw2.py} in the worktree, which
-    produced every table and figure of \S1--\S7, and \code{make-rw3.py}
-    those of \S\ref{sec:rw3};
-    \code{\textasciitilde/exp/egglog-holes/analysis-rw2/} holds the readers
-    behind the notes.
+    produced every table and figure of \S1--\S7, \code{make-rw3.py}
+    those of \S\ref{sec:rw3}, and \code{make-rw5.py} those of
+    \S\ref{sec:rw5};
+    \code{\textasciitilde/exp/egglog-holes/analysis-rw2/} (and
+    \code{analysis-rw4/}, \code{analysis-rw5/}) hold the readers behind the
+    notes.
   \item Runner and submission: \code{\textasciitilde/exp/egglog-holes/run-holes-rw2.sh},
-    \code{submit-egglog-rw2.sh}, \code{gen-rw-sets.py}.
+    \code{submit-egglog-rw2.sh}, \code{gen-rw-sets.py}; \code{run-holes-rw4.sh}
+    and \code{run-holes-rw5.sh} with their submit scripts for \S\ref{sec:rw5}.
   \item Notes: \code{EGGLOG-ELABORATION-NOTES.md} \S47.9--47.13 in the
-    Carcara worktree; the replays of \S\ref{sec:fixed} and
+    Carcara worktree, \S47.14--47.30 for the addenda; the replays of
+    \S\ref{sec:fixed} and
     \S\ref{sec:next} are in the session scratchpad
     (\code{rw1/werr}, \code{rw1/lra}, \code{gcd}).
 \end{itemize}
