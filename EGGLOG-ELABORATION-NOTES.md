@@ -6311,3 +6311,32 @@ twelve replays of §47.28 with every hole justified, and the gap corpus
 2 not checked by the checking-only pass (calypto-ho31, which the
 elaboration justifies; calypto-ho33, which egglog saturates without
 proving), where gen10 left six.
+
+### 47.30 Run `rw5` read (2026-09-28)
+
+Finished 2026-09-28 02:09 (`~/exp/egglog-holes/analysis-rw5/`,
+`read_rw5.py` against rw4, `holediff.py` hole by hole, `regress.py`).
+
+| logic | valid proofs rw4 to rw5 | fully justified | holes justified | elaboration time |
+|---|---|---|---|---|
+| QF_UF (4,118 ran) | 1,437 to 1,828 (+391, none lost) | 3,283 to 3,718 (none lost) | 99.88% to 99.95% | 48.5 h to 15.9 h |
+| QF_LIA (2,523) | 2,370 to 2,404 (+42, 8 lost) | 2,380 to 2,421 | 99.75% to 99.89% | 36.7 h to 27.6 h |
+| QF_LRA (518) | 387 to 447 (+70, 10 lost) | 387 to 447 | 99.95% to 99.98% | 11.7 h to 5.6 h |
+
+Valid proofs 4,194 to 4,679; checker rejections 126 to 3; the largest
+worker 24 GB to 8 GB on QF_UF.  Hole by hole on the proofs both runs
+finished: 1,833 holes from hole-time to justified, and 126 checker-rejected,
+57 pass-budget, 34 no-certificate, 19 unproved and 9 memory holes
+justified; 70 hole-time holes now kept on memory, 57 as unproved and 29 as
+no-certificate (egglog now gets further within the 60 s).  Against that,
+225 holes rw4 justified are kept: 221 in Dartagnan (182 hole-time, 108 of
+them in in-de20-O0, not fully justified in either run; 21 pass-budget; 18
+memory, sendmail-close-angle) and 4 unproved in rings.  Of the hole-time
+ones whose rw4 time is logged, 115 took 40 s or more in rw4 and 15 took 20
+to 40 s: holes at the 60 s limit.  The rings four took under 5 s in rw4 and
+egglog now saturates without the goal (`ring_2exp14_3vars_2ite_unsat`
+t914 and t815, `ring_2exp16_3vars_2ite_unsat` t914 and one more): a
+completeness regression to find.  Also new: 3 checker rejections in
+Dartagnan's theatreSquare.  The 18 proofs lost: 10 clock_synchro and 5
+SMPT on one hole-time each, 2 rings on the unproved holes, and one CIRC
+proof where cvc5 itself aborted at its 60 s limit (rw4 had its proof).
