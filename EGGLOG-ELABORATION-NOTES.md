@@ -6428,3 +6428,93 @@ and checking the certificate 324, 279 of them Dartagnan; the certificate
 search 211, QG 133 and Goel 51; the e-graph snapshot 162, Dartagnan 100 and
 LassoRanker 28); no certificate found (29, QG 26); memory after egglog (4);
 certificates the checker rejected (3, theatreSquare).
+
+### 47.33 Why 120 holes are unproved, 3 certificates rejected, 29 without certificate (2026-09-28)
+
+Replayed locally with the rw5 build plus `CARCARA_HOLE_DUMP` (each worker's
+input; `~/exp/egglog-holes/rejects/{theatre,qg-*,madwifi,cambridge,r10,
+rings14,svd2,sum03}/hd/`), the workers rerun on those inputs, with
+diagnostic builds for the search (egglog's own debug output dropped from
+the log, absorption's exits logged, a deeper absorption bound); none of
+those builds is committed.
+
+**The 3 rejected certificates** (Dartagnan `theatreSquare`, t10683,
+t10721, t10751) fail on one step each, the same:
+`(= (and (and true true true) true) true) :rule aci_simp`.  The checker's
+`aci_simp` drops the identity elements and, when none is left, builds the
+empty application `(and)`, not `true` ("expected terms to be equal: 'and'
+and 'true'").  `emit_aci` tries `and_simplify` only on the direct elements
+(`(and true true true)` is not `true` itself) and then falls back to a bare
+`aci_simp` exactly when the flattened side has no element left.  An
+emitter defect: such a side is ground and `evaluate` states it, or
+`and_simplify` bottom-up.
+
+**The 29 holes without certificate**, egglog having proved each:
+- QG (26, one per proof, all with the search signature "0 rule instances,
+  10 to 22 candidate vertices, 2 obligations"; three replayed): an `or` of
+  25 conjunctions against cvc5's 20.  9 of the 25 are contradictory (a
+  literal and its negation, or `(not (= x x))`) and cvc5's result still
+  keeps 4 contradictory ones (its rewriter dropped the `(not (= x x))`
+  ones, not the complementary pairs).  egglog puts all of them in the
+  class of `false`.  The absorption strategy (the one for an `or` whose
+  disjuncts are rewritten or dropped) requires at most one target disjunct
+  per class ("two target literals in class 313, the identity's") and
+  gives up; the ACI-modulo pairing pairs every target disjunct with a
+  source one of its class but requires every source disjunct paired, and
+  5 are left; the transitive search has no rule instance at the top.
+- Dartagnan `MADWiFi-encode_ie_ok` (2): `(=> (and (or false (and ... (or
+  (and ... ` about ten alternations deep, with `false` elements, against its
+  flattened form.  Every piece is proved; the top fails because the
+  absorption recurses at most `ABSORPTION_DEPTH = 4` levels.  A diagnostic
+  build with 16 finds both certificates (223 and 407 steps).
+- Goel `cambridge.2.prop1_ab_fp_max` (1): `(= (and (not y1824) (= (ite
+  true CHAIN ...) ...)) ...)` with a 20-deep `ite` chain against `(not (and
+  (not y1824) y850 y936 y1823 (not (= ... CHAIN' ...))))`, the chain's
+  negated conditions flipped with their branches at several depths: a
+  multi-step restructuring; the search explores 3,528 vertices and 1,875
+  rule instances without a path, and the absorption fails on a conjunct
+  that is true only under `(not y1824)`.
+
+**The 120 unproved holes** (egglog finishes its rounds without the goal):
+- rings (67 in 16 proofs; `ring_2exp10_4vars_3ite` replayed, the same 7
+  unproved; t914/t815 of §47.31): arithmetic over nested `ite`s whose
+  conditions cvc5 flips (`(ite (< (* v3 2) 1024) a b)` against `(ite (>= v3
+  512) b a)`), inside sums reordered or negated, inside further `ite`
+  conditions.  egglog proves each ingredient alone and not their
+  combination: on three one-line goals, a sum reordered with identical
+  `ite` atoms is proved, two `ite`s equal only after the flip in the same
+  position are proved, the reordered sum with the flipped `ite` is not --
+  and not with the round bound lifted either (`--continuous-saturation`,
+  60 s), nor is t88 or the misaligned t914.  A structural gap: the sum's
+  comparison does not see an atom equality the `ite` rules establish.
+  All seven unproved holes of `ring_2exp10_4vars_3ite` time out at 60 s
+  with the round bound lifted.
+- Goel `hanoi.2.prop1_ab_br_max` (29, one proof): the round bound.  The
+  rewrite collapses a chain `(ite (= n0 E) a (ite (= n1 E) b (ite (= n2 E)
+  v9 (ite (= n3 E) v9 ...))))` whose tail is all `v9`, `ite-same` from the
+  innermost level outward, one level per iteration, and the goal schedule
+  runs three rounds (6 iterations).  With `--continuous-saturation` 28 of
+  the 29 are proved and reconstructed in about a second each (t4550: 107
+  steps); ho713 runs out of the 6 GB.
+- Dartagnan (24): two causes.
+  - 17 (simple_vardep_1 4, simple_vardep_2 7, sum03-1 3, afnp2014 3): a
+    time limit filed as unproved.  egglog does not prove the whole goal in
+    its rounds, and the descent, which proves it atom pair by atom pair,
+    needs more pairs than its share of the 60 s allows (each pair a fresh
+    process; on the cluster about 75 pairs in 37 s, locally 214 to 261 in
+    42 s); the next pair, a trivial `(= (<= x 1) (not (>= x 2)))`, gets a
+    fraction of a second and times out, the descent fails, and the hole is
+    reported with the final whole-goal attempt's "Check failed".
+  - 7 (45_monabsex1): the descent pairs atoms by position and cvc5 has
+    flattened nested conjunctions (`(and (and (<= a 0) (>= a 0)) ...)`
+    against `(and (not (>= a 1)) (>= a 0) ...)`), so it builds a false pair
+    (`(= (<= b 1) (and (not (>= b 2)) (not (>= c 1))))`) and fails; the
+    whole goal is not proved with the round bound lifted either (60 s): its
+    conclusion is the rings gap, a relation normalized into a sum around an
+    `ite` whose condition cvc5 rewrote.
+
+Summing up the 120: 67 + 7 are the structural gap in comparing sums over
+rewritten `ite` atoms; 28 need more egglog rounds than the three the goal
+schedule runs (and 1 more memory); 17 are the descent running out of
+time.  `CARCARA_HOLE_DUMP=<dir>` (committed with this section) writes each
+worker's input, one file per attempt.

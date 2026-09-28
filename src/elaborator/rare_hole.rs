@@ -2082,6 +2082,13 @@ fn run_hole_worker_inner(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| fail(format!("spawning the hole worker: {error}")))?;
+    // Each worker's input, one file per attempt, when a directory is named:
+    // what a child saw, to replay it or compare two runs.
+    if let Ok(dir) = std::env::var("CARCARA_HOLE_DUMP") {
+        static ATTEMPT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let attempt = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _ = std::fs::write(format!("{dir}/{label}.{attempt}.in"), &input);
+    }
     // A child that dies early closes the pipe; the write then fails with
     // EPIPE (Rust ignores SIGPIPE), which the exit status below explains.
     if let Some(mut stdin) = child.stdin.take() {
