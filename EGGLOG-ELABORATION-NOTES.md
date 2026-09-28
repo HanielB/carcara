@@ -6287,9 +6287,11 @@ settings (`mem4check.sh`): justified, re-check, hole pass.
 
 Every hole of the twelve proofs is justified; eleven re-check valid and
 bofill holey on its `DIAMONDS` theory lemma alone, as always; no trust
-step, no checker rejection.  `benchmark17`'s ho379 and ho560 and
-`terminator`'s three are the holes §47.27 is about: whole and alone
-(§47.24's slices, no descent, no normalization) the first still runs out
-of search after egglog proves it and the terminator pair still dies at the
-worker's address-space limit, but in the pipeline the descent and the atom
-alignment get them.
+step, no checker rejection.  §47.24's slices state a goal whole and alone
+(no normalization, no descent), where ho379 still runs out of search after
+egglog proves it and the terminator pair still dies at the worker's
+address-space limit; in the pipeline ho560, t14751 (justified already with
+the join order alone) and t15476 go at the first attempt, the normalized
+goal, in 2 to 5 s; ho379 by the descent and the atom alignment after the
+whole goal's 8 s (12 s in all); `terminator`'s other two kept holes, t11507
+and t14698, by later attempts (12 s and 20 s).
