@@ -225,6 +225,22 @@ impl AletheElaborator {
         }
     }
 
+    /// Two ground sides that evaluate to the same value: each side's
+    /// `evaluate` step, joined.  `poly_simp_rel` and `la_generic` scale a
+    /// relation's variable part and have none to scale in `(= (>= (- 0 0) 0)
+    /// (>= 0 0))`, which was a trust step (dart02's t2877, reached through
+    /// the class of `true`).
+    pub(crate) fn ground_by_evaluation(&mut self, lhs: &Term, rhs: &Term) -> Option<String> {
+        let value = evaluate_ground(lhs)?;
+        if evaluate_ground(rhs)? != value {
+            return None;
+        }
+        let left = self.emit(lhs, &value, "evaluate", "")?;
+        let right = self.emit(rhs, &value, "evaluate", "")?;
+        let back = self.emit(&value, rhs, "symm", &format!(" :premises ({right})"))?;
+        self.emit(lhs, rhs, "trans", &format!(" :premises ({left} {back})"))
+    }
+
     pub fn trusted(&mut self, lhs: &Term, rhs: &Term, name: &str) -> Option<String> {
         let tail = format!(" :args (\"TRUST_THEORY_REWRITE\" \"{name}\")");
         self.emit(lhs, rhs, "hole", &tail)
@@ -860,7 +876,8 @@ impl AletheElaborator {
                 // discharged.  A relation the routing does not cover keeps
                 // the trusted form.
                 Computation::ArithPolyNormRel => self
-                    .poly_simp_rel_chain(lhs, rhs)
+                    .ground_by_evaluation(lhs, rhs)
+                    .or_else(|| self.poly_simp_rel_chain(lhs, rhs))
                     .or_else(|| self.la_generic_equivalence(lhs, rhs))
                     .or_else(|| self.trusted(lhs, rhs, "arith_poly_norm_rel")),
             },

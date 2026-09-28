@@ -773,6 +773,18 @@ pub fn euclidean_div_mod(x: i64, y: i64) -> Option<(i64, i64)> {
 /// `div`/`mod` follow SMT-LIB (Euclidean) semantics; where the solver
 /// would compute something else the recomputed term is simply absent
 /// from the e-graph, and no step is proposed.
+/// `term` folded bottom-up by [`evaluate`] when it is ground: the value the
+/// checker's `evaluate` rule computes (it folds every subterm), `None` when
+/// some subterm is not a literal or does not fold.
+pub fn evaluate_ground(term: &Term) -> Option<Term> {
+    if bool_value(term).is_some() || integer_of(term).is_some() || rational_of(term).is_some() {
+        return Some(term.clone());
+    }
+    let (operator, elements) = encoded_application(term)?;
+    let folded = elements.iter().map(evaluate_ground).collect::<Option<Vec<_>>>()?;
+    evaluate(&encoded_app(operator, folded))
+}
+
 pub fn evaluate(term: &Term) -> Option<Term> {
     if let ("Mk", [inner]) = (term.op.as_str(), term.children.as_slice()) {
         if inner.op == "Real" {

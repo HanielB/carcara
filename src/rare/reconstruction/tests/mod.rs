@@ -2859,6 +2859,87 @@ fn la_generic_equivalence_certifies_relations_the_routing_cannot() {
     }
 }
 
+/// A relation obligation between two ground sides is two `evaluate` steps
+/// the checker takes (it folds every subterm); a side with a variable, or
+/// sides of different values, are not this route's.
+#[test]
+fn ground_relations_are_certified_by_evaluation() {
+    use crate::elaborator::rare_hole::AletheElaborator;
+    let elaborator = || AletheElaborator {
+        prefix: "t1".to_owned(),
+        steps: Vec::new(),
+        names: HashMap::new(),
+        rare: HashMap::new(),
+        sorts: ArithSorts::default(),
+        decoder: SharedDecoder::new("@t1.e"),
+    };
+    let minus = |a: i64, b: i64| encoded_app("@-", vec![encoded_num(a), encoded_num(b)]);
+    let plus = |a: i64, b: i64| encoded_app("@+", vec![encoded_num(a), encoded_num(b)]);
+    let cases: Vec<(Term, Term, &str, &str)> = vec![
+        (
+            encoded_app("@>=", vec![minus(0, 0), encoded_num(0)]),
+            encoded_app("@>=", vec![encoded_num(0), encoded_num(0)]),
+            "(>= (- 0 0) 0)",
+            "(>= 0 0)",
+        ),
+        (
+            encoded_app("@<", vec![plus(1, 1), encoded_num(2)]),
+            encoded_app("@=", vec![encoded_num(1), encoded_num(0)]),
+            "(< (+ 1 1) 2)",
+            "(= 1 0)",
+        ),
+    ];
+    for (lhs, rhs, left, right) in cases {
+        let mut elaborator = elaborator();
+        let last = elaborator
+            .ground_by_evaluation(&lhs, &rhs)
+            .unwrap_or_else(|| panic!("{left} = {right}: no certificate"));
+        let steps = elaborator.steps;
+        let negated = format!("(not (= {left} {right}))");
+        let proof = format!(
+            "(assume t1.h {negated})\n{}\n(step t1.{} (cl) :rule resolution :premises ({last} t1.h))\n",
+            steps.join("\n"),
+            steps.len() + 1
+        );
+        let problem = format!("(assert {negated})\n");
+        let mut pool = crate::ast::pool::PrimitivePool::new();
+        let (problem, proof_parsed, _) = parser::parse_instance_with_pool(
+            parser::Source::new(std::path::Path::new("<p>"), &problem),
+            parser::Source::new(std::path::Path::new("<c>"), &proof),
+            None,
+            parser::Config::new().allow_int_real_subtyping(true),
+            &mut pool,
+        )
+        .unwrap_or_else(|e| panic!("{left} = {right}: certificate does not parse: {e}\n{proof}"));
+        let rules = crate::ast::rare_rules::Rules::default();
+        let mut checker =
+            crate::checker::ProofChecker::new(&mut pool, &rules, crate::checker::Config::new());
+        checker
+            .check(&problem, &proof_parsed)
+            .unwrap_or_else(|e| panic!("{left} = {right}: certificate rejected: {e}\n{proof}"));
+    }
+    let x = Term::new(
+        "Mk",
+        vec![Term::new(
+            "Var",
+            vec![
+                Term::leaf("7"),
+                Term::new("Sort", vec![Term::new("Const", vec![Term::leaf("\"Int\"")])]),
+            ],
+        )],
+    );
+    let with_variable = encoded_app("@>=", vec![encoded_app("@-", vec![x.clone(), encoded_num(0)]), encoded_num(0)]);
+    assert!(evaluate_ground(&with_variable).is_none());
+    assert!(elaborator()
+        .ground_by_evaluation(&with_variable, &encoded_app("@>=", vec![x, encoded_num(0)]))
+        .is_none());
+    let (true_side, false_side) = (
+        encoded_app("@>=", vec![encoded_num(0), encoded_num(0)]),
+        encoded_app("@>=", vec![encoded_num(0), encoded_num(1)]),
+    );
+    assert!(elaborator().ground_by_evaluation(&true_side, &false_side).is_none());
+}
+
 /// A hole inside an anchor that binds variables (`:args ((x Int) ...)`)
 /// mentions symbols the problem never declares; the hole's text, and the
 /// re-check of its reconstruction, must declare them.
