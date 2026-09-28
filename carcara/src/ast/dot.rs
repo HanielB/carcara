@@ -1,8 +1,14 @@
-use super::{Proof, ProofCommand, ProofStep, Rc, Subproof, Term};
-use std::io;
+use super::{
+    printer::{quote_symbol, term_to_string_with_definitions},
+    Proof, ProofCommand, ProofStep, Rc, Subproof, Term,
+};
+use std::{collections::HashMap, io};
 
 struct DotWriter<'a, W: io::Write + ?Sized> {
     dest: &'a mut W,
+    /// Maps each constant defined in the proof to its name, so that terms print the name instead of
+    /// the definition.
+    defined_constants: HashMap<Rc<Term>, String>,
     /// Maps (depth, index) to a global node index.
     node_indices: Vec<Vec<usize>>,
     next_index: usize,
@@ -10,9 +16,15 @@ struct DotWriter<'a, W: io::Write + ?Sized> {
 }
 
 impl<'a, W: io::Write + ?Sized> DotWriter<'a, W> {
-    fn new(dest: &'a mut W) -> Self {
+    fn new(dest: &'a mut W, proof: &Proof) -> Self {
         Self {
             dest,
+            defined_constants: proof
+                .constant_definitions
+                .iter()
+                .cloned()
+                .map(|(name, term)| (term, name))
+                .collect(),
             node_indices: vec![Vec::new()],
             next_index: 0,
             cluster_count: 0,
@@ -30,12 +42,33 @@ impl<'a, W: io::Write + ?Sized> DotWriter<'a, W> {
         self.node_indices[depth][index]
     }
 
+    /// Writes a node listing the constants defined in the proof, whose names the other nodes print in
+    /// place of their definitions.
+    fn write_definitions(&mut self, definitions: &[(String, Rc<Term>)]) -> io::Result<()> {
+        if definitions.is_empty() {
+            return Ok(());
+        }
+        let rows: Vec<_> = definitions
+            .iter()
+            .map(|(name, value)| {
+                let value = term_to_string_with_definitions(value, &self.defined_constants, true);
+                let row = format!("{} := {value}", quote_symbol(name));
+                format!("{}\\l", sanitize(&row))
+            })
+            .collect();
+        writeln!(
+            self.dest,
+            "\tdefinitions [ shape = Mrecord, label = \"{{{}}}\" ];",
+            rows.join("|"),
+        )
+    }
+
     fn write_commands(&mut self, commands: &[ProofCommand]) -> io::Result<()> {
         for command in commands {
             match command {
                 ProofCommand::Assume { id, term } => {
                     let idx = self.alloc_index();
-                    let conclusion = format_clause(std::slice::from_ref(term));
+                    let conclusion = self.format_clause(std::slice::from_ref(term));
                     writeln!(
                         self.dest,
                         "\t{idx} [ label = \"{{{}|ASSUME}}\", comment = \"{{}}\" ];",
@@ -55,12 +88,12 @@ impl<'a, W: io::Write + ?Sized> DotWriter<'a, W> {
 
     fn write_step(&mut self, step: &ProofStep) -> io::Result<()> {
         let idx = self.alloc_index();
-        let conclusion = format_clause(&step.clause);
+        let conclusion = self.format_clause(&step.clause);
         let rule = &step.rule;
         let args = if step.args.is_empty() {
             String::new()
         } else {
-            let args_str: Vec<_> = step.args.iter().map(|a| format!("{a}")).collect();
+            let args_str: Vec<_> = step.args.iter().map(|a| self.format_term(a)).collect();
             format!(" :args [ {} ]", args_str.join(", "))
         };
         writeln!(
@@ -103,6 +136,21 @@ impl<'a, W: io::Write + ?Sized> DotWriter<'a, W> {
 
         Ok(())
     }
+
+    fn format_term(&self, term: &Rc<Term>) -> String {
+        term_to_string_with_definitions(term, &self.defined_constants, false)
+    }
+
+    fn format_clause(&self, clause: &[Rc<Term>]) -> String {
+        if clause.is_empty() {
+            "(cl)".to_owned()
+        } else if clause.len() == 1 {
+            self.format_term(&clause[0])
+        } else {
+            let terms: Vec<_> = clause.iter().map(|t| self.format_term(t)).collect();
+            format!("(cl {})", terms.join(" "))
+        }
+    }
 }
 
 /// Writes a DOT representation of the proof to `dest`, using the same format as cvc5's DOT proof
@@ -112,22 +160,12 @@ pub fn write_dot(proof: &Proof, dest: &mut dyn io::Write) -> io::Result<()> {
     writeln!(dest, "\trankdir=\"BT\";")?;
     writeln!(dest, "\tnode [shape=record];")?;
 
-    let mut writer = DotWriter::new(dest);
+    let mut writer = DotWriter::new(dest, proof);
+    writer.write_definitions(&proof.constant_definitions)?;
     writer.write_commands(&proof.commands)?;
 
     writeln!(writer.dest, "}}")?;
     Ok(())
-}
-
-fn format_clause(clause: &[Rc<Term>]) -> String {
-    if clause.is_empty() {
-        "(cl)".to_owned()
-    } else if clause.len() == 1 {
-        format!("{}", clause[0])
-    } else {
-        let terms: Vec<_> = clause.iter().map(|t| format!("{t}")).collect();
-        format!("(cl {})", terms.join(" "))
-    }
 }
 
 /// Escapes characters that are special in DOT record labels.

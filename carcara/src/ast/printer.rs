@@ -85,6 +85,35 @@ pub fn write_asserts(
     Ok(())
 }
 
+/// Formats a term without sharing, printing the name of each constant defined in the proof in place
+/// of its definition. `defined_constants` maps each definition to the constant's name. If
+/// `is_definition` is `true`, `term` itself is printed in full, and only its subterms are replaced by
+/// names; this is used to print the definitions themselves.
+pub fn term_to_string_with_definitions(
+    term: &Rc<Term>,
+    defined_constants: &HashMap<Rc<Term>, String>,
+    is_definition: bool,
+) -> String {
+    let mut buf = Vec::new();
+    // This pool is only used for the free variables cache, so it's fine to use a fresh pool
+    let mut pool = PrimitivePool::new();
+    let mut printer = AlethePrinter {
+        pool: &mut pool,
+        inner: &mut buf,
+        term_indices: None,
+        term_sharing_variable_prefix: "@p_",
+        global_vars: HashSet::new(),
+        defined_constants: Cow::Borrowed(defined_constants),
+        smt_lib_strict: false,
+    };
+    if is_definition {
+        printer.write_raw_term(term).unwrap();
+    } else {
+        term.print_with_sharing(&mut printer).unwrap();
+    }
+    String::from_utf8(buf).unwrap()
+}
+
 trait PrintProof {
     fn write_proof(&mut self, proof: &Proof) -> io::Result<()>;
 }
@@ -182,7 +211,7 @@ struct AlethePrinter<'a> {
     term_indices: Option<IndexMap<Rc<Term>, usize>>,
     term_sharing_variable_prefix: &'static str,
     global_vars: HashSet<Rc<Term>>,
-    defined_constants: HashMap<Rc<Term>, String>,
+    defined_constants: Cow<'a, HashMap<Rc<Term>, String>>,
     smt_lib_strict: bool,
 }
 
@@ -195,12 +224,14 @@ impl PrintProof for AlethePrinter<'_> {
             value.print_with_sharing(self)?;
             writeln!(self.inner, ")")?;
         }
-        self.defined_constants = proof
-            .constant_definitions
-            .iter()
-            .cloned()
-            .map(|(name, term)| (term, name))
-            .collect();
+        self.defined_constants = Cow::Owned(
+            proof
+                .constant_definitions
+                .iter()
+                .cloned()
+                .map(|(name, term)| (term, name))
+                .collect(),
+        );
         let mut iter = proof.iter();
         while let Some(command) = iter.next() {
             match command {
@@ -245,7 +276,7 @@ impl PrintProof for AlethePrinter<'_> {
             }
             writeln!(self.inner)?;
         }
-        self.defined_constants.clear();
+        self.defined_constants.to_mut().clear();
         Ok(())
     }
 }
@@ -272,7 +303,7 @@ impl<'a> AlethePrinter<'a> {
             term_indices: use_sharing.then(IndexMap::new),
             term_sharing_variable_prefix: "@p_",
             global_vars: global_variables,
-            defined_constants: HashMap::new(),
+            defined_constants: Cow::Owned(HashMap::new()),
             smt_lib_strict: false,
         }
     }
@@ -435,7 +466,7 @@ where
     write!(f, ")")
 }
 
-fn quote_symbol(symbol: &str) -> Cow<'_, str> {
+pub fn quote_symbol(symbol: &str) -> Cow<'_, str> {
     use crate::parser::Reserved;
     use std::str::FromStr;
 
@@ -480,7 +511,7 @@ impl fmt::Display for Term {
             term_indices: use_sharing.then(IndexMap::new),
             term_sharing_variable_prefix: "@p_",
             global_vars: HashSet::new(),
-            defined_constants: HashMap::new(),
+            defined_constants: Cow::Owned(HashMap::new()),
             smt_lib_strict: false,
         };
         printer.write_raw_term(self).unwrap();
