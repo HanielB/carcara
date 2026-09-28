@@ -6342,3 +6342,33 @@ completeness regression to find.  Also new: 3 checker rejections in
 Dartagnan's theatreSquare.  The 18 proofs lost: 10 clock_synchro and 5
 SMPT on one hole-time each, 2 rings on the unproved holes, and one CIRC
 proof where cvc5 itself aborted at its 60 s limit (rw4 had its proof).
+
+### 47.31 The rings regression is the normalizer's pointer order (2026-09-28)
+
+rw5's four `rings` holes that rw4 proved in under 5 s (§47.30), replayed
+(`~/exp/egglog-holes/rejects/rings14/`, `ring_2exp14_3vars_2ite_unsat`,
+433 holes): rw4 433 justified, rw5 431 with t914 and t815 unproved.  Sliced
+alone, every build from rw4 to rw5 behaves the same (t914 justified,
+t815 unproved), full problem or not, so the difference is in what the
+worker is given.  With the new `CARCARA_HOLE_DUMP=<dir>` (each worker's
+input, one file per attempt) the two inputs of t914 differ in one thing:
+the order of a sum's addends in the normalized goal.  Full run:
+`(>= (+ (* 2 v1) ITE (* -32768 o_2)) 16385)` against cvc5's side
+`(>= (+ (* 2 v1) (* -32768 o_2) ITE') 16385)`; slice: both
+`(+ (* 2 v1) (* -32768 o_2) ...)`.  Fed the same input, every build's
+worker (rw4's included) proves the aligned goal in 0.4 s and fails the
+misaligned one: egglog has not changed; the input has.
+
+The normalizer orders a polynomial's monomials, and `aci_simp`'s
+arguments, by the atoms' heap addresses (`Rc::as_ptr` in `prenorm.rs`):
+consistent within a process, so closing a hole by equal normal forms is
+sound and complete, but which side's sum lines up with the other's
+depends on the allocation history.  The same replay with the rw5 build
+proves both holes with 1 worker and loses both with 2 or 3; rw4 happened
+to line them up with 1, 2 and 3.  So hole-level comparisons between runs
+carry this noise (some of §47.30's 225 losses, and of its gains), and the
+normalized goal egglog gets is aligned by chance.  The fix is an order
+that is a function of the terms (structural, not by address), and, for
+the normalized goal, atoms common to both sides first so that the two
+sums line up and the congruence leaves egglog only the differing atoms
+(here `ITE = ITE'`, which it proves).
