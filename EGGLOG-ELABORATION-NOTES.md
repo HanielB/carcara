@@ -6295,3 +6295,19 @@ the join order alone) and t15476 go at the first attempt, the normalized
 goal, in 2 to 5 s; ho379 by the descent and the atom alignment after the
 whole goal's 8 s (12 s in all); `terminator`'s other two kept holes, t11507
 and t14698, by later attempts (12 s and 20 s).
+
+### 47.29 Run `rw5` submitted (2026-09-27)
+
+rw4's settings, sets and rule file with the carcara of 7ec65b7d (static
+`bin/carcara-rw5`, md5 ad834904): §47.22 to §47.28 measured together
+against rw4.  octa, two jobs per node, 8 cores, 60 GB (8 workers at 5.5 GB
+and 60 s per hole, the elaboration pass 1,500 s, the re-check 1,200 s),
+3,400 s wall, QOS max2 as rw4; sets `rw_QF_UF`, `rw_QF_LIA`, `rw_QF_LRA`
+(4,316, 2,541 and 524 benchmarks).  Arrays 33127867, 33127868, 33127869,
+aggregator 1173570, results `exp/results/egglog-holes/rw5`; runner
+`run-holes-rw5.sh` (rw4's with the new binary).  Before it, locally: the
+twelve replays of §47.28 with every hole justified, and the gap corpus
+(gen11, `out-gen11`): 0 of 47 checked holes short of a valid re-check,
+2 not checked by the checking-only pass (calypto-ho31, which the
+elaboration justifies; calypto-ho33, which egglog saturates without
+proving), where gen10 left six.
