@@ -6372,3 +6372,59 @@ that is a function of the terms (structural, not by address), and, for
 the normalized goal, atoms common to both sides first so that the two
 sums line up and the congruence leaves egglog only the differing atoms
 (here `ITE = ITE'`, which it proves).
+
+### 47.32 rw5: can the holes be checked, and elaborated, and why not (2026-09-28)
+
+`~/exp/egglog-holes/analysis-rw5/questions.py` (output `questions.txt`).
+rw5 ran the elaboration pass only, so "checked" is read from each kept
+hole's class and the phase its worker was killed in: a worker is past
+egglog only when egglog proved its current goal, and the current goal is a
+descent pair after a `whole-first` marker and the hole's whole goal
+otherwise.  Checked = justified, no-certificate, checker-rejected, and kills
+after egglog proved the whole goal; not checked = unproved, kills during
+egglog, memory without a logged serialize; undetermined = kills inside a
+descent (131 holes); never attempted = out-of-scope, pass-budget, skipped.
+
+Benchmarks 7,381; complete cvc5 proofs 7,379; the elaboration pass ran to
+its summary on 7,159.  Of those:
+
+| | QF_UF | QF_LIA | QF_LRA | all |
+|---|---|---|---|---|
+| holes attempted | 1,171,831 | 899,511 | 522,311 | 2,593,653 |
+| justified | 99.953% | 99.890% | 99.975% | 99.936% |
+| checked | 99.973-99.976% | 99.939-99.944% | 99.988-99.997% | 99.964-99.969% |
+| justified among checked | 99.977-99.981% | 99.946-99.951% | 99.978-99.988% | 99.967-99.972% |
+| checked, not elaborated | 224 | 444 | 65 | 733 |
+| not checked | 279 | 261 | 16 | 556 |
+| undetermined (inside a descent) | 42 | 40 | 49 | 131 |
+| never attempted (lambda, pass budget) | 0 | 246 | 0 | 246 |
+| proofs, every attempted hole justified | 3,718 of 4,118 | 2,421 of 2,523 | 447 of 518 | 6,586 of 7,159 |
+| proofs re-checked valid | 1,828 | 2,404 | 447 | 4,679 |
+
+The 1,907 proofs with every attempted hole justified that are not valid
+keep only steps the pipeline does not attempt, none of them rewrites:
+`THEORY_LEMMA` (1,789), `DIAMONDS` (114), `SUBS_EQ` (2), `PP_STATIC_REWRITE`
+(1), and one LIA re-check out of time.
+
+Not attempted at all: 144,531 holes in 220 complete proofs (5.3% of the
+holes of the complete proofs).  206 proofs (198 UF, 2 LIA, 6 LRA; 121,882
+holes) are rejected before any hole by cvc5's resolution defect ("pivot was
+not found in clause"); 14 (7 Dartagnan, 7 nec-smt; 22,649 holes) ran out
+the pass's 1,600 s -- proofs of 3 MB to 1.1 GB, eleven of them before a
+single hole finished (parsing, the upfront check and the normalizer's
+prepass took the time), in-de61/62 half-way.
+
+Why attempted holes were not checked (556): egglog did not finish the whole
+goal within the hole's 60 s (334: QG 201, Dartagnan 103, Averest 14,
+tta_startup 12); egglog ran out of the worker's 5.5 GB (102: Dartagnan 47,
+QG 36, Goel 12); egglog saturated without the goal (120: rings 67, Goel 29,
+Dartagnan 24 -- part of rings is §47.31's addend order); plus 212 lambda
+applications (ezsmt, out of scope by design) and 34 holes the proof's
+1,500 s budget never reached.
+
+Why checked holes were not elaborated (733): the reconstruction did not
+finish within the hole's budget after egglog proved the goal (697: emitting
+and checking the certificate 324, 279 of them Dartagnan; the certificate
+search 211, QG 133 and Goel 51; the e-graph snapshot 162, Dartagnan 100 and
+LassoRanker 28); no certificate found (29, QG 26); memory after egglog (4);
+certificates the checker rejected (3, theatreSquare).
