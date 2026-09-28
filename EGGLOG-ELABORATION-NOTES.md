@@ -6208,3 +6208,88 @@ Still weak: the first variable is chosen by occurrences, where the small
 semi-naive delta atom would be the natural start; the sizes are the
 tables', not given what is bound; a pattern whose parts share no variable
 is a cross product in any order.
+
+### 47.28 The membership relation and the splice guard; t2877's trust steps (2026-09-27)
+
+§47.27's fixes for mechanisms 1 and 2 (the splice through constant
+classes, `set-contains` queries) stayed out of 901ec33d because with them
+`benchmark02_linear`'s hole t2877 got 2,609 steps with trusted
+`arith_poly_norm_rel` steps against 544 and none.  Sliced alone
+(`~/exp/egglog-holes/rejects/t2877/`), one build per part of the change:
+
+| build | steps | trust steps |
+|---|---|---|
+| join order only (901ec33d) | 546 | 0 |
+| membership relation only | 545 | 0 |
+| guard, with its constants | 2,615 | 12 |
+| the constants alone (no guard, no relation) | 2,611 | 12 |
+
+The membership relation is not it.  The guard compares the spliced element
+with `(Mk (Bool true))` and `(Mk (Bool false))`, so the constants have to
+exist, and they were declared with the program, in every e-graph from the
+start.  The difference is the atom alignment's subgoal `(= (ite (= (ite c
+1 0) 0) 0 1) (ite (and (not (>= (ite c 1 0) 1)) (>= (ite c 1 0) 0)) 0
+1))`, which reproduces as a one-line problem (22 steps, valid, against
+2,087 with 12 trust steps).  With the constants there, ten rules match that
+matched nothing before, all downstream of them: the constants' classes are
+`SortBool` at once (2 matches to 4), an `ite` whose branch is Boolean
+becomes `SortBool` (0 to 3) -- the `ite`s `arith-geq-ite-lift` makes,
+`(ite c (>= 1 0) (>= 0 0))` -- and the Boolean `ite` rules fire within the
+round that proves the goal (`ite-expand` 0 to 110, `bool-not-ite-elim` 30,
+`ite-then-true`/`ite-else-true` 16 each, `ite-then-false`/`ite-else-false`
+10 each).  The e-graph ends at 669 tuples against 633, with the
+true-valued atoms in the class of `true`, and the search takes the
+constant: `(>= (ite c 1 0) 0)` becomes `true` by congruence, proved by the
+`ite`'s case split and ground arithmetic, 2,081 steps where the rule path
+(`arith-eq-elim-int`, `arith-elim-leq`, ...) is 16.  One ground step on the
+way, `(= (>= (- 0 0) 0) (>= 0 0))`, was emitted trusted: `poly_simp_rel`
+and `la_generic` scale a relation's variable part, and it has none.
+
+Two fixes:
+- The constants are made by a rule of `set-ruleset`, `(rule () ((Mk (Bool
+  true)) (Mk (Bool false))))`, which only the `aciSets` fallback runs; a
+  goal the ordinary rounds prove never sees them.
+- A relation obligation between two ground sides is two `evaluate` steps
+  joined by `symm`/`trans` (`evaluate_ground`, `evaluate` folded bottom-up,
+  as the checker's `evaluate` folds every subterm), tried before the
+  routing, which is never trusted now for ground sides; unit test
+  `ground_relations_are_certified_by_evaluation` runs its certificates
+  through the checker.
+
+t2877 is 545 steps with no trust step again, the one-line subgoal 22 steps
+and valid; with the constants forced back (the fix of the emitter alone)
+2,135 steps, valid, no trust step.  The four holes of §47.27 with the join
+order, the membership relation and the lazy guard: b17-ho379's egglog now
+proves the goal (3.2 s; without the guard it died in the splice) and the
+search then runs out of its 300 s; terminator's two die in the isolated
+worker on one 5.9 GB address-space reservation (run in-process: justified
+in 20 s at 4.7 GB resident; the worker's `ulimit -v` counts what is
+reserved, not what is used); b17-ho560 is still a blowup in egglog.
+
+**Replays** with the membership relation, the lazy guard and the
+ground-evaluation step, against the join order alone (901ec33d), same
+settings (`mem4check.sh`): justified, re-check, hole pass.
+
+| replay (holes) | join order | + membership, guard, evaluation |
+|---|---|---|
+| Dartagnan for_infinite_loop_1 (550) | 550, valid, 101 s | 550, valid, 117 s |
+| SAL Carpark2-ausgabe-2 (4) | 4, valid, 1.5 s | 4, valid, 0.9 s |
+| SAL Carpark2-ausgabe-7 (253) | 253, valid, 4.9 s | 253, valid, 4.6 s |
+| bofill ex13700 (169) | 169, holey, 14 s | 169, holey, 15 s |
+| QG iso_brn028 (121) | 121, valid, 5.1 s | 121, valid, 5.1 s |
+| QG iso_icl108 (235) | 235, valid, 30 s | 235, valid, 24 s |
+| Dartagnan benchmark02 (132) | 132, valid, 36 s | 132, valid, 36 s |
+| Dartagnan benchmark17 (482) | 480, holey, 284 s | 482, valid, 195 s |
+| Dartagnan terminator_03-2 (817) | 814, holey, 418 s | 817, valid, 330 s |
+| Goel sokoban (883) | 883, valid, 41 s | 883, valid, 53 s |
+| Goel Unidec_br (748) | 748, valid, 44 s | 748, valid, 43 s |
+| Heizmann bubblesort (2,385) | 2,385, valid, 121 s | 2,385, valid, 117 s |
+
+Every hole of the twelve proofs is justified; eleven re-check valid and
+bofill holey on its `DIAMONDS` theory lemma alone, as always; no trust
+step, no checker rejection.  `benchmark17`'s ho379 and ho560 and
+`terminator`'s three are the holes §47.27 is about: whole and alone
+(§47.24's slices, no descent, no normalization) the first still runs out
+of search after egglog proves it and the terminator pair still dies at the
+worker's address-space limit, but in the pipeline the descent and the atom
+alignment get them.

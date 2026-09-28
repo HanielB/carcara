@@ -290,6 +290,7 @@ pub fn create_headers() -> EggLanguage {
             vec![ConstType::ConstrType("AssocArgs".to_owned())],
             ConstType::ConstrType("Term".to_owned()),
         ),
+        EggStatement::Raw(crate::rare::computational::aci_norm::set_membership_declarations()),
         EggStatement::Relation(
             "Avaliable".to_owned(),
             vec![ConstType::ConstrType("Term".to_owned())],
@@ -1125,10 +1126,14 @@ fn set_form_rule(
         Box::new(call(set.clone())),
         Box::new(result.clone()),
     )];
+    // Membership through the relation, not `set-contains`: a primitive
+    // cannot bind the element's pattern variables, so the query enumerated
+    // every `Mk` node of the e-graph for every set and kept the pairs the
+    // set held (b17-ho379: 0.9M matches, 80 s a step on 15k tuples).
     for element in &fixed {
         let element = translate_term(element, subs, func_cache, var_map, false, &context)?;
         body.push(EggExpr::Call(
-            "set-contains".to_owned(),
+            crate::rare::computational::aci_norm::SET_MEMBER.to_owned(),
             vec![set.clone(), element],
         ));
     }

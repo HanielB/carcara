@@ -137,7 +137,17 @@ pub fn aci_rules(
 /// decomposition that completes is a right-nested chain of elements, and all
 /// of them give the same set.
 pub fn general_set_conversion(operators: &[&str]) -> Vec<EggStatement> {
-    let mut text = String::from(
+    // The splice's guard compares with the constants, so they have to
+    // exist; they are made by this ruleset, which only the `aciSets`
+    // fallback runs, and not declared with the program.  Declared, they
+    // were in every e-graph from the start: their classes were Boolean
+    // before any rewriting, the Boolean `ite` rules fired within the round
+    // that proved the goal, and the search went through the class of
+    // `true` (dart02's t2877: 2,081 steps with 12 trusted ones against 16).
+    let mut text =
+        String::from("(rule () ((Mk (Bool true)) (Mk (Bool false))) :ruleset set-ruleset)\n");
+    text.push_str(&set_membership_rules("set-ruleset"));
+    text.push_str(
         "(function elementsOf (Term) AssocArgs :merge old)
 (relation elementsOfDemand (Term))
 (rule ((elementsOfDemand (Empty)))
@@ -155,7 +165,9 @@ pub fn general_set_conversion(operators: &[&str]) -> Vec<EggStatement> {
 (rule ((= e (Mk ({operator} args))) (= (elementsOf args) elements))
       ((union e ({operator} (Assoc elements)))) :ruleset set-ruleset)
 (rule ((= ({operator} (Assoc elements)) result)
-       (set-contains elements (Mk ({operator} inner)))
+       (setMember elements (Mk ({operator} inner)))
+       (!= (Mk ({operator} inner)) (Mk (Bool true)))
+       (!= (Mk ({operator} inner)) (Mk (Bool false)))
        (= (elementsOf inner) nested))
       ((union result
               ({operator} (Assoc (set-union (set-remove elements (Mk ({operator} inner))) nested)))))
@@ -164,6 +176,46 @@ pub fn general_set_conversion(operators: &[&str]) -> Vec<EggStatement> {
         ));
     }
     vec![EggStatement::Raw(text)]
+}
+
+/// The membership relation of the set form's sets.
+pub const SET_MEMBER: &str = "setMember";
+
+/// Positions a set's members are read at without extending the index.
+const SEEDED_SET_POSITIONS: usize = 64;
+
+/// `(setMember s x)` for every element `x` of every set `s` under `Assoc`:
+/// the set form's rules match an element's structure through it, where
+/// `set-contains` is a primitive that cannot bind the element's pattern
+/// variables -- the query then enumerated every `Mk` node for every set and
+/// kept the pairs the set held.  Filled by position with `set-get`, over an
+/// index seeded to 64 and extended for a longer set; a set that
+/// canonicalization changes is a new `Assoc` tuple and read again.
+pub fn set_membership_declarations() -> String {
+    let mut text = format!(
+        "(relation {SET_MEMBER} (AssocArgs Term))
+(relation setIndex (i64))
+(relation setIndexBelow (i64))
+"
+    );
+    for position in 0..SEEDED_SET_POSITIONS {
+        text.push_str(&format!("(setIndex {position})\n"));
+    }
+    text.push_str(&set_membership_rules("list-ruleset"));
+    text
+}
+
+/// The rules that fill the membership relation, in `ruleset`.
+fn set_membership_rules(ruleset: &str) -> String {
+    format!(
+        "(rule ((= t (Assoc s)) (= n (set-length s)) (> n {SEEDED_SET_POSITIONS}))
+      ((setIndexBelow n)) :ruleset {ruleset})
+(rule ((setIndexBelow n) (> n {SEEDED_SET_POSITIONS}))
+      ((setIndex (- n 1)) (setIndexBelow (- n 1))) :ruleset {ruleset})
+(rule ((= t (Assoc s)) (setIndex i) (< i (set-length s)))
+      (({SET_MEMBER} s (set-get s i))) :ruleset {ruleset})
+"
+    )
 }
 
 /// Generate only the conversions tied to concrete calls seen in a proof step.
