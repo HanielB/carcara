@@ -1,0 +1,26 @@
+\begin{tabular}{lrrrr}
+\toprule
+ & \UF{} & \LIA{} & \LRA{} & all \\
+\midrule
+proofs whose pass finished & 4,118 & 2,523 & 518 & 7,159 \\
+holes attempted & 1,171,831 & 899,511 & 522,311 & 2,593,653 \\
+justified & 99.953\% & 99.890\% & 99.975\% & 99.936\% \\
+checked & 99.973--99.976\% & 99.939--99.944\% & 99.988--99.997\% & 99.964--99.969\% \\
+justified among the checked & 99.977--99.981\% & 99.946--99.951\% & 99.978--99.988\% & 99.967--99.972\% \\
+\midrule
+checked, not elaborated & 224 & 444 & 65 & 733 \\
+\quad reconstruction out of time after egglog proved the goal & 197 & 435 & 65 & 697 \\
+\quad no certificate found & 27 & 2 & 0 & 29 \\
+\quad memory after egglog proved the goal & 0 & 4 & 0 & 4 \\
+\quad certificate rejected by the checker & 0 & 3 & 0 & 3 \\
+not checked & 279 & 261 & 16 & 556 \\
+\quad egglog out of time on the whole goal & 202 & 120 & 12 & 334 \\
+\quad egglog out of memory & 48 & 50 & 4 & 102 \\
+\quad egglog saturated without the goal (\code{unproved}) & 29 & 91 & 0 & 120 \\
+undetermined (killed inside a descent) & 42 & 40 & 49 & 131 \\
+never attempted (lambda application, proof budget) & 0 & 246 & 0 & 246 \\
+\midrule
+proofs with every attempted hole justified & 3,718 & 2,421 & 447 & 6,586 \\
+proofs re-checked \code{valid} & 1,828 & 2,404 & 447 & 4,679 \\
+\bottomrule
+\end{tabular}

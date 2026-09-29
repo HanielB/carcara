@@ -794,13 +794,20 @@ skips and 18 memory kills (\code{sendmail-close-angle}, \code{seq-3},
 \code{theatreSquare}); 21 are time kills in \code{clock\_synchro}, SMPT
 and LassoRanker, one or two per proof. Of the time kills whose \code{rw4}
 time is logged, 115 took 40\,s or more there and 15 took 20--40\,s: holes
-at the 60\,s limit. The last four, in \code{rings}, are a completeness
-regression: \code{rw4} proved them in under 5\,s, and \code{rw5}'s egglog
-saturates without the goal; they, the memory kills and
-\code{theatreSquare}'s three new checker rejections are being looked at.
-The 18 proofs \code{rw5} loses to \code{rw4} are 10 \code{clock\_synchro}
-and 5 SMPT proofs, each on one time kill, the two \code{rings} proofs, and
-one CIRC proof whose cvc5 run aborted at its 60\,s limit.
+at the 60\,s limit. The last four, in \code{rings}, are not a regression
+of the engine but the normalizer's order: it sorts a sum's addends, and
+`and'/`or' arguments, by the terms' heap addresses, consistent within a
+process and different between processes, so whether the normalized goal's
+sum lines up with cvc5's is a matter of allocation history. Fed the same
+input, every build from \code{rw4} to \code{rw5} proves the aligned goal
+in half a second and fails the misaligned one; the \code{rw5} build
+itself proves both holes with one worker and loses both with two or
+three. Hole-level differences between runs carry this noise in both
+directions. \code{theatreSquare}'s three rejections are an emitter defect
+(\S\ref{sec:rw5why}). The 18 proofs \code{rw5} loses to \code{rw4} are 10
+\code{clock\_synchro} and 5 SMPT proofs, each on one time kill, the two
+\code{rings} proofs, and one CIRC proof whose cvc5 run aborted at its
+60\,s limit.
 
 \begin{table}[htbp]\centering\footnotesize
 \input{tables/rw5-transitions}
@@ -838,6 +845,109 @@ benchmark to checked proof against \code{dsl1}'s \dslhours{} (\code{rw3}:
   \code{valid}.}\label{fig:rw5-cdf}
 \end{figure}
 
+\subsection{Can the holes be checked, can they be elaborated, and why not}\label{sec:rw5why}
+
+Table~\ref{tab:rw5q} reads \code{rw5} for the evaluation's four questions.
+The run had no checking-only pass, so whether a kept hole was checked is
+read from the class of its reason and the phase its worker was killed in:
+a worker is past egglog only when egglog proved its current goal, and the
+current goal is a descent pair after a whole-goal attempt that failed and
+the hole's whole goal otherwise. A hole counts as checked when it was
+justified, when egglog proved the goal and the reconstruction failed (no
+certificate, a rejected certificate), or when a whole-goal attempt reached
+the snapshot before the kill; as not checked when egglog saturated without
+the goal, ran out of time on the whole goal, or ran out of memory with no
+snapshot logged; as undetermined when the kill came inside a descent, the
+pairs being proved one by one. The 131 undetermined holes are the width of
+the ranges.
+
+\begin{table}[htbp]\centering\footnotesize
+\resizebox{\textwidth}{!}{\input{tables/rw5-questions}}
+\caption{\code{rw5} on the proofs whose elaboration pass ran to its
+  summary. ``checked'' and ``justified among the checked'' are ranges
+  because of the undetermined holes.}\label{tab:rw5q}
+\end{table}
+
+\paragraph{Checked.} Yes, for 99.96--99.97\% of the holes the pipeline
+attempts, with 60\,s and 5.5\,GB per hole. The caveat is the proof level:
+144,531 holes, 5.3\% of the holes of the complete cvc5 proofs, were never
+attempted. 206 proofs (198 \UF{}, 2 \LIA{}, 6 \LRA{}; 121,882 holes) are
+rejected before any hole by cvc5's resolution defect (a pivot not in the
+clause, Table~\ref{tab:outcomes}), and 14 (7 Dartagnan, 7 nec-smt; 22,649
+holes) ran out the pass's 1,600\,s: proofs of 3\,MB to 1.1\,GB, eleven of
+them before a single hole finished, parsing, the upfront check and the
+normalizer's prepass taking the time.
+
+\paragraph{Elaborated.} Yes, almost always, and a little less often than
+checked: 733 checked holes, 0.03\%, are not elaborated. 6,586 of the 7,159
+proofs have every attempted hole justified and 4,679 re-check
+\code{valid}; the 1,907 in between keep only steps the pipeline does not
+attempt and none of them a rewrite: \code{THEORY\_LEMMA} (1,789),
+\code{DIAMONDS} (114), \code{SUBS\_EQ} (2), \code{PP\_STATIC\_REWRITE} (1),
+and one \LIA{} re-check out of time.
+
+\paragraph{Why holes were not checked.} 334 holes egglog did not finish
+within the hole's 60\,s (QG 201, Dartagnan 103, Averest 14,
+\code{tta\_startup} 12); 102 it ran out of the worker's 5.5\,GB on
+(Dartagnan 47, QG 36, Goel 12); 212 lambda applications (ezsmt, out of
+scope by design) and 34 holes the proof's 1,500\,s budget never reached.
+The 120 \code{unproved} holes, where egglog finished its rounds without
+the goal, were replayed one by one, each worker rerun on the input it
+was given, and have three causes.
+\begin{itemize}
+  \item 74 (\code{rings} 67, Dartagnan \code{45\_monabsex1} 7): sums over
+    \code{ite} atoms whose conditions cvc5 rewrote, \code{(ite (< (* v3 2)
+    1024) a b)} against \code{(ite (>= v3 512) b a)}, inside sums reordered
+    or negated, inside further \code{ite} conditions. egglog proves each
+    ingredient alone -- a reordered sum with identical \code{ite} atoms,
+    two \code{ite}s equal only after the flip -- and not their combination,
+    with the round bound lifted and 60\,s as well: the polynomial
+    comparison does not see an atom equality the \code{ite} rules
+    establish. The rule set's gap of this run.
+  \item 29 (Goel \code{hanoi.2.prop1\_ab\_br\_max}): the goal schedule's
+    three rounds. The rewrite collapses an \code{ite} chain whose tail is
+    one value, \code{ite-same} one level per iteration, and the schedule
+    runs six iterations. With the rounds unbounded 28 are proved and
+    reconstructed in about a second each; the last runs out of memory.
+  \item 17 (Dartagnan \code{simple\_vardep}, \code{sum03}, \code{afnp2014}):
+    a time limit filed as \code{unproved}. egglog does not prove the whole
+    goal in its rounds, the descent proves it atom pair by atom pair (each
+    pair a fresh process, about 75 pairs in 37\,s on the cluster) and runs
+    out of its share of the 60\,s; the next pair, a trivial
+    \code{(= (<= x 1) (not (>= x 2)))}, gets a fraction of a second, and
+    the hole is reported with the final whole-goal attempt's verdict. In
+    \code{45\_monabsex1} the descent also pairs the atoms wrongly, cvc5
+    having flattened nested conjunctions.
+\end{itemize}
+
+\paragraph{Why checked holes were not elaborated.} 697 holes the
+reconstruction did not finish within the hole's budget after egglog had
+proved the goal: emitting and checking the certificate (324, of them 279
+Dartagnan), the certificate search (211, QG 133, Goel 51), the e-graph
+snapshot (162, Dartagnan 100, LassoRanker 28); 4 ran out of memory after
+egglog. The rest were replayed the same way.
+\begin{itemize}
+  \item 29 holes with no certificate. QG (26, one per proof, one search
+    signature): an \code{or} of 25 conjunctions against cvc5's 20, nine of
+    the 25 contradictory (a literal and its negation, or
+    \code{(not (= x x))}) and four of the 20 still so, all in egglog's
+    class of \code{false}; the absorption strategy allows one target
+    disjunct per class and gives up, the pairing strategy needs every
+    source disjunct paired and five are left, and the transitive search has
+    no rule instance at the top. Dartagnan \code{MADWiFi} (2): an
+    \code{(or false (and ... (or (and ...} alternation ten levels deep
+    against its flattened form, every piece proved, the absorption bounded
+    to four levels (with sixteen, both certificates are found). Goel
+    \code{cambridge} (1): an equality over a twenty-deep \code{ite} chain
+    restructured into a negated conjunction with conditions flipped at
+    several depths, a multi-step restructuring the search does not find.
+  \item 3 rejected certificates (Dartagnan \code{theatreSquare}), one
+    emitter defect: the step \code{(= (and (and true true true) true)
+    true)} is stated by \code{aci\_simp}, and the checker's
+    \code{aci\_simp}, dropping the identities, builds the empty
+    \code{(and)} rather than \code{true}; an \code{evaluate} step states it.
+\end{itemize}
+
 \appendix
 \section{Files}
 \begin{itemize}
@@ -851,12 +961,15 @@ benchmark to checked proof against \code{dsl1}'s \dslhours{} (\code{rw3}:
     \S\ref{sec:rw5};
     \code{\textasciitilde/exp/egglog-holes/analysis-rw2/} (and
     \code{analysis-rw4/}, \code{analysis-rw5/}) hold the readers behind the
-    notes.
+    notes; \code{analysis-rw5/questions.py} is Table~\ref{tab:rw5q}, and
+    the replays behind \S\ref{sec:rw5why} are in
+    \code{\textasciitilde/exp/egglog-holes/rejects/} (each worker's input
+    under \code{hd/}, written with \code{CARCARA\_HOLE\_DUMP}).
   \item Runner and submission: \code{\textasciitilde/exp/egglog-holes/run-holes-rw2.sh},
     \code{submit-egglog-rw2.sh}, \code{gen-rw-sets.py}; \code{run-holes-rw4.sh}
     and \code{run-holes-rw5.sh} with their submit scripts for \S\ref{sec:rw5}.
   \item Notes: \code{EGGLOG-ELABORATION-NOTES.md} \S47.9--47.13 in the
-    Carcara worktree, \S47.14--47.30 for the addenda; the replays of
+    Carcara worktree, \S47.14--47.33 for the addenda; the replays of
     \S\ref{sec:fixed} and
     \S\ref{sec:next} are in the session scratchpad
     (\code{rw1/werr}, \code{rw1/lra}, \code{gcd}).
