@@ -1,0 +1,23 @@
+\begin{tabular}{lrrrr}
+\toprule
+ & \UF{} & \LIA{} & \LRA{} & all \\
+\midrule
+proofs whose pass finished & 4,118 & 2,523 & 518 & 7,159 \\
+elaboration pass (h) & 15.9 & 21.4 & 5.6 & 42.9 \\
+\quad normalizer & 0.0 & 0.1 & 0.1 & 0.1 \\
+\quad holes in the workers & 14.5 & 17.8 & 5.0 & 37.3 \\
+\quad inserting and checking the certificates & 0.2 & 1.4 & 0.4 & 2.0 \\
+\quad the rest: parsing, the other steps, printing & 1.2 & 2.1 & 0.2 & 3.5 \\
+checking-only pass, estimated (h) & 14.4 & 18.6 & 4.8 & 37.8 \\
+\quad elaboration's share of the pass (\%) & 9.5 & 12.9 & 13.9 & 11.8 \\
+worker time (h) & 64.4 & 123.7 & 28.7 & 216.8 \\
+\quad utilization of the 8 workers (\%) & 55.6 & 86.8 & 72.2 & 72.7 \\
+pass time per proof, median / p90 & 9.2\,s / 37.1\,s & 1.5\,s / 66.4\,s & 4.6\,s / 125.8\,s & 7.6\,s / 54.9\,s \\
+task memory, p99 / max (GB) & 3.5 / 7.9 & 15.4 / 37.8 & 6.1 / 9.1 & 6.1 / 37.8 \\
+\midrule
+proofs with every hole justified, re-checked & 3,718 & 2,420 & 447 & 6,585 \\
+\quad elaboration pass, median / sum & 8.6\,s / 9.7\,h & 1.3\,s / 12.8\,h & 2.3\,s / 2.8\,h & 6.8\,s / 25.3\,h \\
+\quad re-check of the elaborated proof, median / sum & 272\,ms / 0.6\,h & 15\,ms / 0.3\,h & 52\,ms / 0.1\,h & 138\,ms / 1.0\,h \\
+\quad steps: hoisted proof / elaborated, median & 27,134 / 32,125 & 126 / 520 & 468 / 4,138 & 6,254 / 12,551 \\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,18 @@
+\begin{tabular}{lrrrr}
+\toprule
+ & \UF{} & \LIA{} & \LRA{} & all \\
+\midrule
+proofs (complete in 60\,s) & 4,316 & 2,539 & 524 & 7,379 \\
+\quad hoisted & 4,118 & 2,529 & 518 & 7,165 \\
+\quad rejected upfront (cvc5's resolution pivots) & 198 & 2 & 6 & 206 \\
+\quad hoist out of time (300\,s) & 0 & 8 & 0 & 8 \\
+\midrule
+hoisted proofs: hole steps printed by cvc5 & 1,239,039 & 2,132,077 & 1,261,973 & 4,633,089 \\
+\quad distinct holes after hoist and prune & 1,171,831 & 915,032 & 522,311 & 2,609,174 \\
+\quad ratio & 1.06 & 2.33 & 2.42 & 1.78 \\
+\quad proofs with fewer holes after it & 2,271 & 1,231 & 386 & 3,888 \\
+\quad commands pruned, of all & 0.3\% & 20.5\% & 1.1\% & 2.7\% \\
+\quad time, median / max & 363\,ms / 169.7\,s & 14\,ms / 238.3\,s & 74\,ms / 20.0\,s & 168\,ms / 238.3\,s \\
+\quad time, summed (h) & 1.3 & 1.6 & 0.1 & 3.1 \\
+\bottomrule
+\end{tabular}

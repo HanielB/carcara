@@ -1,0 +1,19 @@
+\begin{tabular}{lrrrr}
+\toprule
+justified holes through egglog, hours & \UF{} & \LIA{} & \LRA{} & all \\
+\midrule
+egglog: saturation, the goal decided & 42.3 (70\%) & 92.0 (81\%) & 22.0 (81\%) & 156.3 (78\%) \\
+reconstruction & 10.0 (16\%) & 9.8 (9\%) & 3.1 (12\%) & 22.9 (11\%) \\
+\quad serializing the e-graph & 0.4 (1\%) & 0.7 (1\%) & 0.2 (1\%) & 1.3 (1\%) \\
+\quad indexing it & 0.0 (0\%) & 0.1 (0\%) & 0.0 (0\%) & 0.2 (0\%) \\
+\quad searching for the certificate & 9.5 (16\%) & 8.7 (8\%) & 3.0 (11\%) & 21.2 (11\%) \\
+\quad emitting the steps & 0.0 (0\%) & 0.3 (0\%) & 0.0 (0\%) & 0.3 (0\%) \\
+inserting and checking the steps & 0.2 (0\%) & 0.9 (1\%) & 0.1 (0\%) & 1.3 (1\%) \\
+process start and input parsing & 7.9 (13\%) & 10.4 (9\%) & 1.8 (7\%) & 20.1 (10\%) \\
+\midrule
+per hole, median: egglog / elaboration & 167\,ms / 32\,ms & 644\,ms / 64\,ms & 170\,ms / 58\,ms & 168\,ms / 34\,ms \\
+holes whose elaboration costs more than egglog (\%) & 0.0 & 0.4 & 0.2 & 0.2 \\
+\midrule
+kept after egglog proved the goal: holes, worker time & 266, 2.3\,h & 488, 8.1\,h & 114, 1.6\,h & 868, 12.1\,h \\
+\bottomrule
+\end{tabular}

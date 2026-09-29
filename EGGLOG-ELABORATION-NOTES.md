@@ -4237,7 +4237,7 @@ What it says:
   single arithmetic relations to begin with (vpm2 2,097 → 2,081, FISCHER9
   1,760 → 1,511).  cvc5's own time is unchanged (it is the solving).
 - **With the normalizer the coarse holes close as well as the fine ones**:
-  `nset` proves every hole of seven proofs, and 191/196, 672/673, 2,079/2,081,
+  `nset` proves every hole of six proofs, and 191/196, 672/673, 2,079/2,081,
   123/140 on the other four -- the theory-rewrite arm's rate on the same
   proofs.  The normalizer closes a smaller *fraction* outright (a coarse hole
   is closed only if every rewrite in it is one of its four procedures), and
@@ -6518,3 +6518,58 @@ rewritten `ite` atoms; 28 need more egglog rounds than the three the goal
 schedule runs (and 1 more memory); 17 are the descent running out of
 time.  `CARCARA_HOLE_DUMP=<dir>` (committed with this section) writes each
 worker's input, one file per attempt.
+
+### 47.34 The rw5 cost report (2026-09-29)
+
+A separate, short report, `report-rw5/` (`make.py <rw5> <dsl1>` writes
+`tables/`, `plots/` and `summary.txt`; `report.pdf`), describes the
+pipeline's parts -- hoist and prune, the normalizer, the set form, sort
+guards, premise seeding, the parallel setup -- and answers four questions
+from rw5's per-hole log lines (`justified in T s (check C s)`, `phases
+...`, `kept as trusted`, `hole prenorm: ...`), which are complete: one
+`justified` line for each of the 2,591,987 justified holes.
+
+- **The normalizer.**  It closes 1,036,355 of the 2,593,653 holes (40.0%;
+  UF 13.3%, LIA 61.1%, LRA 63.5%) for 466 s of normalization and 0.75 h of
+  certificate checks, 3 ms a hole.  Normal forms tried first: 747,424
+  (28.8%), 99.24% proved and bridged, 3,997 of the 5,660 others proved as
+  stated.  Every one of the 1,653 kept holes is a goal it changed; none of
+  the 809,874 it left unchanged is kept.  rw5 has no normalizer-off arm:
+  the on/off evidence is enc4 (§36: 70.7% to 98.3% of the holes, 112 h to
+  50 h, proofs fully proved 3,523 to 6,775 of 7,192) and the ten
+  rewrite-granularity samples (§47.2: 85.2% to 99.7%, 2 to 6 proofs fully
+  proved, 2,094 s to 547 s).  At the floor of a worker hole (the cheapest
+  1%: 0.145 s UF, 0.155 s LIA, 0.214 s LRA) the closed holes would have cost
+  about 50 h more worker time.
+- **The cost of a hole** (worker time, every attempt): a hole egglog
+  proves costs 0.21 s in UF (p99 0.33 s), 1.2 s in LIA (median 0.75 s, p99
+  10.1 s), 0.51 s in LRA (median 0.27 s); a kept hole 28--48 s on average,
+  17.4 h in all; all holes together 0.20 / 0.50 / 0.20 s.  216.8 h of worker
+  time in 42.9 h of pass time (the 7,159 finished passes): the eight
+  workers are busy 72.7% of the hole phase (UF 55.6%), and starting a
+  process and parsing its input is 25 ms a hole, 10% of the worker time.
+- **Elaboration against checking.**  Per hole, for the 1.56 M justified
+  through egglog: egglog 156.3 h (78%), reconstruction 22.9 h (11%, the
+  search 21.2 h of it), insertion 1.3 h, process start 20.1 h; medians
+  168 ms and 34 ms; the reconstruction costs more than egglog for 0.2% of
+  the holes.  868 holes were kept in the reconstruction after egglog had
+  proved the goal or a descent pair, 12.1 h.  Per proof (estimate: the pass
+  less its reconstruction phases over eight and less the insertion) a
+  checking-only pass is 37.8 h against 42.9 h, elaboration adding 11.8%.
+  The 6,585 fully justified proofs re-check in 1.0 h against 25.3 h of
+  elaboration.
+- **Against cvc5's expansion (dsl1).**  cvc5 at dsl-rewrite takes 6.1 h
+  against 5.3 h at rewrite (proofs complete in both), loses 22 proofs to
+  60 s and prints 7% more: about a millisecond a hole against Carcara's
+  0.3 s.  `valid` 5,245 against 4,679: 4,669 in both, 10 only in rw5, 576
+  only in dsl1 (567 with a hole rw5 kept or skipped).  On the 4,669: median
+  0.42 s against 5.2 s to a checked proof, 3.1 h against 22.5 h; the
+  elaborated proofs have 98.5 M steps against 68.9 M (`rare_rewrite` 3.24 M
+  against 2.42 M) and check in the same 0.5 h.
+
+Also from the run: hoist and prune take the 7,165 hoisted proofs from
+4,633,089 hole steps to 2,609,174 distinct holes (UF 1.06, LIA 2.33, LRA
+2.42 times fewer) in 3.1 h; 206 proofs are rejected upfront (cvc5's
+resolution pivots) and 8 hoists time out; 14 elaboration passes
+(Dartagnan, `nec-smt` `prp`) were killed at the external 1,600 s.
+Correction: §47.2's "every hole of seven proofs" is six, by its own table.

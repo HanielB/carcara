@@ -1,0 +1,422 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage[section]{placeins}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\captionsetup{font=small,labelfont=bf}
+\graphicspath{{plots/}}
+\emergencystretch=2em
+
+\newcommand{\UF}{QF\_UF}
+\newcommand{\LIA}{QF\_LIA}
+\newcommand{\LRA}{QF\_LRA}
+\newcommand{\code}[1]{\texttt{#1}}
+\input{tables/macros}
+
+\title{cvc5's rewrite holes, reproved and elaborated by Carcara:\\
+  what the pipeline is made of, and what run \code{rw5} costs}
+\author{Carcara branch \code{egglog/rewrite-holes} (= \code{egglog/bounded-parallel-holes})}
+\date{Run \code{rw5} of 2026-09-27/28 (Carcara \code{7ec65b7d}) and the
+  \code{dsl1} arm of 2026-09-25 -- report of 2026-09-29}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  At \code{--proof-granularity=rewrite}, cvc5 prints one premise-free
+  \code{hole} step per call of its rewriter. Carcara reproves each hole with
+  a normalizer built from its own checker rules or with egglog saturation
+  over RARE rules, reconstructs an Alethe derivation, and splices it in.
+  This report describes, briefly, the parts added to that pipeline in the
+  last weeks (\S\ref{sec:parts}), and answers four questions from run
+  \code{rw5}: \nbench{} benchmarks of \UF{}, \LIA{} and \LRA{}, \nholes{}
+  distinct holes in the \nran{} proofs whose elaboration pass finished
+  (\S\ref{sec:questions}). \textbf{(1)}~The normalizer closes
+  \closedshare\% of the holes at a few milliseconds each and gives egglog a
+  normal form for another \triedshare\%; measured on and off before
+  \code{rw5}, it is the difference between 71\% and 98\% of the holes
+  proved. \textbf{(2)}~A hole egglog proves costs 0.2\,s (\UF{}), 0.5\,s
+  (\LRA{}) or 1.2\,s (\LIA{}) of worker time on average. \textbf{(3)}~The
+  reconstruction is 11\% of that time and 12\% of the pass; the elaborated
+  proofs re-check 25 times faster than they are produced.
+  \textbf{(4)}~cvc5's own expansion (\code{dsl-rewrite}) gives \dslvalid{}
+  valid proofs against \rwvalid{}, in a seventh of the time.
+\end{abstract}
+
+\section{Setting}
+
+Each benchmark runs on half an \code{octa} node (8 cores, 60\,GB):
+\begin{enumerate}
+  \item cvc5 (branch \code{alethe-rewrite-granularity}) with
+    \code{--proof-granularity=rewrite --proof-alethe-res-pivots
+    --proof-elim-subtypes --print-arith-lit-token}, 60\,s. Its holes are
+    tagged \code{MACRO\_REWRITE} or \code{MACRO\_SR\_PRED\_INTRO}; the
+    arithmetic preprocessing and subtype-elimination trust steps are
+    attempted too; the theory lemmas (\code{THEORY\_LEMMA}, \code{DIAMONDS})
+    never.
+  \item Pass 0, \code{carcara elaborate --pipeline hoist prune}, 300\,s
+    (\S\ref{sec:hoist}).
+  \item Pass 1, \code{carcara elaborate --pipeline hole} with a 92-rule RARE
+    file: the normalizer, then the holes on 8 workers, 60\,s and 5.5\,GB per
+    hole, 1,500\,s for the pass; the certificates are checked as they are
+    spliced in.
+  \item \code{carcara check} of the elaborated proof, 1,200\,s.
+\end{enumerate}
+The comparison arm \code{dsl1} runs the same cvc5 at
+\code{--proof-granularity=dsl-rewrite}, where cvc5 expands every rewrite
+into RARE rule applications itself, and checks the proof with
+\code{carcara check} (900\,s); no egglog.
+
+\section{The pipeline's parts}\label{sec:parts}
+
+\subsection{Before any hole: hoist and prune}\label{sec:hoist}
+
+cvc5 prints a rewrite once for every subproof that uses it. Pass~0
+(\code{6364ff71}) checks the proof's steps, computes a digest of every
+closed derivation (holes included), lifts each one that repeats to the top
+level once and makes its copies references; \code{prune} then drops what
+the conclusion no longer reaches. The hoisted proof is printed with term
+sharing: printed unshared, a 2.4\,MB proof had become 12\,GB. Within the
+pass, holes with the same goal under the same assumptions share one run (the
+verdict memo). Table~\ref{tab:hoist}: 4.6\,M hole steps become 2.6\,M
+distinct holes, 2.3--2.4 times fewer on the arithmetic logics, in 3.1\,h
+summed; 206 proofs are rejected before any hole by cvc5's resolution-pivot
+defect.
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/hoist}}
+  \caption{Pass 0 on the proofs cvc5 completed in 60\,s.}
+  \label{tab:hoist}
+\end{table}
+
+\subsection{The pre-normalizer}\label{sec:prenorm}
+
+\code{--hole-prenormalize} (\code{src/elaborator/prenorm.rs}). Before any
+hole is scheduled, both sides of every hole are normalized bottom-up, with
+one memo per proof, by five of the checker's own procedures:
+\code{evaluate} on ground terms; \code{poly\_simp}, arithmetic to the
+checker's canonical polynomial; \code{poly\_simp\_rel}, a relation to
+\code{(op P c)} with the difference scaled to integral coefficients of gcd~1
+(Int) or leading coefficient~1 (Real), equalities oriented; \code{aci\_simp},
+\code{and}/\code{or} flattened, identities dropped, duplicates removed,
+arguments sorted; \code{distinct\_elim}; and one fold, two mirrored bounds
+among a conjunction's arguments to their equality (\code{la\_rw\_eq}). Every
+step is one rule applied to one subterm, so a normal form comes with its
+certificate (\code{cong}, \code{trans}, \code{symm} around those steps).
+When the two sides meet, that certificate replaces the hole and egglog never
+runs. Otherwise egglog gets the equality of the normal forms first, on a
+third of the hole's budget, and its certificate is bridged back to the stated
+sides by the normalizer's derivations; if that fails, the goal as stated
+gets the whole budget. The normalizer stays within core Alethe: Boolean
+simplification, relation flips and integer tightening are RARE rules, and
+egglog's job. Its orders are term pointers, canonical within a run but not
+between runs, which is where \code{rw5}'s run-to-run differences on
+\code{rings} came from.
+
+\subsection{The set encoding of \code{and}/\code{or}}\label{sec:setform}
+
+egglog stores a term's arguments as a chain, and a RARE rule with $k$
+\code{:list} parameters has to bind segments of it: the \code{chain}
+encoding does that by re-association and $2^k-1$ variants of the rule for
+the empty lists. \code{--rare-list-encoding set-form} (the default) also
+represents every \code{and}/\code{or} as the set of its arguments, with
+rules for identity and absorbing elements, and compiles a rule whose
+left-hand side is an \code{and}/\code{or} over \code{:list} parameters
+\emph{once} on that form, its fixed arguments becoming membership
+conditions: it fires at any arity, in any position, with empty lists. The
+set forms of derived terms come from a ruleset of their own that runs only
+as egglog's last fallback, so a goal the ordinary rules prove pays nothing
+for them; since \code{rw5}, membership is a relation filled by position and
+splicing a nested \code{and}/\code{or} into its parent is guarded. Measured
+before: on veriT's Boolean-heavy holes the set form proves 83\% more holes in
+the same budget (98 proofs). On cvc5's holes the two encodings are a wash:
+over the whole corpus at theory-rewrite granularity (\code{enc4}) they prove
+70.7\% and 70.6\% of the holes without the normalizer and 98.3\% each with
+it, in 112\,h and 113\,h, and 50\,h each.
+
+\subsection{Sort guards}\label{sec:guards}
+
+egglog's rules range over one untyped sort of terms, so an arithmetic rule
+matched Boolean and uninterpreted terms: \code{arith-eq-elim} fired 12,000
+times on \UF{} goals. \code{--rare-sort-guards} (\code{58bc6945}) keeps
+relations \code{SortInt}, \code{SortReal}, \code{SortBool} (later
+\code{String}, \code{RegLan}) on e-classes, seeded from the goal's subterms
+by their declared sorts and propagated by operator (Bool for connectives
+and comparisons, Real for \code{/} and \code{to\_real}, the argument's sort
+for \code{+ - *}, the branch's for \code{ite}, the declared result for an
+uninterpreted function), and adds a guard premise for every Int, Real or
+Bool parameter of a rule. The certificate search strips the guards, so the
+certificates do not change. On the ten sample proofs of the time the kept
+holes went from 267 to 169 with the ACI identity rules of the same day, and
+to 129 with the guards; micro-goals ran 2 to 4 times faster.
+
+\subsection{Premise seeding}\label{sec:seeding}
+
+A conditional RARE rule fires only when its premise holds in the e-graph,
+so the premise's terms must exist, and the rule compiler adds a
+\emph{demand} rule that builds them. The first demand built every premise
+over all pairs of available terms, whatever their sorts: on a \UF{} goal of
+twelve conjuncts, eight such rules fired 2,175 times each in the second round
+and 12,775 in the fourth, and \code{eq-cond-deq} matched 530,000 times in
+one round; a 28-conjunct hole of the corpus died at 6\,GB, where its proof
+had checked in under a second at theory-rewrite granularity. Two designs were measured. Seeding the premises
+from the goal's subterms only (\code{--rare-seed-from-goal},
+\code{29e4f7f3}) was 5\% faster and lost 9 provable holes of the sample, so
+it is not used. \emph{Demand at the left-hand side} (\code{d78da84d}, with
+\code{6fa30dbf}) builds a premise's terms exactly for the bindings of each
+occurrence of the rule's left-hand side, where the rule could fire; a
+premise variable the left-hand side does not bind ranges over the seed
+relation under its sort guard, and no all-pairs seeding is left. Such
+goals then take 0.2--0.3\,s at every size up to 28 conjuncts; on the ten
+samples every hole but two is proved and the passes run 1.3 to 10 times
+faster; on 23 local proofs the unproved holes went from 56 to 6 and the pass
+from 903\,s to 475\,s. \code{rw2}, the first run with it (and with a
+larger pass budget), checked 99.9/99.7/99.5\% of the holes
+(\UF{}/\LIA{}/\LRA{}) against \code{rw1}'s 99.6/95.8/85.7\%.
+
+\subsection{The parallel setup}\label{sec:parallel}
+
+\begin{itemize}
+  \item \textbf{A process per hole} (\code{--hole-isolate}), eight at a
+    time (\code{--hole-threads 8}), under a hard time limit (the child is
+    killed at 60\,s) and an address-space limit of 5.5\,GB, the job's 60\,GB
+    less 16\,GB for the driver over eight, with a soft cap at 90\% for a
+    clean stop. A killed or failed child leaves its hole as a trusted hole
+    with a reason class, and the rest of the proof goes on. A process is
+    the only hard bound: an egglog iteration cannot be interrupted, and in
+    one process a 1\,s budget was overrun sixty-fold.
+  \item \textbf{A process per attempt.} Within a hole every attempt runs in
+    a fresh process with its share of the hole's budget: the normalized
+    goal (a third), the abstract goal (shared subterms of 16 nodes or more
+    as constants; half), the whole goal (a quarter, at most 10\,s), the
+    structural descent over atom pairs (at least 8\,s a pair), the atom
+    alignment, the whole goal again. Each is killed 3\,s past its share and
+    dies with its parent. A process that had failed once was where every
+    later attempt met the memory limit.
+  \item \textbf{A pass budget} of 1,500\,s from Carcara's start: holes not
+    started when it runs out are kept, and the pass ends with its partial
+    result. Holes are scheduled smallest goal first, so a binding budget
+    covers the most holes (12 to 75 times more on three \LRA{} proofs).
+  \item \textbf{Text across the boundary.} A child returns the certificate
+    as text, which the parent parses, checks and splices into the proof,
+    one hole at a time.
+  \item \textbf{A runner whose records survive a kill:} each pass's keys are
+    printed as soon as they are known, and the kept holes are counted by
+    class.
+\end{itemize}
+In \code{rw5} (Table~\ref{tab:pass}) the workers are busy 73\% of the hole
+phase (\UF{} 56\%: small proofs and the tails of large ones), starting a
+process and parsing its input costs 25\,ms a hole (10\% of the worker time),
+no task used more than 37.8\,GB of its 60\,GB, the pass budget cut 36
+holes, and every task kept its record. 14 passes (Dartagnan and
+\code{nec-smt} proofs) were killed at the external limit of 1,600\,s and
+count as unfinished.
+
+\section{Four questions}\label{sec:questions}
+
+\subsection{With the normalizer, or without?}\label{sec:q-norm}
+
+\code{rw5} ran with the normalizer, so its effect is read within the run
+(Table~\ref{tab:norm}) and from two earlier on/off measurements
+(Table~\ref{tab:onoff}).
+
+\textbf{Within \code{rw5}.} The normalizer closes \nclosed{} holes,
+\closedshare\% (\UF{} 13\%, \LIA{} 61\%, \LRA{} 64\%), for 466\,s of
+normalization and 0.75\,h of certificate checking in all: 3\,ms a hole,
+against 0.2 to 1.2\,s for a hole egglog proves. It gives egglog a normal
+form for another \triedshare\% of the holes, and \bridgedshare\% of those are
+proved and bridged; of the 5,660 that are not, 3,997 are proved as stated.
+The normal forms are smaller than the goals for 86\% of the \UF{} ones and
+larger for 52\% of \LIA{}'s (the polynomial form with its \code{(* -1 x)}
+monomials). The remaining 31\% of the holes are goals the normalizer leaves
+unchanged, and none of the \nkept{} kept holes is among them: every kept hole
+had been given a normal form first. Sent to egglog instead, the closed holes
+would cost at least the floor of a worker hole (the cheapest 1\% cost
+0.15\,s in \UF{}, 0.16\,s in \LIA{}, 0.21\,s in \LRA{}): about 50\,h of worker
+time more, nearly a quarter on top of the run's \workerhours\,h.
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/normalizer}}
+  \caption{The normalizer in the elaboration pass. ``Normal form tried
+    first'': egglog on the equality of the normal forms, on a third of the
+    hole's budget; ``bridged'': its certificate connected to the stated sides
+    by the normalizer's derivations. Normalization time includes building
+    the closing certificates.}
+  \label{tab:norm}
+\end{table}
+
+\textbf{Before \code{rw5}}, measured on and off: over the whole corpus at
+theory-rewrite granularity (run \code{enc4}, checking only, 5.44\,M holes)
+the normalizer took the proved holes from 70.7\% to 98.3\% and the passes
+from 112\,h to 50\,h; at rewrite granularity on ten sample proofs, from
+85.2\% to 99.7\% of the holes and from 2 to 6 fully proved proofs, in a
+quarter of the time. A rewrite-granularity hole is one call of the whole
+rewriter on a term, and without the normalizer egglog pays for its size.
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{llrrrrr}
+    \toprule
+    & & holes & proved & closed by the normalizer & proofs fully proved & pass time \\
+    \midrule
+    \code{enc4}: theory-rewrite, & without & 5,441,531 & 70.7\% & -- & 3,523 & 112\,h \\
+    \quad 7,192 proofs (2026-09-20) & with & 5,440,377 & 98.3\% & 57.5\% & 6,775 & 50\,h \\
+    \midrule
+    rewrite, ten sample & without & 7,889 & 85.2\% & -- & 2 & 2,094\,s \\
+    \quad proofs (2026-09-22) & with & 7,889 & 99.7\% & 38.4\% & 6 & 547\,s \\
+    \bottomrule
+  \end{tabular}}
+  \caption{The normalizer on and off, checking only, before \code{rw5}
+    (notes \S36 and \S47.2; 60\,s and 8\,GB per hole and 600\,s per proof,
+    respectively 30\,s, 3.5\,GB and 300\,s). In \code{enc4} most of the
+    difference is holes never attempted within the proof's budget (1.56\,M
+    without, 76,000 with).}
+  \label{tab:onoff}
+\end{table}
+
+\subsection{The cost of a hole}\label{sec:q-cost}
+
+A hole's cost is its worker time: the wall time of its processes, every
+attempt included (Table~\ref{tab:cost}, Figure~\ref{fig:cost}). In \UF{} a
+hole egglog proves costs 0.21\,s on average and hardly any deviates (p99
+0.33\,s): the fixed cost of a fresh process, the rule program and a short
+saturation, of which about 0.15\,s is the floor. \LIA{}'s cost 1.2\,s on
+average (median 0.75\,s, p99 10\,s; the tail is Dartagnan's whole-assertion
+holes) and \LRA{}'s 0.51\,s (median 0.27\,s). A kept hole costs what its
+limits let it spend, 28 to 48\,s on average and 17\,h in all (8\% of the
+worker time). Over all holes, closed ones included, a hole costs 0.20\,s
+(\UF{}, \LRA{}) or 0.50\,s (\LIA{}); the \nholes{} holes take \workerhours\,h
+of worker time in \passhours\,h of pass time, a median pass of 7.6\,s a
+proof (Table~\ref{tab:pass}).
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/cost}}
+  \caption{Cost per hole. For a hole egglog proves or that is kept, the
+    worker time; for a hole the normalizer closes, its share of the proof's
+    normalization plus the check of its certificate in the parent. A kept
+    hole's time is its last attempt's kill time or its phases, whichever is
+    larger.}
+  \label{tab:cost}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{hole-cost}
+  \caption{The holes egglog proved: worker time per hole, its egglog
+    phases (what a checking-only pass runs), and its reconstruction phases
+    with the insertion (what elaboration adds). The steps are the
+    per-logic floors: a process, the rule program, the first rounds.}
+  \label{fig:cost}
+\end{figure}
+
+\subsection{Elaboration against checking}\label{sec:q-elab}
+
+\textbf{Per hole the split is exact} (Table~\ref{tab:phases}). For the
+1.56\,M holes justified through egglog, the saturation that decides the goal,
+which is what a checking-only pass runs, is \egglogshare\% of the worker time;
+reconstructing the certificate from the saturated e-graph is 11\%, nearly
+all of it the certificate search; inserting and checking its steps 1\%;
+starting the process 10\%. The median hole spends 168\,ms in egglog and
+34\,ms in reconstruction and insertion, and for 0.2\% of the holes the
+reconstruction costs more than egglog. What the reconstruction loses costs
+more: 868 holes were kept in the reconstruction after egglog had proved their
+goal or a descent pair of it (killed in one of its phases, no certificate,
+or the certificate rejected), 12\,h of worker time.
+
+\textbf{Per proof it is an estimate}: the pass less its holes'
+reconstruction phases spread over the eight workers and less the insertion
+comes to \checkonlyhours\,h for a checking-only pass, against \passhours\,h
+for elaboration, which therefore adds 12\% (Table~\ref{tab:pass}). The
+result is cheap to check: the 6,585 proofs with every hole justified
+re-check in 1.0\,h in all (median 0.14\,s), against the 25.3\,h their
+elaboration took, with twice the steps of the hoisted proof.
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/phases}}
+  \caption{Worker time of the holes egglog proved and the reconstruction
+    justified, by phase. ``Elaboration'' per hole: reconstruction and
+    insertion. The last row is the kept holes that egglog had proved.}
+  \label{tab:phases}
+\end{table}
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/perproof}}
+  \caption{The elaboration pass per proof. ``Holes in the workers'' is the
+    wall time of the hole phase; the worker time is what the eight workers
+    spent in it. The checking-only pass is estimated, as described in the
+    text.}
+  \label{tab:pass}
+\end{table}
+
+\subsection{Against cvc5's own expansion}\label{sec:q-cvc5}
+
+Table~\ref{tab:cvc5}, Figure~\ref{fig:cvc5}. \textbf{Producing.} At
+\code{dsl-rewrite} cvc5 takes 15\% more time (6.1\,h against 5.3\,h summed,
+median 0.68\,s against 0.53\,s), loses 22 proofs to its 60\,s limit, and
+prints 7\% more text. Its expansion of every rewrite thus costs it about
+0.8\,h, around a millisecond a hole, against 0.3\,s of worker time a hole in
+Carcara. \textbf{Outcome.} \dslvalid{} proofs re-check \code{valid} against
+\rwvalid{}; \nboth{} in both, \rwonly{} only in \code{rw5}, and \dslonly{}
+only in \code{dsl1}, 567 of which have a hole \code{rw5} kept or did not
+reach. In \UF{} both are capped by the \code{THEORY\_LEMMA} holes of 1,789
+proofs, which neither attempts. \textbf{Time.} On the \nboth{} proofs valid
+in both, a checked proof takes 5.2\,s with \code{rw5} against 0.42\,s with
+\code{dsl1} (median), 22.5\,h against 3.1\,h summed; a checking-only pass
+would not close the gap (Figure~\ref{fig:cvc5}): the cost is egglog's, not
+the reconstruction's. \textbf{The proofs.} \code{rw5}'s elaborated proofs
+have 1.4 times \code{dsl1}'s steps (98.5\,M against 68.9\,M; 3.2\,M
+\code{rare\_rewrite} steps against 2.4\,M, fewer in \LRA{}, where the
+normalizer's \code{poly\_simp} and \code{aci\_simp} steps stand in) and are
+checked in the same time (0.5\,h each, medians 69 and 58\,ms).
+
+\begin{table}[htbp]
+  \centering\small
+  \resizebox{\textwidth}{!}{\input{tables/cvc5}}
+  \caption{\code{rw5} against \code{dsl1}, the same benchmarks and cvc5;
+    cvc5 rows over the proofs complete at both granularities. A checked
+    proof's time: cvc5, hoist, elaboration and re-check for \code{rw5}; cvc5
+    and check for \code{dsl1}.}
+  \label{tab:cvc5}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{vs-cvc5}
+  \caption{Time to a checked proof on the proofs valid in both arms.}
+  \label{fig:cvc5}
+\end{figure}
+
+\section{In short}
+
+\begin{enumerate}
+  \item \textbf{Normalizer:} closes \closedshare\% of the holes at 3\,ms each
+    and bridges \bridgedshare\% of the normal forms it hands egglog; every
+    kept hole is among the goals it changed. Measured on and off, it is
+    71\% against 98\% of the holes proved (whole corpus, theory-rewrite) and
+    85\% against 99.7\% (ten proofs, rewrite), in half to a quarter of the
+    time.
+  \item \textbf{Cost of a hole:} 0.20\,s of worker time in \UF{} and \LRA{},
+    0.50\,s in \LIA{}, closed holes included; a hole egglog proves has a
+    floor of about 0.15\,s, the process and the rule program.
+  \item \textbf{Elaboration against checking:} 11\% of the worker time of a
+    justified hole, 12\% of the pass; its losses are 868 holes and 12\,h.
+    The elaborated proof re-checks 25 times faster than it is produced.
+  \item \textbf{Against cvc5:} its own expansion costs it about a
+    millisecond a hole against Carcara's 0.3\,s; \dslonly{} proofs are
+    valid only with it and \rwonly{} only with \code{rw5}, and its checked
+    proofs come in a seventh of the time. The proofs \code{rw5} elaborates
+    are 1.4 times larger and check as fast.
+\end{enumerate}
+
+\end{document}
