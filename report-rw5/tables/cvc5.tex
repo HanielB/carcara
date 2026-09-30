@@ -10,6 +10,7 @@ proof text (GB): rewrite / dsl-rewrite & 22.0 / 22.3 & 3.2 / 4.2 & 1.4 / 2.1 & 2
 \midrule
 re-checked \code{valid}: rw5 / dsl1 & 1,828 / 2,230 & 2,404 / 2,510 & 447 / 505 & 4,679 / 5,245 \\
 \quad both / rw5 only / dsl1 only & 1,828 / 0 / 402 & 2,402 / 2 / 108 & 439 / 8 / 66 & 4,669 / 10 / 576 \\
+checked in full: cvc5-dsl + check / cvc5-rw + check / + elab & 2,230 / 1,975 / 1,828 & 2,510 / 2,438 / 2,404 & 505 / 469 / 447 & 5,245 / 4,882 / 4,679 \\
 valid in both, time to a checked proof, median: rw5 / dsl1 & 6.8\,s / 617\,ms & 1.6\,s / 90\,ms & 2.4\,s / 185\,ms & 5.2\,s / 415\,ms \\
 \quad summed (h): rw5 / dsl1 & 5.0 / 0.7 & 14.3 / 1.6 & 3.2 / 0.8 & 22.5 / 3.1 \\
 \quad final proof's check, median: rw5 / dsl1 & 124\,ms / 95\,ms & 15\,ms / 16\,ms & 50\,ms / 29\,ms & 69\,ms / 58\,ms \\

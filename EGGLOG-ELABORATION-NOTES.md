@@ -6573,3 +6573,18 @@ Also from the run: hoist and prune take the 7,165 hoisted proofs from
 resolution pivots) and 8 hoists time out; 14 elaboration passes
 (Dartagnan, `nec-smt` `prp`) were killed at the external 1,600 s.
 Correction: §47.2's "every hole of seven proofs" is six, by its own table.
+
+**Three routes and the per-benchmark scatter (2026-09-30).**  The report's
+Figure 2 now draws three routes over every benchmark: cvc5-dsl + check
+(dsl1), cvc5-rw + check (hoist and a checking-only pass, its time the
+estimate above; every hole checked and no untagged hole left) and cvc5-rw +
+check + elab (rw5).  They check 5,245, 4,882 and 4,679 proofs in full; the
+middle one is decided by §47.32's classification of the kept holes (checked
+or not), now in `make.py`.  Figure 3 is per benchmark: the rewrite routes
+are faster than cvc5-dsl on 389 of the 4,669 proofs both check with
+elaboration and on 592 of the 4,869 with checking only, 345 of the 389 tiny
+SMPT proofs where every route takes tens of milliseconds; with checking
+only, 376 proofs are left to cvc5-dsl alone.  The elaborated proof's check
+takes 1.09 times cvc5-dsl's at the median (0.70 to 1.55 times on 80% of the
+proofs, faster on 1,922), and it is larger on all but 73 (median 1.45
+times, p90 2.54).

@@ -361,40 +361,87 @@ elaboration took, with twice the steps of the hoisted proof.
 
 \subsection{Against cvc5's own expansion}\label{sec:q-cvc5}
 
-Table~\ref{tab:cvc5}, Figure~\ref{fig:cvc5}. \textbf{Producing.} At
-\code{dsl-rewrite} cvc5 takes 15\% more time (6.1\,h against 5.3\,h summed,
-median 0.68\,s against 0.53\,s), loses 22 proofs to its 60\,s limit, and
-prints 7\% more text. Its expansion of every rewrite thus costs it about
-0.8\,h, around a millisecond a hole, against 0.3\,s of worker time a hole in
-Carcara. \textbf{Outcome.} \dslvalid{} proofs re-check \code{valid} against
-\rwvalid{}; \nboth{} in both, \rwonly{} only in \code{rw5}, and \dslonly{}
-only in \code{dsl1}, 567 of which have a hole \code{rw5} kept or did not
-reach. In \UF{} both are capped by the \code{THEORY\_LEMMA} holes of 1,789
-proofs, which neither attempts. \textbf{Time.} On the \nboth{} proofs valid
-in both, a checked proof takes 5.2\,s with \code{rw5} against 0.42\,s with
-\code{dsl1} (median), 22.5\,h against 3.1\,h summed; a checking-only pass
-would not close the gap (Figure~\ref{fig:cvc5}): the cost is egglog's, not
-the reconstruction's. \textbf{The proofs.} \code{rw5}'s elaborated proofs
-have 1.4 times \code{dsl1}'s steps (98.5\,M against 68.9\,M; 3.2\,M
-\code{rare\_rewrite} steps against 2.4\,M, fewer in \LRA{}, where the
-normalizer's \code{poly\_simp} and \code{aci\_simp} steps stand in) and are
-checked in the same time (0.5\,h each, medians 69 and 58\,ms).
+Table~\ref{tab:cvc5}, Figures~\ref{fig:cvc5} and~\ref{fig:scatter}. Three
+routes lead from a benchmark to a proof checked in full.
+\emph{cvc5-dsl + check}: cvc5 at \code{dsl-rewrite} and \code{carcara check},
+the proof re-checked \code{valid} (\code{dsl1}). \emph{cvc5-rw + check}: cvc5
+at \code{rewrite}, the hoist, and a checking-only pass, every hole checked
+and no untagged hole left; its time is the estimate of
+\S\ref{sec:q-elab}. \emph{cvc5-rw + check + elab}: cvc5 at \code{rewrite},
+the hoist, the elaboration pass and the re-check, the proof re-checked
+\code{valid} (\code{rw5}).
+
+\textbf{Producing.} At \code{dsl-rewrite} cvc5 takes 15\% more time
+(6.1\,h against 5.3\,h summed, median 0.68\,s against 0.53\,s), loses 22
+proofs to its 60\,s limit, and prints 7\% more text. Its expansion of every
+rewrite thus costs it about 0.8\,h, around a millisecond a hole, against
+0.3\,s of worker time a hole in Carcara.
+
+\textbf{Outcome.} The three routes check \dslvalid{}, \checkfull{} and
+\rwvalid{} proofs in full. With elaboration, \nboth{} are checked by both
+cvc5-dsl and the rewrite route, \rwonly{} only by the rewrite route, and
+\dslonly{} only by cvc5-dsl, 567 of which have a hole \code{rw5} kept or did
+not reach; with checking only, \checkdslonly{} are left to cvc5-dsl alone.
+In \UF{} all three are capped by the \code{THEORY\_LEMMA} holes of 1,789
+proofs, which none of them attempts.
+
+\textbf{Time.} On the \nboth{} proofs valid in both, a checked proof takes
+5.2\,s with \code{rw5} against 0.42\,s with \code{dsl1} (median), 22.5\,h
+against 3.1\,h summed. Checking only does not close the gap: the two
+rewrite routes nearly coincide in Figure~\ref{fig:cvc5}, the cost being
+egglog's, not the reconstruction's. Per benchmark (Figure~\ref{fig:scatter}a
+and~b) the rewrite routes lie above the diagonal almost everywhere; they
+are faster on \elabfaster{} of the \nboth{} benchmarks checked with
+elaboration and on \checkfaster{} of the \checkboth{} checked without, and
+those are tiny proofs (345 of the \elabfaster{} from SMPT) on which every
+route takes a few tens of milliseconds.
+
+\textbf{The proofs.} \code{rw5}'s elaborated proofs have 1.4 times
+\code{dsl1}'s steps (98.5\,M against 68.9\,M; 3.2\,M \code{rare\_rewrite}
+steps against 2.4\,M, fewer in \LRA{}, where the normalizer's
+\code{poly\_simp} and \code{aci\_simp} steps stand in) and are checked in
+the same time (0.5\,h each, medians 69 and 58\,ms). Per proof
+(Figure~\ref{fig:scatter}c and~d) the elaborated proof is larger on all but
+\stepsbelow{} of the \nboth{} (median \stepsratio{} times), and its check
+takes \checkratio{} times cvc5's at the median, within 0.70 to 1.55 times
+on 80\% of the proofs, and is faster on \checkbelow{} of them.
 
 \begin{table}[htbp]
   \centering\small
   \resizebox{\textwidth}{!}{\input{tables/cvc5}}
   \caption{\code{rw5} against \code{dsl1}, the same benchmarks and cvc5;
-    cvc5 rows over the proofs complete at both granularities. A checked
-    proof's time: cvc5, hoist, elaboration and re-check for \code{rw5}; cvc5
-    and check for \code{dsl1}.}
+    cvc5 rows over the proofs complete at both granularities. ``Checked in
+    full'': the three routes of the text. A checked proof's time: cvc5,
+    hoist, elaboration and re-check for \code{rw5}; cvc5 and check for
+    \code{dsl1}.}
   \label{tab:cvc5}
 \end{table}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\textwidth]{vs-cvc5}
-  \caption{Time to a checked proof on the proofs valid in both arms.}
+  \caption{Time from benchmark to a proof checked in full, over every
+    benchmark of each logic; a route's line ends at the share of the
+    benchmarks it checks in full. \emph{cvc5-dsl + check}: cvc5 at
+    \code{dsl-rewrite} and \code{carcara check} (\code{dsl1}).
+    \emph{cvc5-rw + check}: cvc5 at \code{rewrite}, hoist and checking-only
+    pass (estimated), every hole checked. \emph{cvc5-rw + check + elab}:
+    cvc5 at \code{rewrite}, hoist, elaboration pass and re-check
+    (\code{rw5}).}
   \label{fig:cvc5}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=.92\textwidth]{vs-cvc5-scatter}
+  \caption{Per benchmark. (a), (b): cvc5-dsl + check ($x$) against
+    cvc5-rw + check + elab and cvc5-rw + check ($y$), every benchmark; one a
+    route does not check in full sits on that route's edge, one neither
+    route checks in the corner. (c), (d): the \nboth{} benchmarks valid in
+    both, the check of the final proof and its number of steps, cvc5's own
+    expansion ($x$) against the elaborated proof ($y$). The dotted line is
+    $y = x$.}
+  \label{fig:scatter}
 \end{figure}
 
 \section{In short}
@@ -413,10 +460,11 @@ checked in the same time (0.5\,h each, medians 69 and 58\,ms).
     justified hole, 12\% of the pass; its losses are 868 holes and 12\,h.
     The elaborated proof re-checks 25 times faster than it is produced.
   \item \textbf{Against cvc5:} its own expansion costs it about a
-    millisecond a hole against Carcara's 0.3\,s; \dslonly{} proofs are
-    valid only with it and \rwonly{} only with \code{rw5}, and its checked
-    proofs come in a seventh of the time. The proofs \code{rw5} elaborates
-    are 1.4 times larger and check as fast.
+    millisecond a hole against Carcara's 0.3\,s. cvc5-dsl + check,
+    cvc5-rw + check and cvc5-rw + check + elab check \dslvalid{}, \checkfull{}
+    and \rwvalid{} proofs in full; on the proofs both check, cvc5's route
+    takes a seventh of the time. The proofs \code{rw5} elaborates are 1.4
+    times larger and check as fast.
 \end{enumerate}
 
 \end{document}

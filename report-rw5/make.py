@@ -101,6 +101,46 @@ def check_stats(log):
     return stats
 
 
+MARKERS = ('whole-first', 'descent-failed', 'atoms-failed', 'descent', 'atoms')
+
+
+def kept_bucket(cls, why, tokens):
+    """Whether egglog proved a kept hole's goal: 'checked' (the
+    reconstruction lost it), 'not checked', 'undetermined' (killed inside a
+    descent, the whole goal not proved) or 'not attempted' -- the reading of
+    notes 47.32 (analysis-rw5/questions.py).  `tokens` are the phase names of
+    the hole's last phases line."""
+    if cls in ('out-of-scope', 'pass-budget'):
+        return 'not attempted'
+    if cls == 'unproved':
+        return 'not checked'
+    if cls in ('no-certificate', 'checker-rejected'):
+        return 'checked'
+    m = re.search(r'during (\w+)', why)
+    phase = m.group(1) if m else None
+    after = re.search(r'\(after ([^)]*)\)', why)
+    names = [t.split('=')[0] for t in after.group(1).split()] if after else tokens
+    segs, cur = [], []
+    for t in names:
+        if t in MARKERS:
+            segs.append((t, cur))
+            cur = []
+        else:
+            cur.append(t)
+    # a whole-goal attempt that reached serialize: egglog proved the goal
+    whole_proved = any(marker == 'whole-first' and 'serialize' in seg for marker, seg in segs)
+    last = segs[-1][0] if segs else None
+    if whole_proved:
+        return 'checked'
+    if cls == 'memory':
+        return 'not checked'
+    if phase == 'egglog' and not (last == 'whole-first' and cur):
+        return 'not checked'
+    if phase in RECON:
+        return 'undetermined' if last == 'whole-first' else 'checked'
+    return 'undetermined'
+
+
 def logic_of(name):
     return next((l for l in LOGICS if name.startswith(l + '/')), None)
 
@@ -149,6 +189,7 @@ for name, r in records(rw5_path):
     m = PRUNED.search(hoist_log)
     p['pruned'], p['commands'] = (int(x) for x in m.groups()) if m else (0, 0)
     p['ran'] = k.get('holes_after') not in (None, 'none', '')
+    p['okp'] = k.get('okp') == '1'
     p['fully'] = k.get('okp') == '1' and k.get('holes_after') == '0'
     p['result'] = k.get('check_result')
     p['hoisted_steps'] = sum(rule_counts(section(log, 'rule counts')).values())
@@ -184,8 +225,10 @@ for name, r in records(rw5_path):
             c['goal nodes'] += a; c['nf nodes'] += b
     phases = collections.defaultdict(lambda: collections.Counter())
     attempts = collections.Counter()
+    last_names = {}
     for h, rest in PHASE.findall(body):
         attempts[h] += 1
+        last_names[h] = [t.split('=')[0] for t in rest.split()]
         for token in rest.split():
             key, _, value = token.partition('=')
             if key == 'egglog' or key in RECON:
@@ -213,7 +256,10 @@ for name, r in records(rw5_path):
         c['rewritten justified' if status[h] == 'rewritten' else 'unchanged justified'] += 1
         c['several attempts'] += attempts[h] > 1
     p['insertion'] = insertion
+    p['unchecked'] = p['holes_skipped']
     for h, cls, why in KEPT.findall(body):
+        if kept_bucket(cls, why, last_names.get(h, [])) != 'checked':
+            p['unchecked'] += 1
         ph = phases.get(h, collections.Counter())
         spent = sum(ph.values())
         m = KILLED.search(why)
@@ -473,6 +519,33 @@ rows.append(crow('re-checked \\code{valid}: rw5 / dsl1', lambda xs: f"{fmt(len(r
 rows.append(crow('\\quad both / rw5 only / dsl1 only', lambda xs: f"{fmt(len(both(xs)))} / {fmt(len(rv(xs) - dv(xs)))} / {fmt(len(dv(xs) - rv(xs)))}"))
 pipe = lambda x: proofs[x]['solver_time'] + proofs[x]['hoist_time'] + proofs[x]['elab_time'] + proofs[x]['check_time']
 dslt = lambda x: dsl[x]['solver_time'] + dsl[x]['check_time']
+# The three routes to a proof checked in full, per benchmark: (done, seconds).
+#   cvc5-dsl + check: cvc5 at dsl-rewrite and carcara check, re-checked valid;
+#   cvc5-rw + check: cvc5 at rewrite, hoist, and a checking-only pass (the
+#     estimate from the elaboration pass), every hole checked -- justified,
+#     or proved by egglog and lost in the reconstruction -- and no untagged
+#     hole left;
+#   cvc5-rw + check + elab: cvc5 at rewrite, hoist, the elaboration pass and
+#     the re-check, re-checked valid.
+def route_dsl(x):
+    return dsl[x]['result'] == 'valid', dslt(x)
+
+
+def route_check(x):
+    p = proofs[x]
+    done = p['ran'] and p['okp'] and p.get('unchecked', 1) == 0 and p['holes_untagged'] == 0
+    return done, p['solver_time'] + p['hoist_time'] + (checking_only(p) if p['ran'] else 0.0)
+
+
+def route_elab(x):
+    return proofs[x]['result'] == 'valid', pipe(x)
+
+
+ROUTES = (('cvc5-dsl + check', route_dsl, 'black', '-'),
+          ('cvc5-rw + check', route_check, '#ff7f0e', '--'),
+          ('cvc5-rw + check + elab', route_elab, '#9467bd', '-.'))
+rows.append(crow('checked in full: cvc5-dsl + check / cvc5-rw + check / + elab',
+                 lambda xs: ' / '.join(fmt(sum(f(x)[0] for x in xs)) for _, f, _, _ in ROUTES)))
 rows.append(crow('valid in both, time to a checked proof, median: rw5 / dsl1',
                  lambda xs: f"{secs(q([pipe(x) for x in both(xs)], .5))} / {secs(q([dslt(x) for x in both(xs)], .5))}"))
 rows.append(crow('\\quad summed (h): rw5 / dsl1', lambda xs: f"{hours(sum(pipe(x) for x in both(xs)))} / {hours(sum(dslt(x) for x in both(xs)))}"))
@@ -527,26 +600,89 @@ fig.legend([matplotlib.lines.Line2D([], [], color='black', linestyle=h.get_lines
 fig.tight_layout(rect=(0, 0.08, 1, 1))
 fig.savefig(f'{out}/plots/hole-cost.pdf')
 
+XMAX = 5000.0
 fig, axes = plt.subplots(1, 3, figsize=(8.6, 3.0), sharey=True)
 for ax, l in zip(axes, LOGICS):
-    xs = both(common[l])
+    xs = common[l]
     n = len(xs)
-    for label, v, ls in (('cvc5 at dsl-rewrite + check (dsl1)', [dslt(x) for x in xs], '-'),
-                         ('cvc5 at rewrite + hoist + elaboration + re-check (rw5)', [pipe(x) for x in xs], '--'),
-                         ('cvc5 at rewrite + hoist + checking only (rw5, estimated)',
-                          [proofs[x]['solver_time'] + proofs[x]['hoist_time'] + checking_only(proofs[x]) for x in xs], ':')):
-        v = np.sort(np.maximum(np.asarray(v), 0.01))
-        ax.step(v, np.arange(1, n + 1) / n, where='post', linestyle=ls, color=COLORS[l], label=label)
+    for label, route, color, ls in ROUTES:
+        v = np.sort([max(t, 0.01) for done, t in map(route, xs) if done])
+        y = np.arange(1, len(v) + 1) / n
+        # the plateau to the right edge: the share of benchmarks the route finishes
+        ax.step(np.append(v, XMAX), np.append(y, y[-1]), where='post', linestyle=ls, color=color, label=label)
     ax.set_xscale('log')
-    ax.set_xlim(0.01, 2000)
-    ax.set_title(f'{l} ({n:,} valid in both)')
-    ax.set_xlabel('seconds per benchmark')
+    ax.set_xlim(0.01, XMAX)
+    ax.set_ylim(0, 1)
+    ax.set_title(f'{l} ({n:,} benchmarks)')
+    ax.set_xlabel('time to a proof checked in full (s)')
 axes[0].set_ylabel('fraction of the benchmarks')
 handles, labels = axes[0].get_legend_handles_labels()
-fig.legend([matplotlib.lines.Line2D([], [], color='black', linestyle=h.get_linestyle()) for h in handles], labels,
-           loc='lower center', ncol=2, fontsize=8)
-fig.tight_layout(rect=(0, 0.14, 1, 1))
+fig.legend(handles, labels, loc='lower center', ncol=3, fontsize=8)
+fig.tight_layout(rect=(0, 0.09, 1, 1))
 fig.savefig(f'{out}/plots/vs-cvc5.pdf')
+
+# Figure 3: per benchmark.  (a), (b): cvc5-dsl + check against the two
+# rewrite-granularity routes, every benchmark; one a route does not finish
+# sits on the edge.  (c), (d): the final proofs of the benchmarks valid in
+# both, their check time and their size.
+EDGE = 5000.0
+fig, axes = plt.subplots(2, 2, figsize=(8.0, 7.6))
+panels = (
+    (axes[0][0], '(a) with elaboration', route_elab, 'cvc5-rw + check + elab (s)'),
+    (axes[0][1], '(b) checking only (estimated)', route_check, 'cvc5-rw + check (s)'),
+)
+quadrants = {}
+for ax, title, route, ylabel in panels:
+    counts = collections.Counter()
+    for l in LOGICS:
+        xs = common[l]
+        xv, yv = [], []
+        for x in xs:
+            dd, dt = route_dsl(x)
+            rd, rt = route(x)
+            xv.append(max(dt, 0.05) if dd else EDGE)
+            yv.append(max(rt, 0.05) if rd else EDGE)
+            counts['both' if dd and rd else 'cvc5-dsl only' if dd else 'rewrite route only' if rd else 'neither'] += 1
+            if dd and rd:
+                counts['rewrite route faster'] += rt < dt
+        ax.scatter(xv, yv, s=4, alpha=.35, color=COLORS[l], label=l, linewidths=0)
+    quadrants[title] = counts
+    ax.plot([0.05, EDGE], [0.05, EDGE], color='k', linewidth=.8, linestyle=':')
+    ax.set_xscale('log'); ax.set_yscale('log')
+    ax.set_xlim(0.04, EDGE * 1.4); ax.set_ylim(0.04, EDGE * 1.4)
+    ax.set_title(title, fontsize=9)
+    ax.set_xlabel('cvc5-dsl + check (s)')
+    ax.set_ylabel(ylabel)
+    ax.legend(loc='lower right', markerscale=3, fontsize=7)
+finals = {}
+for ax, title, fx, fy, xlabel, ylabel, floor in (
+        (axes[1][0], '(c) checking the final proof, valid in both', lambda x: dsl[x]['check_time'],
+         lambda x: proofs[x]['check_time'], 'check of the cvc5-dsl proof (s)', 'check of the elaborated proof (s)', 0.005),
+        (axes[1][1], '(d) size of the final proof, valid in both', lambda x: dsl[x]['steps'],
+         lambda x: proofs[x]['elab_steps'], 'steps of the cvc5-dsl proof', 'steps of the elaborated proof', 1)):
+    xs_all, ys_all = [], []
+    for l in LOGICS:
+        xs = both(common[l])
+        xv = [max(fx(x), floor) for x in xs]
+        yv = [max(fy(x), floor) for x in xs]
+        xs_all += xv; ys_all += yv
+        ax.scatter(xv, yv, s=4, alpha=.35, color=COLORS[l], label=l, linewidths=0)
+    lo = min(xs_all + ys_all) / 1.5; hi = max(xs_all + ys_all) * 1.5
+    ax.plot([lo, hi], [lo, hi], color='k', linewidth=.8, linestyle=':')
+    ax.set_xscale('log'); ax.set_yscale('log')
+    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
+    ax.set_title(title, fontsize=9)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend(loc='lower right', markerscale=3, fontsize=7)
+    ratio = np.asarray(ys_all) / np.asarray(xs_all)
+    finals[title] = (len(ratio), int(np.sum(ratio < 1)), float(np.median(ratio)), float(q(ratio, .1)), float(q(ratio, .9)))
+fig.tight_layout()
+fig.savefig(f'{out}/plots/vs-cvc5-scatter.pdf')
+for title, counts in quadrants.items():
+    say(f'scatter {title}: {dict(counts)}')
+for title, (n, below, med, p10, p90) in finals.items():
+    say(f'scatter {title}: {n} proofs, elaborated below cvc5-dsl on {below}, ratio median {med:.2f} (p10 {p10:.2f}, p90 {p90:.2f})')
 
 # ---------------------------------------------------------------- macros
 with open(f'{out}/tables/macros.tex', 'w') as f:
@@ -573,6 +709,18 @@ with open(f'{out}/tables/macros.tex', 'w') as f:
     m('nboth', fmt(len(both(allcommon))))
     m('dslonly', fmt(len(dv(allcommon) - rv(allcommon))))
     m('rwonly', fmt(len(rv(allcommon) - dv(allcommon))))
+    m('checkfull', fmt(sum(route_check(x)[0] for x in allcommon)))
+    qa = quadrants['(a) with elaboration']; qb = quadrants['(b) checking only (estimated)']
+    m('elabfaster', fmt(qa['rewrite route faster']))
+    m('checkboth', fmt(qb['both']))
+    m('checkfaster', fmt(qb['rewrite route faster']))
+    m('checkonly', fmt(qb['rewrite route only']))
+    m('checkdslonly', fmt(qb['cvc5-dsl only']))
+    fc = finals['(c) checking the final proof, valid in both']; fd = finals['(d) size of the final proof, valid in both']
+    m('checkratio', f'{fc[2]:.2f}')
+    m('checkbelow', fmt(fc[1]))
+    m('stepsratio', f'{fd[2]:.2f}')
+    m('stepsbelow', fmt(fd[1]))
 
 with open(f'{out}/summary.txt', 'w') as f:
     f.write('\n'.join(report) + '\n')
