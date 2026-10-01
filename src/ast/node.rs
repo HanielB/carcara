@@ -425,9 +425,12 @@ fn proof_list_to_nodes(commands: Vec<ProofCommand>) -> ProofNodeForest {
 }
 
 /// Converts a `ProofNode` into a list of proof commands.
-/// The `assume` commands belonging to a subproof's own scope, in the order the proof reaches
-/// them. They have to be emitted before its steps, which is not where a premise-following
-/// traversal would first reach them.
+/// The `assume` commands belonging to a subproof's own scope. They have to be emitted before its
+/// steps, which is not where a premise-following traversal would first reach them, and in the
+/// order the closing step discharges them: that is the order the solver wrote them in, the order
+/// their negations appear in the closing step's clause, and what a consumer that pushes and pops
+/// the assumptions of a scope (the Eunoia translation) relies on. Assumptions the closing step
+/// does not discharge follow, in the order the traversal reaches them.
 fn scope_assumes(subproof: &SubproofNode, depth: usize) -> Vec<&Rc<ProofNode>> {
     use std::collections::HashSet;
 
@@ -459,6 +462,25 @@ fn scope_assumes(subproof: &SubproofNode, depth: usize) -> Vec<&Rc<ProofNode>> {
         }
     }
     out.reverse();
+
+    if let ProofNode::Step(last) = subproof.last_step.as_ref() {
+        if !last.discharge.is_empty() {
+            let mut ordered: Vec<&Rc<ProofNode>> = Vec::with_capacity(out.len());
+            for discharged in &last.discharge {
+                if let Some(node) = out.iter().find(|node| **node == discharged) {
+                    if !ordered.contains(node) {
+                        ordered.push(node);
+                    }
+                }
+            }
+            for node in &out {
+                if !ordered.contains(node) {
+                    ordered.push(node);
+                }
+            }
+            out = ordered;
+        }
+    }
     out
 }
 
