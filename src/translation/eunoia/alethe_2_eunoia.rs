@@ -1059,6 +1059,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
         let ProblemPrelude {
             sort_declarations,
             function_declarations,
+            function_definitions,
             ..
         } = prelude;
 
@@ -1081,14 +1082,18 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
             });
         });
 
-        // Constants declarations.
-        function_declarations.iter().for_each(|pair| {
-            eunoia_prelude.push(EunoiaCommand::DeclareConst {
-                name: user_symbol(&pair.0),
-                eunoia_type: EunoiaTerm::Type(EunoiaTranslator::translate_sort(&pair.1)),
-                attrs: Vec::new(),
+        // Constants declarations, then the names define-fun introduced (declared by the
+        // parser, with a premise equating each to its body, when definitions are not applied).
+        function_declarations
+            .iter()
+            .chain(function_definitions.iter())
+            .for_each(|pair| {
+                eunoia_prelude.push(EunoiaCommand::DeclareConst {
+                    name: user_symbol(&pair.0),
+                    eunoia_type: EunoiaTerm::Type(EunoiaTranslator::translate_sort(&pair.1)),
+                    attrs: Vec::new(),
+                });
             });
-        });
 
         eunoia_prelude
     }

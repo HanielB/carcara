@@ -1159,6 +1159,9 @@ impl<'p, 's> Parser<'p, 's> {
                         };
                         let sort = self.pool.sort(&lambda_term);
                         self.declare_symbol(name.clone(), sort.clone());
+                        self.prelude()
+                            .function_definitions
+                            .push((name.clone(), sort.clone()));
                         let var_term = self.pool.add((name, sort).into());
                         let assertion_term = self
                             .pool

@@ -31,6 +31,12 @@ pub struct ProblemPrelude {
     /// The function declarations, each represented by its name and sort.
     pub(crate) function_declarations: Vec<(String, Rc<Sort>)>,
 
+    /// The functions a `define-fun` introduced when definitions are not applied (the parser
+    /// then declares the name and adds a premise equating it to its body), by name and sort.
+    /// Consumers that must declare every symbol of the problem (the Eunoia translation)
+    /// read this; the Alethe printers do not.
+    pub(crate) function_definitions: Vec<(String, Rc<Sort>)>,
+
     /// The problem's logic string, if it exists.
     pub(crate) logic: Option<String>,
 }
