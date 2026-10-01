@@ -35,6 +35,7 @@ import sys
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.lines
+import matplotlib.ticker
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -601,25 +602,36 @@ fig.tight_layout(rect=(0, 0.08, 1, 1))
 fig.savefig(f'{out}/plots/hole-cost.pdf')
 
 XMAX = 5000.0
-fig, axes = plt.subplots(1, 3, figsize=(8.6, 3.0), sharey=True)
-for ax, l in zip(axes, LOGICS):
-    xs = common[l]
-    n = len(xs)
-    for label, route, color, ls in ROUTES:
-        v = np.sort([max(t, 0.01) for done, t in map(route, xs) if done])
-        y = np.arange(1, len(v) + 1) / n
-        # the plateau to the right edge: the share of benchmarks the route finishes
-        ax.step(np.append(v, XMAX), np.append(y, y[-1]), where='post', linestyle=ls, color=color, label=label)
-    ax.set_xscale('log')
-    ax.set_xlim(0.01, XMAX)
-    ax.set_ylim(0, 1)
-    ax.set_title(f'{l} ({n:,} benchmarks)')
-    ax.set_xlabel('time to a proof checked in full (s)')
-axes[0].set_ylabel('fraction of the benchmarks')
-handles, labels = axes[0].get_legend_handles_labels()
-fig.legend(handles, labels, loc='lower center', ncol=3, fontsize=8)
-fig.tight_layout(rect=(0, 0.09, 1, 1))
-fig.savefig(f'{out}/plots/vs-cvc5.pdf')
+
+
+def route_lines(path, counts):
+    """Figure 2: the three routes, the y axis the fraction of the benchmarks
+    or, with `counts`, their number (each panel up to its logic's total)."""
+    fig, axes = plt.subplots(1, 3, figsize=(8.6, 3.0), sharey=not counts)
+    for ax, l in zip(axes, LOGICS):
+        xs = common[l]
+        n = len(xs)
+        for label, route, color, ls in ROUTES:
+            v = np.sort([max(t, 0.01) for done, t in map(route, xs) if done])
+            y = np.arange(1, len(v) + 1) / (1 if counts else n)
+            # the plateau to the right edge: how many benchmarks the route finishes
+            ax.step(np.append(v, XMAX), np.append(y, y[-1]), where='post', linestyle=ls, color=color, label=label)
+        ax.set_xscale('log')
+        ax.set_xlim(0.01, XMAX)
+        ax.set_ylim(0, n if counts else 1)
+        if counts:
+            ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+        ax.set_title(f'{l} ({n:,} benchmarks)')
+        ax.set_xlabel('time to a proof checked in full (s)')
+    axes[0].set_ylabel('benchmarks checked in full' if counts else 'fraction of the benchmarks')
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', ncol=3, fontsize=8)
+    fig.tight_layout(rect=(0, 0.09, 1, 1))
+    fig.savefig(path)
+
+
+route_lines(f'{out}/plots/vs-cvc5.pdf', counts=False)
+route_lines(f'{out}/plots/vs-cvc5-count.pdf', counts=True)
 
 # Figure 3: per benchmark.  (a), (b): cvc5-dsl + check against the two
 # rewrite-granularity routes, every benchmark; one a route does not finish

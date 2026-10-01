@@ -361,7 +361,7 @@ elaboration took, with twice the steps of the hoisted proof.
 
 \subsection{Against cvc5's own expansion}\label{sec:q-cvc5}
 
-Table~\ref{tab:cvc5}, Figures~\ref{fig:cvc5} and~\ref{fig:scatter}. Three
+Table~\ref{tab:cvc5}, Figures~\ref{fig:cvc5}--\ref{fig:scatter}. Three
 routes lead from a benchmark to a proof checked in full.
 \emph{cvc5-dsl + check}: cvc5 at \code{dsl-rewrite} and \code{carcara check},
 the proof re-checked \code{valid} (\code{dsl1}). \emph{cvc5-rw + check}: cvc5
@@ -369,7 +369,9 @@ at \code{rewrite}, the hoist, and a checking-only pass, every hole checked
 and no untagged hole left; its time is the estimate of
 \S\ref{sec:q-elab}. \emph{cvc5-rw + check + elab}: cvc5 at \code{rewrite},
 the hoist, the elaboration pass and the re-check, the proof re-checked
-\code{valid} (\code{rw5}).
+\code{valid} (\code{rw5}). Figure~\ref{fig:cvc5} draws them with the
+fraction of the benchmarks on the $y$ axis, Figure~\ref{fig:cvc5-count}
+with their number.
 
 \textbf{Producing.} At \code{dsl-rewrite} cvc5 takes 15\% more time
 (6.1\,h against 5.3\,h summed, median 0.68\,s against 0.53\,s), loses 22
@@ -429,6 +431,14 @@ on 80\% of the proofs, and is faster on \checkbelow{} of them.
     cvc5 at \code{rewrite}, hoist, elaboration pass and re-check
     (\code{rw5}).}
   \label{fig:cvc5}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{vs-cvc5-count}
+  \caption{Figure~\ref{fig:cvc5} with the number of benchmarks on the $y$
+    axis, each panel up to its logic's number of benchmarks.}
+  \label{fig:cvc5-count}
 \end{figure}
 
 \begin{figure}[htbp]
