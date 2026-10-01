@@ -4,6 +4,43 @@ use crate::translation::{
     Symbol, Translator, TranslatorData, VecToVecTranslator,
     eunoia::{alethe_signature::theory::*, ast::*},
 };
+use crate::utils::is_symbol_character;
+
+/// Eunoia names a user symbol may not take: Ethos's own, and the ones the signature declares
+/// for the Alethe theories. A user symbol equal to one of them, or starting like a signature
+/// (`@`, `$`) or Ethos (`eo::`) name, is renamed `@u.<symbol>`, in declarations and uses alike;
+/// Ethos would otherwise accept the user's declaration and read every later occurrence of the
+/// name, its own included, as the user's constant. The map is injective: every symbol that
+/// starts with `@` is itself renamed, so no user symbol can be printed as another's `@u.` form.
+const RESERVED_SYMBOLS: &[&str] = &[
+    "->", "Type", "Bool", "Int", "Real", "String", "_", "let", "true", "false", "ite", "not",
+    "or", "and", "=>", "xor", "=", "distinct", "+", "-", "*", "/", "div", "mod", "<", "<=", ">",
+    ">=", "to_real", "to_int", "is_int", "abs", "forall", "exists", "choice",
+];
+
+/// The Eunoia spelling of a user symbol (a sort, a constant, a function or a bound variable
+/// of the problem or the proof): renamed when it collides with a reserved name, and quoted
+/// with `|...|` when SMT-LIB requires it (empty, starting with a digit, or holding a character
+/// outside the symbol alphabet).
+pub fn user_symbol(symbol: &str) -> Symbol {
+    let renamed = if symbol.starts_with('@')
+        || symbol.starts_with('$')
+        || symbol.starts_with("eo::")
+        || RESERVED_SYMBOLS.contains(&symbol)
+    {
+        format!("@u.{symbol}")
+    } else {
+        symbol.to_owned()
+    };
+    if renamed.is_empty()
+        || renamed.chars().next().unwrap().is_ascii_digit()
+        || renamed.chars().any(|c| c == '\'' || !is_symbol_character(c))
+    {
+        format!("|{renamed}|")
+    } else {
+        renamed
+    }
+}
 
 pub struct EunoiaTranslator {
     /// "Alethe in Eunoia" signature considered during translation.
@@ -51,7 +88,7 @@ impl EunoiaTranslator {
         binding_list.iter().for_each(|sorted_var| {
             let (name, sort) = sorted_var;
             ret.push(EunoiaTerm::Var(
-                name.clone(),
+                user_symbol(name),
                 Box::new(EunoiaTerm::Type(EunoiaTranslator::translate_sort(sort))),
             ));
         });
@@ -269,7 +306,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                                 .insert_variable_in_scope(name, &eunoia_sort);
 
                             context_domain.push(EunoiaTerm::List(vec![
-                                EunoiaTerm::Id(name.clone()),
+                                EunoiaTerm::Id(user_symbol(name)),
                                 EunoiaTerm::Type(eunoia_sort.clone()),
                             ]));
                         }
@@ -282,7 +319,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                             .insert_variable_in_scope(name, &eunoia_sort);
 
                         context_domain.push(EunoiaTerm::List(vec![
-                            EunoiaTerm::Id(name.clone()),
+                            EunoiaTerm::Id(user_symbol(name)),
                             EunoiaTerm::Type(eunoia_sort.clone()),
                         ]));
                     }
@@ -333,7 +370,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                                 .insert_variable_in_scope(name, &eunoia_sort);
 
                             context_domain.push(EunoiaTerm::List(vec![
-                                EunoiaTerm::Id(name.clone()),
+                                EunoiaTerm::Id(user_symbol(name)),
                                 EunoiaTerm::Type(eunoia_sort.clone()),
                             ]));
 
@@ -355,7 +392,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                             .insert_variable_in_scope(name, &eunoia_sort);
 
                         context_domain.push(EunoiaTerm::List(vec![
-                            EunoiaTerm::Id(name.clone()),
+                            EunoiaTerm::Id(user_symbol(name)),
                             EunoiaTerm::Type(eunoia_sort.clone()),
                         ]));
 
@@ -434,7 +471,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                 {
                     Some(_) => self.build_var_binding(string),
 
-                    None => EunoiaTerm::Id(string.clone()),
+                    None => EunoiaTerm::Id(user_symbol(string)),
                 }
             }
 
@@ -602,10 +639,10 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
             self.alethe_signature.var.to_owned(),
             vec![
                 EunoiaTerm::List(vec![EunoiaTerm::List(vec![
-                    EunoiaTerm::Id(id.to_owned().clone()),
+                    EunoiaTerm::Id(user_symbol(id)),
                     EunoiaTerm::Type(sort),
                 ])]),
-                EunoiaTerm::Id(id.to_owned().clone()),
+                EunoiaTerm::Id(user_symbol(id)),
             ],
         )
     }
@@ -627,7 +664,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
             let translated_value_sort = EunoiaTranslator::translate_sort(&value_sort);
 
             binding_occ.push(EunoiaTerm::Var(
-                name.clone(),
+                user_symbol(name),
                 Box::new(EunoiaTerm::Type(translated_value_sort)),
             ));
 
@@ -715,7 +752,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
 
             // User-defined sort
             // TODO: what about args?
-            Sort::Atom(string, ..) => EunoiaType::Name(string.to_string()),
+            Sort::Atom(string, ..) => EunoiaType::Name(user_symbol(string)),
 
             Sort::Function(sorts) => {
                 assert!(sorts.len() >= 2,);
@@ -1038,7 +1075,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
         // Sorts declarations.
         sort_declarations.iter().for_each(|pair| {
             eunoia_prelude.push(EunoiaCommand::DeclareConst {
-                name: pair.0.clone(),
+                name: user_symbol(&pair.0),
                 eunoia_type: EunoiaTerm::Type(EunoiaType::Type),
                 attrs: Vec::new(),
             });
@@ -1047,7 +1084,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
         // Constants declarations.
         function_declarations.iter().for_each(|pair| {
             eunoia_prelude.push(EunoiaCommand::DeclareConst {
-                name: pair.0.clone(),
+                name: user_symbol(&pair.0),
                 eunoia_type: EunoiaTerm::Type(EunoiaTranslator::translate_sort(&pair.1)),
                 attrs: Vec::new(),
             });
