@@ -10,6 +10,7 @@ pub struct EunoiaTranslator {
     alethe_signature: AletheTheory,
 
     translation: TranslatorData<EunoiaType, EunoiaProof>,
+    rare_rule_names: indexmap::IndexMap<String, String>,
 }
 
 impl EunoiaTranslator {
@@ -17,7 +18,28 @@ impl EunoiaTranslator {
         Self {
             alethe_signature: AletheTheory::new(eunoia_mech),
             translation: TranslatorData::new(),
+            rare_rule_names: indexmap::IndexMap::new(),
         }
+    }
+
+    /// Compile the definitions supplied with the proof before translating its
+    /// steps. The returned declarations belong after the problem prelude.
+    pub fn translate_rare_rules(
+        &mut self,
+        rules: &rare_rules::Rules,
+        proof: &Proof,
+    ) -> Result<EunoiaProof, super::rare::RareTranslationError> {
+        super::rare::validate_proof(rules, proof)?;
+        let compiled = super::rare::compile(rules)?;
+        self.rare_rule_names = compiled.names;
+        if compiled.declarations.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut declarations = vec![EunoiaCommand::Include {
+            path: self.alethe_signature.list_programs.clone(),
+        }];
+        declarations.extend(compiled.declarations);
+        Ok(declarations)
     }
 
     /// Translates `BindingList` constructs, as used for binder terms forall, exists,
@@ -350,10 +372,19 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
             Term::Const(constant) => EunoiaTranslator::translate_constant(constant),
 
             Term::Op(operator, operands) => {
-                let operands_eunoia = operands
+                let operands_eunoia: Vec<EunoiaTerm> = operands
                     .iter()
                     .map(|operand| self.translate_term(operand))
                     .collect();
+
+                if operator == &Operator::RareList {
+                    // Keep every RARE sequence independent of its consuming operator.
+                    return if operands_eunoia.is_empty() {
+                        EunoiaTerm::Id("eo::List::nil".to_owned())
+                    } else {
+                        EunoiaTerm::App("eo::List::cons".to_owned(), operands_eunoia)
+                    };
+                }
 
                 match operator {
                     Operator::True => EunoiaTerm::True,
@@ -620,6 +651,12 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
 
             Operator::RealDiv => self.alethe_signature.real_div.to_owned(),
 
+            Operator::Mod
+            | Operator::Abs
+            | Operator::ToInt
+            | Operator::ToReal
+            | Operator::IsInt => operator.to_string(),
+
             _ => {
                 println!("No defined translation for operator {:?}", operator);
                 panic!()
@@ -643,6 +680,12 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
 
     fn translate_sort(sort: &Sort) -> EunoiaType {
         match sort {
+            Sort::Type => EunoiaType::Type,
+
+            Sort::Int => EunoiaType::Name("Int".to_owned()),
+
+            Sort::Var(name) => EunoiaType::Name(name.clone()),
+
             Sort::Real => EunoiaType::Real,
 
             // User-defined sort
@@ -863,9 +906,26 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                     }
 
                     "refl" => {
-                        // We include, as an argument, the context surrounding this
-                        // subproof's context.
+                        // The updated Eunoia rule takes the active context term
+                        // as an argument, rather than its proof assumption.
                         eunoia_arguments.push(EunoiaTerm::Id(self.get_current_context_id()));
+
+                        self.translate_generic_step(
+                            id,
+                            conclusion,
+                            rule,
+                            eunoia_premises,
+                            eunoia_arguments,
+                        );
+                    }
+
+                    "evaluate" => {
+                        // The Eunoia rule computes the right-hand side of the
+                        // conclusion equality; the certificate only supplies
+                        // the left-hand term as the argument.
+                        let (lhs, _) =
+                            self.alethe_signature.extract_eq_lhs_rhs(&conclusion);
+                        eunoia_arguments.push(lhs);
 
                         self.translate_generic_step(
                             id,
@@ -889,10 +949,16 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                             }
                         };
 
+                        let generated_name = self
+                            .rare_rule_names
+                            .get(rule_name)
+                            .expect("RARE definitions must be compiled before translating steps")
+                            .clone();
+
                         self.translate_generic_step(
                             id,
                             conclusion,
-                            rule_name,
+                            &generated_name,
                             eunoia_premises,
                             // Dropping rule name.
                             eunoia_arguments[1..].to_vec(),
