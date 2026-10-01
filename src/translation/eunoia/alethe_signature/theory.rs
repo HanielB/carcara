@@ -61,6 +61,9 @@ pub struct AletheTheory {
     pub var: &'static str,
     // Name of the assumption that refers to the last introduced context.
     pub ctx_assumption: &'static str,
+    // Program building the @Substitution a context induces; the translation
+    // defines it once per context (subst_<ctx>) for the rules that take it.
+    pub substitution_from_context: &'static str,
 
     // Binders.
     pub let_binder: &'static str,
@@ -135,6 +138,7 @@ impl AletheTheory {
             ctx: "@ctx",
             var: "@var",
             ctx_assumption: "context",
+            substitution_from_context: "$substitution_build_from_context",
 
             // Binders.
             let_binder: "@let",

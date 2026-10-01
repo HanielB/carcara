@@ -133,6 +133,27 @@ impl EunoiaTranslator {
                 arguments: EunoiaList { list: arguments },
             });
     }
+
+    /// Defines, next to a context, the substitution it induces, built once by the
+    /// mechanization's program so that the rules taking it (`refl`) do not rebuild it
+    /// at every step: `(define subst_<ctx> () ($substitution_build_from_context <ctx>))`.
+    fn define_context_substitution(&mut self, context_id: &str) {
+        let builder = self.alethe_signature.substitution_from_context.to_owned();
+        self.get_mut_translator_data()
+            .translated_proof
+            .push(EunoiaCommand::Define {
+                name: Self::context_substitution_id(context_id),
+                typed_params: EunoiaList { list: Vec::new() },
+                term: EunoiaTerm::App(builder, vec![EunoiaTerm::Id(context_id.to_owned())]),
+                attrs: Vec::new(),
+            });
+    }
+
+    /// The name of the substitution defined for a context.
+    fn context_substitution_id(context_id: &str) -> Symbol {
+        format!("subst_{context_id}")
+    }
+
 }
 
 impl VecToVecTranslator<'_> for EunoiaTranslator {
@@ -169,6 +190,8 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                         attrs: Vec::new(),
                     });
 
+                self.define_context_substitution(&new_context_id);
+
                 let ctx_assumption = self.alethe_signature.ctx_assumption.to_owned();
                 self.get_mut_translator_data()
                     .translated_proof
@@ -192,6 +215,8 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                     });
 
                 // (assume-push context ctxn)
+                self.define_context_substitution(&new_context_id);
+
                 let ctx_assumption = self.alethe_signature.ctx_assumption.to_owned();
                 self.get_mut_translator_data()
                     .translated_proof
@@ -906,9 +931,11 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                     }
 
                     "refl" => {
-                        // The updated Eunoia rule takes the active context term
-                        // as an argument, rather than its proof assumption.
-                        eunoia_arguments.push(EunoiaTerm::Id(self.get_current_context_id()));
+                        // The Eunoia rule takes the substitution the active context
+                        // induces, defined once next to the context (subst_<ctx>),
+                        // rather than the context itself.
+                        let context_id = self.get_current_context_id();
+                        eunoia_arguments.push(EunoiaTerm::Id(Self::context_substitution_id(&context_id)));
 
                         self.translate_generic_step(
                             id,
