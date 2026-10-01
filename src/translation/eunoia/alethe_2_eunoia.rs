@@ -824,7 +824,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                         self.translate_generic_step_pop(
                             id,
                             conclusion,
-                            if rule == "let" { "let_elim" } else { rule },
+                            rule,
                             eunoia_premises,
                             eunoia_arguments,
                             previous_command_id,

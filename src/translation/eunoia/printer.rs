@@ -250,7 +250,6 @@ impl<'a> ProofPrinter for EunoiaPrinter<'a> {
                         args.push(EunoiaPrinter::term_to_concrete_syntax(term));
                     };
 
-                    // TODO: rule names are not equal: let -> let_elim
                     args.push(":rule ".to_owned() + &rule.clone());
 
                     let EunoiaList { list } = premises;
