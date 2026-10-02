@@ -424,6 +424,12 @@ pub struct TranslateCommandOptions {
     #[clap(long)]
     pub eunoia_mech: String,
 
+    /// Emit the mechanization's native variants of the rules that have one
+    /// (`resolution`, `bind_let`: the same checks over Ethos's built-in list
+    /// operations, from `rules/native.eo`) instead of the vanilla rules.
+    #[clap(long)]
+    pub native_rules: bool,
+
     #[clap(flatten)]
     pub input: Input,
 

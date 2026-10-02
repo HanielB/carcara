@@ -86,6 +86,7 @@ impl AletheTheory {
                 // Rules
                 format!("{}/rules/alethe.eo", eunoia_mech),
                 format!("{}/rules/tautologies.eo", eunoia_mech),
+                format!("{}/rules/native.eo", eunoia_mech),
                 // Programs
                 format!("{}/programs/programs.eo", eunoia_mech),
                 format!("{}/programs/arith.eo", eunoia_mech),
@@ -236,6 +237,12 @@ impl AletheTheory {
 
             _ => false,
         }
+    }
+
+    /// The rules `rules/native.eo` of the mechanization provides a native variant of, named
+    /// `<rule>_native`: the same check over Ethos's built-in list operations.
+    pub fn has_native_variant(&self, rule: &str) -> bool {
+        rule == self.resolution || rule == self.bind_let
     }
 
     pub fn rule_receives_varying_arguments(&self, rule: &String) -> bool {

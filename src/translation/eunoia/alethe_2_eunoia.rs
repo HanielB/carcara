@@ -48,14 +48,27 @@ pub struct EunoiaTranslator {
 
     translation: TranslatorData<EunoiaType, EunoiaProof>,
     rare_rule_names: indexmap::IndexMap<String, String>,
+    /// Emit the native variants (`<rule>_native`) of the rules that have one.
+    native_rules: bool,
 }
 
 impl EunoiaTranslator {
-    pub fn new(eunoia_mech: &str) -> EunoiaTranslator {
+    pub fn new(eunoia_mech: &str, native_rules: bool) -> EunoiaTranslator {
         Self {
             alethe_signature: AletheTheory::new(eunoia_mech),
             translation: TranslatorData::new(),
             rare_rule_names: indexmap::IndexMap::new(),
+            native_rules,
+        }
+    }
+
+    /// The name of the Eunoia rule a step of the Alethe `rule` is checked with: the native
+    /// variant when asked for and the mechanization has one, the rule itself otherwise.
+    fn rule_name(&self, rule: &str) -> Symbol {
+        if self.native_rules && self.alethe_signature.has_native_variant(rule) {
+            format!("{rule}_native")
+        } else {
+            rule.to_owned()
         }
     }
 
@@ -123,12 +136,13 @@ impl EunoiaTranslator {
             EunoiaList { list: arguments }
         };
 
+        let rule_name = self.rule_name(rule);
         self.get_mut_translator_data()
             .translated_proof
             .push(EunoiaCommand::Step {
                 id: id.to_owned(),
                 conclusion_clause: Some(conclusion),
-                rule: rule.clone(),
+                rule: rule_name,
                 premises: EunoiaList { list: premises },
                 arguments: eunoia_arguments,
             });
@@ -160,12 +174,13 @@ impl EunoiaTranslator {
         // subproof's context.
         arguments.push(EunoiaTerm::Id(self.get_last_introduced_context_id()));
 
+        let rule_name = self.rule_name(rule);
         self.get_mut_translator_data()
             .translated_proof
             .push(EunoiaCommand::StepPop {
                 id: id.to_owned(),
                 conclusion_clause: Some(conclusion),
-                rule: rule.to_owned(),
+                rule: rule_name,
                 premises: EunoiaList { list: premises },
                 arguments: EunoiaList { list: arguments },
             });
