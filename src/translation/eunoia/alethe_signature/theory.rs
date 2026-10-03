@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::translation::eunoia::ast::*;
 
 // NOTE: THIS IS ONLY DONE TO AVOID THE COMPLEXITIES OF DECLARING
@@ -9,6 +10,9 @@ use crate::translation::eunoia::ast::*;
 pub struct AletheTheory {
     // Path to each file of the current AletheInEunoia mechanization.
     pub mechanization_files: Vec<String>,
+    /// The rules `rules/native.eo` declares a `<rule>_native` variant of (see
+    /// `has_native_variant`); empty when the file is absent.
+    pub native_rules: HashSet<String>,
     pub list_programs: String,
 
     // Built-in operators.
@@ -76,6 +80,24 @@ pub struct AletheTheory {
     pub varlist_nil: &'static str,
 }
 
+/// The rules declared `<rule>_native` in the given Eunoia file: one
+/// `(declare-rule <rule>_native` per line, as `gen_native.py` writes them. An
+/// unreadable file yields no rules.
+fn native_rule_names(path: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Ok(text) = std::fs::read_to_string(path) {
+        for line in text.lines() {
+            if let Some(rest) = line.trim_start().strip_prefix("(declare-rule ") {
+                let name = rest.split(|c: char| c.is_whitespace() || c == '(').next().unwrap_or("");
+                if let Some(rule) = name.strip_suffix("_native") {
+                    names.insert(rule.to_owned());
+                }
+            }
+        }
+    }
+    names
+}
+
 impl AletheTheory {
     pub fn new(eunoia_mech: &str) -> Self {
         AletheTheory {
@@ -91,6 +113,7 @@ impl AletheTheory {
                 format!("{}/programs/programs.eo", eunoia_mech),
                 format!("{}/programs/arith.eo", eunoia_mech),
             ],
+            native_rules: native_rule_names(&format!("{}/rules/native.eo", eunoia_mech)),
             list_programs: format!("{}/programs/lists.eo", eunoia_mech),
 
             // Clauses.
@@ -239,10 +262,10 @@ impl AletheTheory {
         }
     }
 
-    /// The rules `rules/native.eo` of the mechanization provides a native variant of, named
-    /// `<rule>_native`: the same check over Ethos's built-in list operations.
+    /// Whether `rules/native.eo` of the mechanization declares a native variant of `rule`,
+    /// named `<rule>_native`: the same check over Ethos's built-in list operations.
     pub fn has_native_variant(&self, rule: &str) -> bool {
-        rule == self.resolution || rule == self.bind_let
+        self.native_rules.contains(rule)
     }
 
     pub fn rule_receives_varying_arguments(&self, rule: &String) -> bool {

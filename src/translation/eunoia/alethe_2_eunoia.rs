@@ -929,6 +929,9 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                         // Id of the premise step
                         let mut id_premise: Symbol = "".to_owned();
 
+                        // The native variant of the rule when asked for (see rule_name).
+                        let subproof_rule = self.rule_name(rule.as_str());
+
                         discharge.iter().rev().for_each(|discharged_assumption| {
                             let assumption = iter.get_premise(*discharged_assumption);
 
@@ -961,7 +964,7 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                                         EunoiaCommand::StepPop {
                                             id: id.to_owned(),
                                             conclusion_clause: Some(implied_conclusion.clone()),
-                                            rule: rule.clone(),
+                                            rule: subproof_rule.clone(),
                                             premises: EunoiaList {
                                                 list: vec![EunoiaTerm::Id(id_premise.clone())],
                                             },
