@@ -932,7 +932,13 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                         // The native variant of the rule when asked for (see rule_name).
                         let subproof_rule = self.rule_name(rule.as_str());
 
-                        discharge.iter().rev().for_each(|discharged_assumption| {
+                        // The outermost step-pop concludes the Alethe step's own clause, so
+                        // that the Eunoia rule checks its negated-assumption literals; the
+                        // inner ones conclude the implied clauses, which the Alethe proof
+                        // does not spell out.
+                        let outermost = discharge.len();
+
+                        discharge.iter().rev().enumerate().for_each(|(i, discharged_assumption)| {
                             let assumption = iter.get_premise(*discharged_assumption);
 
                             // TODO: we are discarding vector premises
@@ -947,10 +953,14 @@ impl VecToVecTranslator<'_> for EunoiaTranslator {
                                         &mut self.alethe_signature.extract_cl_disjuncts(&premise),
                                     );
 
-                                    implied_conclusion = EunoiaTerm::App(
-                                        self.alethe_signature.cl.to_owned(),
-                                        cl_disjuncts.clone(),
-                                    );
+                                    implied_conclusion = if i + 1 == outermost {
+                                        conclusion.clone()
+                                    } else {
+                                        EunoiaTerm::App(
+                                            self.alethe_signature.cl.to_owned(),
+                                            cl_disjuncts.clone(),
+                                        )
+                                    };
 
                                     // Get id of previous step
                                     let eunoia_proof =
