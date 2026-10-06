@@ -1,12 +1,6 @@
 use carcara::{
     parser,
-    translation::{
-        ProofPrinter,
-        eunoia::{
-            printer::{EunoiaPrinter, SExpFormatter},
-            rare,
-        },
-    },
+    translation::eunoia::{DisplayEunoiaProof, rare},
 };
 use std::{fs, path::PathBuf, process::Command};
 
@@ -25,11 +19,7 @@ fn compile(problem: &str, rules: &str, proof: &str) -> Result<String, rare::Rare
     .unwrap();
     rare::validate_proof(&rules, &proof)?;
     let compiled = rare::compile(&rules)?;
-    let mut output = Vec::new();
-    EunoiaPrinter::new(SExpFormatter::new(&mut output))
-        .write_proof(&compiled.declarations)
-        .unwrap();
-    Ok(String::from_utf8(output).unwrap())
+    Ok(DisplayEunoiaProof(&compiled.declarations, false).to_string())
 }
 
 #[test]

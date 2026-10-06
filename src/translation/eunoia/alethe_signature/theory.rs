@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use crate::ast::Rc;
 use crate::translation::eunoia::ast::*;
 
 // NOTE: THIS IS ONLY DONE TO AVOID THE COMPLEXITIES OF DECLARING
@@ -9,11 +12,12 @@ use crate::translation::eunoia::ast::*;
 /// interact with the internals of our current main mechanization in Eunoia.
 pub struct AletheTheory {
     // Path to each file of the current AletheInEunoia mechanization.
-    pub mechanization_files: Vec<String>,
+    pub mechanization_files: Vec<PathBuf>,
     /// The rules `rules/native.eo` declares a `<rule>_native` variant of (see
     /// `has_native_variant`); empty when the file is absent.
     pub native_rules: HashSet<String>,
-    pub list_programs: String,
+    /// The list programs the generated RARE rules need.
+    pub list_programs: PathBuf,
 
     // Built-in operators.
     pub cl: &'static str,
@@ -83,7 +87,7 @@ pub struct AletheTheory {
 /// The rules declared `<rule>_native` in the given Eunoia file: one
 /// `(declare-rule <rule>_native` per line, as `gen_native.py` writes them. An
 /// unreadable file yields no rules.
-fn native_rule_names(path: &str) -> HashSet<String> {
+fn native_rule_names(path: &Path) -> HashSet<String> {
     let mut names = HashSet::new();
     if let Ok(text) = std::fs::read_to_string(path) {
         for line in text.lines() {
@@ -99,22 +103,22 @@ fn native_rule_names(path: &str) -> HashSet<String> {
 }
 
 impl AletheTheory {
-    pub fn new(eunoia_mech: &str) -> Self {
+    pub fn new(eunoia_mech: &Path) -> Self {
         AletheTheory {
             // Build paths to current mechanization files.
             mechanization_files: vec![
                 // Theories
-                format!("{}/theories/theory.eo", eunoia_mech),
+                eunoia_mech.join("theories/theory.eo"),
                 // Rules
-                format!("{}/rules/alethe.eo", eunoia_mech),
-                format!("{}/rules/tautologies.eo", eunoia_mech),
-                format!("{}/rules/native.eo", eunoia_mech),
+                eunoia_mech.join("rules/alethe.eo"),
+                eunoia_mech.join("rules/tautologies.eo"),
+                eunoia_mech.join("rules/native.eo"),
                 // Programs
-                format!("{}/programs/programs.eo", eunoia_mech),
-                format!("{}/programs/arith.eo", eunoia_mech),
+                eunoia_mech.join("programs/programs.eo"),
+                eunoia_mech.join("programs/arith.eo"),
             ],
-            native_rules: native_rule_names(&format!("{}/rules/native.eo", eunoia_mech)),
-            list_programs: format!("{}/programs/lists.eo", eunoia_mech),
+            native_rules: native_rule_names(&eunoia_mech.join("rules/native.eo")),
+            list_programs: eunoia_mech.join("programs/lists.eo"),
 
             // Clauses.
             cl: "@cl",
@@ -128,7 +132,7 @@ impl AletheTheory {
             implies: "=>",
             ite: "ite",
 
-            // Arithemtic
+            // Arithmetic
             add: "+",
             sub: "-",
             mult: "*",
@@ -178,36 +182,10 @@ impl AletheTheory {
 
     // Utilities to help in the translation of steps that use specific rules.
 
-    /// Helps in extracting the lhs and rhs of a conclusion clause of
-    /// the form (@cl ("=", t1, t2)).
-    /// PRE: {conclusion is an `EunoiaTerm` of the form (@cl ("=", t1, t2)) }
-    pub fn extract_eq_lhs_rhs(&self, conclusion: &EunoiaTerm) -> (EunoiaTerm, EunoiaTerm) {
-        match conclusion {
-            // TODO: just assuming that cl and clause are correct
-            EunoiaTerm::App(cl, clause) => match clause.as_slice() {
-                [EunoiaTerm::App(eq, lhs_rhs)] => match lhs_rhs.as_slice() {
-                    [lhs, rhs] => {
-                        assert!(*cl == self.cl);
-                        assert!(*eq == self.eq);
-                        (lhs.clone(), rhs.clone())
-                    }
-
-                    _ => panic!(),
-                },
-
-                _ => panic!(),
-            },
-
-            _ => {
-                panic!();
-            }
-        }
-    }
-
     /// Helps in extracting the consequent of an implication in the form
     /// (@cl (not p1 or p2)).
     /// PRE: {conclusion is an `EunoiaTerm` of the form (@cl (not p1 or p2)) }
-    pub fn extract_consequent(&self, conclusion: &EunoiaTerm) -> EunoiaTerm {
+    pub fn extract_consequent(&self, conclusion: &EunoiaTerm) -> Rc<EunoiaTerm> {
         match conclusion {
             // @cl
             EunoiaTerm::App(cl, disjuncts) => match disjuncts.as_slice() {
@@ -229,7 +207,36 @@ impl AletheTheory {
         }
     }
 
-    pub fn extract_cl_disjuncts(&self, conclusion: &EunoiaTerm) -> Vec<EunoiaTerm> {
+    /// Helps in extracting the lhs and rhs of a conclusion clause of
+    /// the form (@cl ("=", t1, t2)).
+    /// PRE: {conclusion is an `EunoiaTerm` of the form (@cl ("=", t1, t2)) }
+    pub fn extract_eq_lhs_rhs(&self, conclusion: &EunoiaTerm) -> (Rc<EunoiaTerm>, Rc<EunoiaTerm>) {
+        match conclusion {
+            EunoiaTerm::App(cl, clause) => match clause.as_slice() {
+                [equality] => match equality.as_ref() {
+                    EunoiaTerm::App(eq, lhs_rhs) => match lhs_rhs.as_slice() {
+                        [lhs, rhs] => {
+                            assert!(*cl == self.cl);
+                            assert!(*eq == self.eq);
+                            (lhs.clone(), rhs.clone())
+                        }
+                        _ => panic!(),
+                    },
+                    _ => panic!(),
+                },
+                _ => panic!(),
+            },
+            _ => panic!(),
+        }
+    }
+
+    /// Whether `rules/native.eo` of the mechanization declares a native variant of `rule`,
+    /// named `<rule>_native`: the same check over Ethos's built-in list operations.
+    pub fn has_native_variant(&self, rule: &str) -> bool {
+        self.native_rules.contains(rule)
+    }
+
+    pub fn extract_cl_disjuncts(&self, conclusion: &EunoiaTerm) -> Vec<Rc<EunoiaTerm>> {
         match conclusion {
             // @cl
             EunoiaTerm::App(cl, disjuncts) => {
@@ -260,12 +267,6 @@ impl AletheTheory {
 
             _ => false,
         }
-    }
-
-    /// Whether `rules/native.eo` of the mechanization declares a native variant of `rule`,
-    /// named `<rule>_native`: the same check over Ethos's built-in list operations.
-    pub fn has_native_variant(&self, rule: &str) -> bool {
-        self.native_rules.contains(rule)
     }
 
     pub fn rule_receives_varying_arguments(&self, rule: &String) -> bool {

@@ -1,5 +1,5 @@
 //! AST representation of a fragment of Eunoia required to mechanize Alethe proofs.
-use crate::translation::Symbol;
+use crate::{ast::Rc, translation::Symbol};
 
 /// Just a generic wrapper for Vecs, to add structural information to ASTs.
 /// Represents an actual list of stuff, to capture the structure of something
@@ -21,13 +21,13 @@ pub enum EunoiaTypeAttr {
 
     // :requires (<term> <term>)
     // TODO: Internally, (! T :requires (t s)) is syntax sugar for
-    // (eo::requires t s T) where eo::requires is an operator that evalutes to
+    // (eo::requires t s T) where eo::requires is an operator that evaluates to
     // its third argument if and only if its first two arguments are equivalent
     // (details on this operator are given in computation). Furthermore, the
     // function type (-> (eo::requires t s T) S) is treated as
     // (-> T (eo::requires t s S)). The Ethos rewrites all types of the former to
     // the latter.
-    Requires(EunoiaTerm, EunoiaTerm),
+    Requires(Rc<EunoiaTerm>, Rc<EunoiaTerm>),
 }
 
 /// Kind parameters: (! T :var A ...)
@@ -71,7 +71,7 @@ pub enum EunoiaConsAttr {
     // :left-assoc
     LeftAssoc,
     // :right-assoc-nil
-    RightAssocNil(EunoiaTerm),
+    RightAssocNil(Rc<EunoiaTerm>),
 
     // :chainable
     Chainable,
@@ -148,25 +148,25 @@ pub enum EunoiaTerm {
     // TODO: not using ID tag for Symbol...
     // A variable, consisting of an identifier and a sort
     // TODO: equivalent to Alethe's SortedVar?
-    Var(Symbol, Box<EunoiaTerm>),
+    Var(Symbol, Rc<EunoiaTerm>),
 
     // To capture the situations where a list of
     // terms is to be considered also a term (as opposed to a
     // list of terms that represents, for example, formal
     // parameters in some definition).
     // NOTE: Eunoia's grammar is, actually, (<symbol> <term>+) (note the '+').
-    List(Vec<EunoiaTerm>),
+    List(Vec<Rc<EunoiaTerm>>),
 
     // To capture the situation where a list of terms are
     // actually an evaluation of some given function over
     // actual parameters.
-    App(Symbol, Vec<EunoiaTerm>),
+    App(Symbol, Vec<Rc<EunoiaTerm>>),
 
     // Explicit higher-order function application ("_" symbol)
-    HOApp(Box<EunoiaTerm>, Vec<EunoiaTerm>),
+    HOApp(Rc<EunoiaTerm>, Vec<Rc<EunoiaTerm>>),
 
     // Application of a built-in operator
-    Op(EunoiaOperator, Vec<EunoiaTerm>),
+    Op(EunoiaOperator, Vec<Rc<EunoiaTerm>>),
 }
 
 /// Eunoia's built-in computational operators.
@@ -201,10 +201,10 @@ pub enum EunoiaCommand {
     DeclareRule {
         name: Symbol,
         typed_params: EunoiaList<EunoiaTypedParam>,
-        arguments: Vec<EunoiaTerm>,
-        premises: Vec<EunoiaTerm>,
-        requirements: Vec<(EunoiaTerm, EunoiaTerm)>,
-        conclusion: EunoiaTerm,
+        arguments: Vec<Rc<EunoiaTerm>>,
+        premises: Vec<Rc<EunoiaTerm>>,
+        requirements: Vec<(Rc<EunoiaTerm>, Rc<EunoiaTerm>)>,
+        conclusion: Rc<EunoiaTerm>,
     },
     // To include signature files.
     Include {
@@ -214,21 +214,21 @@ pub enum EunoiaCommand {
     // Introducing a globally-scoped assumption.
     Assume {
         name: Symbol,
-        term: EunoiaTerm,
+        term: Rc<EunoiaTerm>,
     },
 
     // To introduce assumptions in local context, that will be consumed by
     // step-pop.
     AssumePush {
         name: Symbol,
-        term: EunoiaTerm,
+        term: Rc<EunoiaTerm>,
     },
 
     // Eunoia definitions.
     Define {
         name: Symbol,
         typed_params: EunoiaList<EunoiaTypedParam>,
-        term: EunoiaTerm,
+        term: Rc<EunoiaTerm>,
         attrs: Vec<EunoiaDefineAttr>,
     },
 
@@ -239,7 +239,7 @@ pub enum EunoiaCommand {
         typed_params: EunoiaList<EunoiaTypedParam>,
         params: EunoiaList<EunoiaType>,
         ret: EunoiaType,
-        body: EunoiaList<(EunoiaTerm, EunoiaTerm)>,
+        body: EunoiaList<(Rc<EunoiaTerm>, Rc<EunoiaTerm>)>,
     },
 
     // TODO:
@@ -251,20 +251,20 @@ pub enum EunoiaCommand {
     /// (step <symbol> <term>? :rule <symbol> <premises>? <arguments>?)
     Step {
         id: Symbol,
-        conclusion_clause: Option<EunoiaTerm>,
+        conclusion_clause: Option<Rc<EunoiaTerm>>,
         rule: Symbol,
-        premises: EunoiaList<EunoiaTerm>,
-        arguments: EunoiaList<EunoiaTerm>,
+        premises: EunoiaList<Rc<EunoiaTerm>>,
+        arguments: EunoiaList<Rc<EunoiaTerm>>,
     },
 
     /// Step that might consume a local assumption, previously introduced by
     /// 'assume-push'.
     StepPop {
         id: Symbol,
-        conclusion_clause: Option<EunoiaTerm>,
+        conclusion_clause: Option<Rc<EunoiaTerm>>,
         rule: Symbol,
-        premises: EunoiaList<EunoiaTerm>,
-        arguments: EunoiaList<EunoiaTerm>,
+        premises: EunoiaList<Rc<EunoiaTerm>>,
+        arguments: EunoiaList<Rc<EunoiaTerm>>,
     },
 
     // Common commands
@@ -280,7 +280,7 @@ pub enum EunoiaCommand {
     // SMT-LIB declare-const.
     DeclareConst {
         name: Symbol,
-        eunoia_type: EunoiaTerm,
+        eunoia_type: Rc<EunoiaTerm>,
         attrs: Vec<EunoiaConsAttr>,
     },
 
@@ -289,7 +289,7 @@ pub enum EunoiaCommand {
     DeclareSort {
         name: Symbol,
         // TODO: only a numeral
-        arity: EunoiaTerm,
+        arity: Rc<EunoiaTerm>,
     },
 
     // (set-logic symbol)
@@ -315,6 +315,4 @@ impl EunoiaCommand {
     }
 }
 
-// TODO: note that we are allowing here other concepts beyond
-// proof-centric ones
 pub type EunoiaProof = Vec<EunoiaCommand>;

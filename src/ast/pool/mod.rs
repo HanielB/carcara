@@ -9,7 +9,7 @@ use super::{
 use indexmap::{IndexMap, IndexSet};
 use rapidhash::{HashMapExt, RapidHashMap};
 use std::borrow::Cow;
-use storage::Storage;
+pub(crate) use storage::Storage;
 
 pub use advanced::{ContextPool, LocalPool};
 

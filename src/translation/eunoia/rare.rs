@@ -3,6 +3,8 @@
 //! is compiled; proof references are validated separately.
 
 use super::ast::*;
+use crate::ast::pool::Storage;
+use std::cell::RefCell;
 use crate::ast::{
     Constant, Operator, Proof, ProofCommand, Rc, Sort, Term,
     rare_rules::{AttributeParameters, RuleDefinition, Rules},
@@ -21,13 +23,6 @@ pub struct CompiledRules {
     pub names: IndexMap<String, String>,
 }
 
-fn id(name: impl Into<String>) -> EunoiaTerm {
-    EunoiaTerm::Id(name.into())
-}
-
-fn app(name: impl Into<String>, args: Vec<EunoiaTerm>) -> EunoiaTerm {
-    EunoiaTerm::App(name.into(), args)
-}
 
 fn validate_steps(commands: &[ProofCommand], rules: &Rules) -> Result<(), RareTranslationError> {
     for command in commands {
@@ -87,7 +82,8 @@ pub fn compile(rules: &Rules) -> Result<CompiledRules, RareTranslationError> {
         // Keep supplied rule names in their own namespace, even if a RARE
         // definition has the same name as an Alethe rule such as `refl`.
         let generated = format!("@rare.rule.{i}");
-        declarations.push(RuleCompiler { rule }.compile(&generated)?);
+        let compiler = RuleCompiler { rule, terms: RefCell::new(Storage::default()) };
+        declarations.push(compiler.compile(&generated)?);
         names.insert(name.clone(), generated);
     }
     Ok(CompiledRules { declarations, names })
@@ -95,9 +91,23 @@ pub fn compile(rules: &Rules) -> Result<CompiledRules, RareTranslationError> {
 
 struct RuleCompiler<'a> {
     rule: &'a RuleDefinition,
+    /// The store the rule's terms are allocated in (the Eunoia AST is hash-consed).
+    terms: RefCell<Storage<EunoiaTerm>>,
 }
 
 impl RuleCompiler<'_> {
+    fn add(&self, term: EunoiaTerm) -> Rc<EunoiaTerm> {
+        self.terms.borrow_mut().add(term)
+    }
+
+    fn id(&self, name: impl Into<String>) -> Rc<EunoiaTerm> {
+        self.add(EunoiaTerm::Id(name.into()))
+    }
+
+    fn app(&self, name: impl Into<String>, args: Vec<Rc<EunoiaTerm>>) -> Rc<EunoiaTerm> {
+        self.add(EunoiaTerm::App(name.into(), args))
+    }
+
     fn error(&self, reason: impl Into<String>) -> RareTranslationError {
         RareTranslationError {
             rule: self.rule.name.clone(),
@@ -132,7 +142,7 @@ impl RuleCompiler<'_> {
             .is_some_and(|p| p.attribute == AttributeParameters::List)
     }
 
-    fn sort_term(&self, sort: &Sort) -> Result<EunoiaTerm, RareTranslationError> {
+    fn sort_term(&self, sort: &Sort) -> Result<Rc<EunoiaTerm>, RareTranslationError> {
         // Ethos binds argument terms, not the type parameters appearing only
         // in their declarations. Recover such a type from its scalar anchor.
         let name = sort.to_string();
@@ -148,20 +158,20 @@ impl RuleCompiler<'_> {
                     p.attribute != AttributeParameters::List && p.sort.as_ref() == sort
                 })
             }) {
-                return Ok(app("eo::typeof", vec![id(anchor.clone())]));
+                return Ok(self.app("eo::typeof", vec![self.id(anchor.clone())]));
             }
             return Err(self.error(format!(
                 "no scalar argument determines element sort '{sort}'"
             )));
         }
-        Ok(EunoiaTerm::Type(self.sort(sort)?))
+        Ok(self.add(EunoiaTerm::Type(self.sort(sort)?)))
     }
 
-    fn sequence(&self, operands: &[Rc<Term>]) -> Result<EunoiaTerm, RareTranslationError> {
+    fn sequence(&self, operands: &[Rc<Term>]) -> Result<Rc<EunoiaTerm>, RareTranslationError> {
         if operands.is_empty() {
-            return Ok(id("eo::List::nil"));
+            return Ok(self.id("eo::List::nil"));
         }
-        Ok(app(
+        Ok(self.app(
             "eo::List::cons",
             operands
                 .iter()
@@ -170,7 +180,7 @@ impl RuleCompiler<'_> {
         ))
     }
 
-    fn term(&self, term: &Term, allow_list: bool) -> Result<EunoiaTerm, RareTranslationError> {
+    fn term(&self, term: &Term, allow_list: bool) -> Result<Rc<EunoiaTerm>, RareTranslationError> {
         Ok(match term {
             Term::Var(name, _) => {
                 if self.is_list(name) && !allow_list {
@@ -178,12 +188,12 @@ impl RuleCompiler<'_> {
                         "list parameter '{name}' used outside a supported variadic application"
                     )));
                 }
-                id(name.clone())
+                self.id(name.clone())
             }
-            Term::Const(Constant::Integer(n)) => EunoiaTerm::Numeral(n.clone()),
-            Term::Const(Constant::Real(r)) => EunoiaTerm::Decimal(r.clone()),
-            Term::Op(Operator::True, _) => EunoiaTerm::True,
-            Term::Op(Operator::False, _) => EunoiaTerm::False,
+            Term::Const(Constant::Integer(n)) => self.add(EunoiaTerm::Numeral(n.clone())),
+            Term::Const(Constant::Real(r)) => self.add(EunoiaTerm::Decimal(r.clone())),
+            Term::Op(Operator::True, _) => self.add(EunoiaTerm::True),
+            Term::Op(Operator::False, _) => self.add(EunoiaTerm::False),
             Term::Op(
                 op @ (Operator::And | Operator::Or | Operator::Add | Operator::Mult),
                 operands,
@@ -199,16 +209,16 @@ impl RuleCompiler<'_> {
                 }
                 // Normalize once after all ordinary operands and list fragments
                 // have been assembled; never flatten ordinary nested formulas.
-                app(
+                self.app(
                     "eo::list_singleton_elim",
                     vec![
-                        id(op.to_string()),
-                        app(
+                        self.id(op.to_string()),
+                        self.app(
                             "$normalize_eo_list",
                             vec![
                                 self.sort_term(&sort)?,
                                 self.sort_term(&sort)?,
-                                id(op.to_string()),
+                                self.id(op.to_string()),
                                 self.sequence(operands)?,
                             ],
                         ),
@@ -225,7 +235,7 @@ impl RuleCompiler<'_> {
                 }
                 // The signature's :arg-list attribute assembles the operands,
                 // splicing :list parameters without expanding pairwise comparisons.
-                app(
+                self.app(
                     "distinct",
                     operands
                         .iter()
@@ -252,7 +262,7 @@ impl RuleCompiler<'_> {
                 | Operator::ToReal
                 | Operator::IsInt),
                 operands,
-            ) => app(
+            ) => self.app(
                 op.to_string(),
                 operands
                     .iter()
@@ -262,13 +272,13 @@ impl RuleCompiler<'_> {
             Term::App(f, operands) => {
                 // RARE list splicing into arbitrary functions needs arity-aware
                 // application construction and is deliberately rejected here.
-                EunoiaTerm::HOApp(
-                    Box::new(self.term(f, false)?),
+                self.add(EunoiaTerm::HOApp(
+                    self.term(f, false)?,
                     operands
                         .iter()
                         .map(|x| self.term(x, false))
                         .collect::<Result<_, _>>()?,
-                )
+                ))
             }
             _ => return Err(self.error(format!("unsupported term in rule: {term}"))),
         })
@@ -310,16 +320,16 @@ impl RuleCompiler<'_> {
             });
             if list {
                 requirements.push((
-                    app(
+                    self.app(
                         "$normalize_eo_list",
                         vec![
                             self.sort_term(&parameter.sort)?,
-                            EunoiaTerm::Type(EunoiaType::Name("eo::List".into())),
-                            id("eo::List::cons"),
-                            id(name.clone()),
+                            self.add(EunoiaTerm::Type(EunoiaType::Name("eo::List".into()))),
+                            self.id("eo::List::cons"),
+                            self.id(name.clone()),
                         ],
                     ),
-                    id(name.clone()),
+                    self.id(name.clone()),
                 ));
             }
         }
@@ -337,8 +347,8 @@ impl RuleCompiler<'_> {
                 eunoia_type: EunoiaType::Bool,
                 attrs: vec![],
             });
-            premises.push(app("@cl", vec![id(name.clone())]));
-            requirements.push((id(name), self.term(premise, false)?));
+            premises.push(self.app("@cl", vec![self.id(name.clone())]));
+            requirements.push((self.id(name), self.term(premise, false)?));
         }
         Ok(EunoiaCommand::DeclareRule {
             name: generated_name.into(),
@@ -347,11 +357,11 @@ impl RuleCompiler<'_> {
                 .rule
                 .arguments
                 .iter()
-                .map(|name| id(name.clone()))
+                .map(|name| self.id(name.clone()))
                 .collect(),
             premises,
             requirements,
-            conclusion: app("@cl", vec![self.term(&self.rule.conclusion, false)?]),
+            conclusion: self.app("@cl", vec![self.term(&self.rule.conclusion, false)?]),
         })
     }
 }

@@ -159,6 +159,15 @@ impl<K, V> HashMapStack<K, V> {
         *self = Self::new();
     }
 
+    /// Clears the top scope in the stack.
+    pub fn clear_top(&mut self) {
+        if let Some(top) = self.scopes.last_mut() {
+            for index in top.drain(..) {
+                self.map[index].pop();
+            }
+        }
+    }
+
     /// Pushes a new, empty scope onto the stack.
     pub fn push_scope(&mut self) {
         self.scopes.push(Vec::new());
@@ -202,6 +211,20 @@ impl<K: Eq + Hash, V> HashMapStack<K, V> {
         Q: Eq + Hash + ?Sized,
     {
         self.map.get(key)?.last().map(|(depth, v)| (*depth, v))
+    }
+
+    /// Like [`get`](HashMapStack::get), but only searches the topmost scope.
+    pub fn get_top<Q>(&self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        let top = self.scopes.len() - 1;
+        self.map
+            .get(key)?
+            .last()
+            .filter(|(depth, _)| *depth == top)
+            .map(|(_, v)| v)
     }
 
     /// Inserts a key-value pair into the topmost scope.
