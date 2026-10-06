@@ -149,3 +149,34 @@ Rule totals: rare_rewrite 29,169s -> 4,645s (rare-meta-skip); ac_simp
 poly_simp 376s -> 190s; grand rule total 38.6k s -> 11.6k s. Remaining top
 costs are rare_rewrite and resolution (~4.6k s each), then evaluate (1.7k s).
 Plots in `~/exp/alethe-bv/plots2/`.
+
+## Which families the let expansion hit (added 2026-10-06)
+
+Per-family parse time, round 1 vs round 2, on the benchmarks valid in both.
+"Let-pathological" means round 1 parsed the proof below 200KB/s and took
+more than 1s.
+
+| family | n | parse r1 | parse r2 | speedup | let-pathological (r1 -> r2) |
+|---|---|---|---|---|---|
+| QF_BV/sage | 16,223 | 134,278s | 1,519s | 88x | 1,301: 105,978s -> 438s |
+| QF_BV/Sage2 | 3,850 | 10,462s | 5,101s | 2.1x | 387: 3,759s -> 58s |
+| QF_BV/bmc-bv | 12 | 160s | 17s | 9.4x | 0 |
+| QF_BV/stp_samples | 273 | 59s | 14s | 4.3x | 0 |
+
+- sage accounts for 91% of round 1's 147k s of parsing. The pathological
+  files are in app11 (600 files, 67,500s -> 141s; about 2,884 nested lets
+  each) and app7 (612 files, 38,118s -> 293s); a few are in app2.
+  Even the rest of sage gets 26x faster, against 1.3x for Sage2's
+  non-pathological files (that 1.3x is the lexer alone). So moderate let
+  nesting already cost sage a lot.
+- Sage2: besides the 387 slow files, the 4 Sage2 round-1 check timeouts
+  (bench_3507, bench_4827, ...) are valid in round 2.
+- stp_samples: every problem is one chain of nested lets, depth 100–236.
+  The quadratic expansion is there, but at this depth and with ~1MB proofs it
+  never got past 0.6s. The speedup grows with depth: median 0.9x below
+  depth 50, 3.2x at 50–100, 3.3x at 100–150, 4.9x at 150 and above
+  (292ms -> 54ms).
+
+Reproduce: `investigations/scripts/bv-let-families.py
+~/exp/results/alethe-bv/all-bv/results.json.gz
+~/exp/results/alethe-bv/all-bv2/results.json.gz ~/benchmarks/smtlib/QF_BV`.
