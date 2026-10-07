@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::ast::Rc;
+use super::encoding::Encoding;
+use crate::ast::{Operator, Rc};
 use crate::translation::eunoia::ast::*;
 
 // NOTE: THIS IS ONLY DONE TO AVOID THE COMPLEXITIES OF DECLARING
@@ -11,10 +12,14 @@ use crate::translation::eunoia::ast::*;
 /// Serves as an additional layer of abstraction for the current compiler to
 /// interact with the internals of our current main mechanization in Eunoia.
 pub struct AletheTheory {
+    /// The encoding of the operators and rules declared twice.
+    pub encoding: Encoding,
+
     // Path to each file of the current AletheInEunoia mechanization.
     pub mechanization_files: Vec<PathBuf>,
-    /// The rules `rules/native.eo` declares a `<rule>_native` variant of (see
-    /// `has_native_variant`); empty when the file is absent.
+    /// The rules the mechanization declares a `<rule>_native` variant of (see
+    /// `has_native_variant`): the ones `rules/native.eo` generates, and the
+    /// ones the rule files declare themselves (`aci_simp`, `distinct_elim`).
     pub native_rules: HashSet<String>,
     /// The list programs the generated RARE rules need.
     pub list_programs: PathBuf,
@@ -84,12 +89,15 @@ pub struct AletheTheory {
     pub varlist_nil: &'static str,
 }
 
-/// The rules declared `<rule>_native` in the given Eunoia file: one
+/// The rules declared `<rule>_native` in the given Eunoia files: one
 /// `(declare-rule <rule>_native` per line, as `gen_native.py` writes them. An
 /// unreadable file yields no rules.
-fn native_rule_names(path: &Path) -> HashSet<String> {
+fn native_rule_names(paths: &[PathBuf]) -> HashSet<String> {
     let mut names = HashSet::new();
-    if let Ok(text) = std::fs::read_to_string(path) {
+    for text in paths
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+    {
         for line in text.lines() {
             if let Some(rest) = line.trim_start().strip_prefix("(declare-rule ") {
                 let name = rest.split(|c: char| c.is_whitespace() || c == '(').next().unwrap_or("");
@@ -103,21 +111,29 @@ fn native_rule_names(path: &Path) -> HashSet<String> {
 }
 
 impl AletheTheory {
-    pub fn new(eunoia_mech: &Path) -> Self {
+    pub fn new(eunoia_mech: &Path, encoding: Encoding) -> Self {
+        let rules = [
+            eunoia_mech.join("rules/alethe.eo"),
+            eunoia_mech.join("rules/tautologies.eo"),
+        ];
+        // The generated native variants, which only the native encoding uses and
+        // a mechanization without them does not have.
+        let native = eunoia_mech.join("rules/native.eo");
+        let native = (encoding == Encoding::Native && native.is_file()).then_some(native);
         AletheTheory {
+            encoding,
+
             // Build paths to current mechanization files.
-            mechanization_files: vec![
-                // Theories
-                eunoia_mech.join("theories/theory.eo"),
-                // Rules
-                eunoia_mech.join("rules/alethe.eo"),
-                eunoia_mech.join("rules/tautologies.eo"),
-                eunoia_mech.join("rules/native.eo"),
-                // Programs
-                eunoia_mech.join("programs/programs.eo"),
-                eunoia_mech.join("programs/arith.eo"),
-            ],
-            native_rules: native_rule_names(&eunoia_mech.join("rules/native.eo")),
+            mechanization_files: [eunoia_mech.join("theories/theory.eo")]
+                .into_iter()
+                .chain(rules.iter().cloned())
+                .chain(native.iter().cloned())
+                .chain([
+                    eunoia_mech.join("programs/programs.eo"),
+                    eunoia_mech.join("programs/arith.eo"),
+                ])
+                .collect(),
+            native_rules: native_rule_names(&[&rules[..], native.as_slice()].concat()),
             list_programs: eunoia_mech.join("programs/lists.eo"),
 
             // Clauses.
@@ -180,6 +196,54 @@ impl AletheTheory {
         }
     }
 
+    /// The Eunoia symbol of an Alethe operator, in this encoding.
+    pub fn operator(&self, op: Operator) -> Option<String> {
+        if let Some(symbol) = self.encoding.symbol(op) {
+            return Some(symbol.to_owned());
+        }
+        Some(match op {
+            // Logic
+            Operator::And => self.and.to_owned(),
+            Operator::Or => self.or.to_owned(),
+            Operator::Xor => self.xor.to_owned(),
+            Operator::Not => self.not.to_owned(),
+            Operator::Implies => self.implies.to_owned(),
+            Operator::Ite => self.ite.to_owned(),
+
+            // Order / Comparison.
+            Operator::Equals => self.eq.to_owned(),
+            Operator::GreaterThan => self.gt.to_owned(),
+            Operator::GreaterEq => self.ge.to_owned(),
+            Operator::LessThan => self.lt.to_owned(),
+            Operator::LessEq => self.le.to_owned(),
+
+            // Arithmetic
+            Operator::Add => self.add.to_owned(),
+            Operator::Sub => self.sub.to_owned(),
+            Operator::Mult => self.mult.to_owned(),
+            Operator::IntDiv => self.int_div.to_owned(),
+            Operator::RealDiv => self.real_div.to_owned(),
+            Operator::Mod
+            | Operator::Abs
+            | Operator::ToInt
+            | Operator::ToReal
+            | Operator::IsInt => op.to_string(),
+
+            _ => return None,
+        })
+    }
+
+    /// The Eunoia rule checking a step of the Alethe `rule`, in this encoding:
+    /// the native variant of the rule in the native encoding, when the
+    /// mechanization declares one, and the rule itself otherwise.
+    pub fn rule(&self, rule: &str) -> String {
+        if self.encoding == Encoding::Native && self.has_native_variant(rule) {
+            format!("{rule}_native")
+        } else {
+            rule.to_owned()
+        }
+    }
+
     // Utilities to help in the translation of steps that use specific rules.
 
     /// Helps in extracting the consequent of an implication in the form
@@ -230,8 +294,8 @@ impl AletheTheory {
         }
     }
 
-    /// Whether `rules/native.eo` of the mechanization declares a native variant of `rule`,
-    /// named `<rule>_native`: the same check over Ethos's built-in list operations.
+    /// Whether the mechanization declares a native variant of `rule`, named
+    /// `<rule>_native`: the same check over Ethos's built-in list operations.
     pub fn has_native_variant(&self, rule: &str) -> bool {
         self.native_rules.contains(rule)
     }

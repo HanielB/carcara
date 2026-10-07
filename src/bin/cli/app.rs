@@ -424,11 +424,13 @@ pub struct TranslateCommandOptions {
     #[clap(long)]
     pub eunoia_mech: String,
 
-    /// Emit the mechanization's native variants of the rules that have one
-    /// (`resolution`, `bind_let`: the same checks over Ethos's built-in list
-    /// operations, from `rules/native.eo`) instead of the vanilla rules.
-    #[clap(long)]
-    pub native_rules: bool,
+    /// Emit the native encoding: `eo::List` sequences, `distinct_native`, and
+    /// the `<rule>_native` variants of the rules the mechanization declares one
+    /// of (the same checks over Ethos's built-in list operations). With
+    /// `--native false`, rare-lists and the rules checked by library programs.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set,
+           value_parser = clap::builder::BoolishValueParser::new())]
+    pub native: bool,
 
     #[clap(flatten)]
     pub input: Input,

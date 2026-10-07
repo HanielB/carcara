@@ -382,7 +382,7 @@ fn translate_command(options: TranslateCommandOptions, use_sharing: bool) -> Cli
             &mut alethe_proof,
             &rare_rules,
             Path::new(&options.eunoia_mech),
-            options.native_rules,
+            options.native,
             use_sharing,
         ),
     }
@@ -393,13 +393,15 @@ fn translate_2_eunoia_command(
     proof: &mut Proof,
     rare_rules: &Rules,
     eunoia_mech: &Path,
-    native_rules: bool,
+    native: bool,
     use_sharing: bool,
 ) -> CliResult<()> {
     use translation::eunoia::DisplayEunoiaProof;
 
-    let mut translator =
-        translation::eunoia::alethe_2_eunoia::EunoiaTranslator::new(eunoia_mech, native_rules);
+    let mut translator = translation::eunoia::alethe_2_eunoia::EunoiaTranslator::new(
+        eunoia_mech,
+        translation::eunoia::alethe_signature::encoding::Encoding::new(native),
+    );
     let generated_rules = translator
         .translate_rare_rules(rare_rules, proof)
         .map_err(CliError::RareTranslation)?;
