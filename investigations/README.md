@@ -44,4 +44,3 @@ Most were prompted by the core-elaboration evaluation in `~/benchmarks/alethecor
 `report.md`): three by extreme per-step checking-time outliers in the Fig. 5a box plots, one by
 proofs that failed to elaborate, one by a classification question. The last entries are
 *exploratory*: they look for proof-compression opportunities rather than fixing a defect.
->>>>>>> coreAlethe-upstream
